@@ -1011,7 +1011,9 @@ struct NowPlayingView: View {
     var body: some View {
         ZStack {
             RemoteImage(url: player.current.flatMap { session.client?.posterURL(for: $0, width: 400) }) { Color(white: 0.06) }
-                .blur(radius: 100)
+                // Opaque so the blur doesn't fade the edges to clear and let
+                // the screen under this full-screen cover show through.
+                .blur(radius: 100, opaque: true)
                 .overlay(Color.black.opacity(0.7))
                 .ignoresSafeArea()
 

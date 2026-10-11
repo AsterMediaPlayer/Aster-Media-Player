@@ -248,8 +248,19 @@ struct ThemeInfoCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .background(alignment: .bottomLeading) {
             // A soft shade behind the text so it reads over bright frames.
-            LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .bottomLeading, endPoint: .topTrailing)
-                .frame(width: 1100, height: 500)
+            // Elliptical from the corner so it reaches clear at both the top
+            // and right edges; a diagonal linear gradient left a hard box.
+            EllipticalGradient(
+                stops: [
+                    .init(color: .black.opacity(0.55), location: 0),
+                    .init(color: .black.opacity(0.3), location: 0.55),
+                    .init(color: .clear, location: 1),
+                ],
+                center: .bottomLeading,
+                startRadiusFraction: 0,
+                endRadiusFraction: 1
+            )
+            .frame(width: 1100, height: 500)
         }
     }
 }

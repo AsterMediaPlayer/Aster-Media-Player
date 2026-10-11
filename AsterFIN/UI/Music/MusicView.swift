@@ -35,6 +35,63 @@ enum MusicSort: String, CaseIterable, Identifiable {
     }
 }
 
+/// Music sizes: TV-sized on tvOS, phone-sized elsewhere. Square artwork in
+/// grids and shelves uses `Lockup.squareWidth`.
+enum MusicMetrics {
+    #if os(tvOS)
+    static let artistSize: CGFloat = 220
+    /// How much wider than the photo an artist's name may run.
+    static let artistLabelExtra: CGFloat = 20
+    /// Album and playlist pages.
+    static let pageArtwork: CGFloat = 400
+    static let artistPhoto: CGFloat = 320
+    static let pageTitleSize: CGFloat = 56
+    static let pagePadding: CGFloat = 90
+    static let pageTopPadding: CGFloat = 60
+    static let pageHeaderSpacing: CGFloat = 50
+    static let upNextSize: CGFloat = 180
+    #else
+    static let artistSize: CGFloat = 100
+    static let artistLabelExtra: CGFloat = 10
+    static let pageArtwork: CGFloat = 180
+    static let artistPhoto: CGFloat = 140
+    static let pageTitleSize: CGFloat = 26
+    static let pagePadding: CGFloat = Lockup.screenPadding
+    static let pageTopPadding: CGFloat = 16
+    static let pageHeaderSpacing: CGFloat = 20
+    static let upNextSize: CGFloat = 90
+    #endif
+}
+
+/// An album, playlist or artist page's header: the artwork beside the
+/// details, or above them on a phone held upright.
+struct MusicPageHeader<Artwork: View, Details: View>: View {
+    var alignment: VerticalAlignment = .bottom
+    @ViewBuilder var artwork: Artwork
+    @ViewBuilder var details: Details
+
+    #if !os(tvOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
+
+    private var layout: AnyLayout {
+        #if !os(tvOS)
+        if horizontalSizeClass == .compact && verticalSizeClass == .regular {
+            return AnyLayout(VStackLayout(alignment: .leading, spacing: MusicMetrics.pageHeaderSpacing))
+        }
+        #endif
+        return AnyLayout(HStackLayout(alignment: alignment, spacing: MusicMetrics.pageHeaderSpacing))
+    }
+
+    var body: some View {
+        layout {
+            artwork
+            details
+        }
+    }
+}
+
 // MARK: - Music tab
 
 struct MusicView: View {
@@ -51,21 +108,14 @@ struct MusicView: View {
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(library?.displayTitle ?? "Music")
-                        .font(.largeTitle.weight(.bold))
-                    Spacer()
-                    Picker("Section", selection: $section) {
-                        ForEach(MusicSection.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 980)
-                }
-                .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, 40)
-                .tvFocusSection()
+                header
+                    .padding(.horizontal, Lockup.screenPadding)
+                    #if os(tvOS)
+                    .padding(.top, 40)
+                    #else
+                    .padding(.top, 8)
+                    #endif
+                    .tvFocusSection()
 
                 if session.music.current != nil {
                     NowPlayingBar()
@@ -101,6 +151,31 @@ struct MusicView: View {
         }
         .scrollClipDisabled()
         .task { await loadShelves() }
+    }
+
+    /// The title and the section picker: side by side on a TV, the picker
+    /// across the full width below the title on a phone.
+    private var header: some View {
+        let title = Text(library?.displayTitle ?? "Music")
+            .font(.largeTitle.weight(.bold))
+        let picker = Picker("Section", selection: $section) {
+            ForEach(MusicSection.allCases) { option in
+                Text(option.rawValue).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+        #if os(tvOS)
+        return HStack(alignment: .firstTextBaseline) {
+            title
+            Spacer()
+            picker.frame(width: 980)
+        }
+        #else
+        return VStack(alignment: .leading, spacing: 12) {
+            title
+            picker
+        }
+        #endif
     }
 
     private func loadShelves() async {
@@ -402,7 +477,7 @@ struct SongsList: View {
 /// Navigates to the item unless an action is given, in which case it runs that.
 struct SquareLockup: View {
     let item: BaseItem
-    var size: CGFloat = 240
+    var size: CGFloat = Lockup.squareWidth
     var action: (() -> Void)? = nil
 
     @Environment(AppSession.self) private var session
@@ -451,7 +526,7 @@ struct SquareLockup: View {
 /// Round artwork for an artist.
 struct ArtistLockup: View {
     let artist: BaseItem
-    var size: CGFloat = 220
+    var size: CGFloat = MusicMetrics.artistSize
 
     @Environment(AppSession.self) private var session
 
@@ -469,7 +544,7 @@ struct ArtistLockup: View {
             Text(artist.displayTitle)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
-                .frame(width: size + 20)
+                .frame(width: size + MusicMetrics.artistLabelExtra)
         }
     }
 }
@@ -513,6 +588,20 @@ struct TrackRow: View {
     @Environment(AppSession.self) private var session
     @Environment(\.isFocused) private var isFocused
 
+    #if os(tvOS)
+    private static let spacing: CGFloat = 20
+    private static let artworkSize: CGFloat = 64
+    private static let numberWidth: CGFloat = 48
+    private static let padding = EdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24)
+    private static let cornerRadius: CGFloat = 12
+    #else
+    private static let spacing: CGFloat = 12
+    private static let artworkSize: CGFloat = 44
+    private static let numberWidth: CGFloat = 28
+    private static let padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+    private static let cornerRadius: CGFloat = 10
+    #endif
+
     var body: some View {
         if contextActions.isEmpty {
             button
@@ -527,10 +616,10 @@ struct TrackRow: View {
 
     private var button: some View {
         Button(action: action) {
-            HStack(spacing: 20) {
+            HStack(spacing: Self.spacing) {
                 if showArtwork {
                     RemoteImage(url: session.client?.posterURL(for: track, width: 200), systemImage: "music.note")
-                        .frame(width: 64, height: 64)
+                        .frame(width: Self.artworkSize, height: Self.artworkSize)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     Group {
@@ -542,7 +631,7 @@ struct TrackRow: View {
                     }
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .trailing)
+                    .frame(width: Self.numberWidth, alignment: .trailing)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.displayTitle)
@@ -568,10 +657,9 @@ struct TrackRow: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 14)
+            .padding(Self.padding)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(isCurrent ? 0.12 : 0.06)))
+            .background(RoundedRectangle(cornerRadius: Self.cornerRadius).fill(Color.white.opacity(isCurrent ? 0.12 : 0.06)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel([number.map { "Track \($0)" }, track.displayTitle, track.artistText, track.trackDurationText].compactMap { $0 }.joined(separator: ", "))
@@ -623,8 +711,8 @@ struct AlbumView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 30) {
                     header
-                        .padding(.horizontal, 90)
-                        .padding(.top, 60)
+                        .padding(.horizontal, MusicMetrics.pagePadding)
+                        .padding(.top, MusicMetrics.pageTopPadding)
                         .tvFocusSection()
 
                     if let errorMessage {
@@ -659,15 +747,15 @@ struct AlbumView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 50) {
+        MusicPageHeader {
             RemoteImage(url: session.client?.posterURL(for: current, width: 800), systemImage: isPlaylist ? "music.note.list" : "music.note")
-                .frame(width: 400, height: 400)
+                .frame(width: MusicMetrics.pageArtwork, height: MusicMetrics.pageArtwork)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
-
+        } details: {
             VStack(alignment: .leading, spacing: 16) {
                 Text(current.displayTitle)
-                    .font(.system(size: 56, weight: .bold))
+                    .font(.system(size: MusicMetrics.pageTitleSize, weight: .bold))
                     .lineLimit(2)
 
                 if !isPlaylist, let artist = current.primaryArtist, let artistId = artist.id, let name = artist.name {
@@ -694,13 +782,15 @@ struct AlbumView: View {
                         .frame(maxWidth: 1000, alignment: .leading)
                 }
 
-                HStack(spacing: 20) {
+                // On a phone held upright: Play and Shuffle, then the rest.
+                ActionRows {
                     ActionButton(title: "Play", systemImage: "play.fill", prominent: true) {
                         play(from: 0, shuffled: false)
                     }
                     ActionButton(title: "Shuffle", systemImage: "shuffle") {
                         play(from: Int.random(in: 0..<max(tracks.count, 1)), shuffled: true)
                     }
+                } second: {
                     ActionButton(title: "Instant Mix", systemImage: "wand.and.stars") {
                         instantMix()
                     }
@@ -716,8 +806,8 @@ struct AlbumView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
+                            .font(Lockup.iconButtonFont)
+                            .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color(white: 0.3))
@@ -750,7 +840,7 @@ struct AlbumView: View {
                 }
             }
         }
-        .padding(.horizontal, 90)
+        .padding(.horizontal, MusicMetrics.pagePadding)
         .tvFocusSection()
     }
 
@@ -862,15 +952,15 @@ struct ArtistView: View {
 
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 30) {
-                    HStack(alignment: .center, spacing: 50) {
+                    MusicPageHeader(alignment: .center) {
                         RemoteImage(url: session.client?.posterURL(for: current, width: 600), systemImage: "music.mic")
-                            .frame(width: 320, height: 320)
+                            .frame(width: MusicMetrics.artistPhoto, height: MusicMetrics.artistPhoto)
                             .clipShape(Circle())
                             .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
-
+                    } details: {
                         VStack(alignment: .leading, spacing: 16) {
                             Text(current.displayTitle)
-                                .font(.system(size: 56, weight: .bold))
+                                .font(.system(size: MusicMetrics.pageTitleSize, weight: .bold))
                                 .lineLimit(2)
                             if let genres = current.genres, !genres.isEmpty {
                                 Text(genres.prefix(3).joined(separator: " · "))
@@ -884,13 +974,14 @@ struct ArtistView: View {
                                     .lineLimit(4)
                                     .frame(maxWidth: 1000, alignment: .leading)
                             }
-                            HStack(spacing: 20) {
+                            ActionRows {
                                 ActionButton(title: "Play", systemImage: "play.fill", prominent: true) {
                                     playAll(shuffled: false)
                                 }
                                 ActionButton(title: "Shuffle", systemImage: "shuffle") {
                                     playAll(shuffled: true)
                                 }
+                            } second: {
                                 ActionButton(title: "Instant Mix", systemImage: "wand.and.stars") {
                                     instantMix()
                                 }
@@ -901,8 +992,8 @@ struct ArtistView: View {
                             .padding(.top, 8)
                         }
                     }
-                    .padding(.horizontal, 90)
-                    .padding(.top, 60)
+                    .padding(.horizontal, MusicMetrics.pagePadding)
+                    .padding(.top, MusicMetrics.pageTopPadding)
                     .tvFocusSection()
 
                     if albums.isEmpty, !isLoading {
@@ -962,14 +1053,24 @@ struct ArtistView: View {
 struct NowPlayingBar: View {
     @Environment(AppSession.self) private var session
 
+    #if os(tvOS)
+    private static let spacing: CGFloat = 20
+    private static let artworkSize: CGFloat = 80
+    private static let padding = EdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24)
+    #else
+    private static let spacing: CGFloat = 12
+    private static let artworkSize: CGFloat = 48
+    private static let padding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 16)
+    #endif
+
     var body: some View {
         if let track = session.music.current {
             Button {
                 session.music.isNowPlayingPresented = true
             } label: {
-                HStack(spacing: 20) {
+                HStack(spacing: Self.spacing) {
                     RemoteImage(url: session.client?.posterURL(for: track, width: 200), systemImage: "music.note")
-                        .frame(width: 80, height: 80)
+                        .frame(width: Self.artworkSize, height: Self.artworkSize)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.displayTitle)
@@ -987,8 +1088,7 @@ struct NowPlayingBar: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .padding(Self.padding)
                 .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.08)))
             }
@@ -1018,69 +1118,49 @@ struct NowPlayingView: View {
                 .ignoresSafeArea()
 
             if let track = player.current {
+                #if os(tvOS)
                 VStack(spacing: 36) {
                     HStack(alignment: .center, spacing: 70) {
-                        RemoteImage(url: session.client?.posterURL(for: track, width: 800), systemImage: "music.note")
-                            .frame(width: 560, height: 560)
-                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                            .shadow(color: .black.opacity(0.6), radius: 40, y: 16)
+                        artwork(track, size: 560)
 
                         VStack(alignment: .leading, spacing: 24) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(track.displayTitle)
-                                    .font(.system(size: 48, weight: .bold))
-                                    .lineLimit(2)
-                                if let artist = track.artistText {
-                                    Text(artist)
-                                        .font(.title3.weight(.semibold))
-                                }
-                                if let album = track.album {
-                                    Text(album)
-                                        .font(.callout)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            VStack(spacing: 8) {
-                                ProgressBar(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
-                                HStack {
-                                    Text(MusicFormat.clock(player.currentTime))
-                                    Spacer()
-                                    Text("-" + MusicFormat.clock(max(player.duration - player.currentTime, 0)))
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                            }
-
+                            trackInfo(track, titleSize: 48)
+                            progress
                             controls
-
-                            if let error = player.errorMessage {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
+                            errorText
                         }
                         .frame(width: 900, alignment: .leading)
                     }
                     .padding(.horizontal, 120)
                     .tvFocusSection()
 
-                    if showLyrics, let lyrics = player.lyrics {
-                        LyricsPanel(lyrics: lyrics, currentIndex: player.currentLyricIndex)
-                    } else {
-                        Shelf(title: "Up Next", items: player.upNext) { song in
-                            SquareLockup(item: song, size: 180) {
-                                player.skip(to: song)
-                            }
-                        }
-                    }
+                    lowerPanel()
                 }
                 .padding(.top, 60)
+                #else
+                phoneLayout(track)
+                #endif
             } else {
                 MessageView(systemImage: "music.note", title: "Nothing playing")
             }
         }
+        #if !os(tvOS)
+        // No remote Back button on iOS: a way to put the player away.
+        .overlay(alignment: .topLeading) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.headline)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .tint(.white)
+            .accessibilityLabel("Close")
+            .padding(Lockup.screenPadding)
+        }
+        #endif
         .tvPlayPauseCommand { player.togglePlayPause() }
         .onChange(of: player.current == nil) { _, empty in
             if empty { dismiss() }
@@ -1088,8 +1168,132 @@ struct NowPlayingView: View {
         .onAppear { focusedControl = "play" }
     }
 
+    // MARK: Pieces shared by the TV and phone layouts
+
+    private func artwork(_ track: BaseItem, size: CGFloat) -> some View {
+        RemoteImage(url: session.client?.posterURL(for: track, width: 800), systemImage: "music.note")
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size > 300 ? 20 : 14))
+            .shadow(color: .black.opacity(0.6), radius: size > 300 ? 40 : 20, y: size > 300 ? 16 : 8)
+    }
+
+    private func trackInfo(_ track: BaseItem, titleSize: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(track.displayTitle)
+                .font(.system(size: titleSize, weight: .bold))
+                .lineLimit(2)
+            if let artist = track.artistText {
+                Text(artist)
+                    .font(.title3.weight(.semibold))
+            }
+            if let album = track.album {
+                Text(album)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var progress: some View {
+        VStack(spacing: 8) {
+            ProgressBar(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
+            HStack {
+                Text(MusicFormat.clock(player.currentTime))
+                Spacer()
+                Text("-" + MusicFormat.clock(max(player.duration - player.currentTime, 0)))
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private var errorText: some View {
+        if let error = player.errorMessage {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
+    }
+
+    /// Whether the lyrics are on screen (turned on, and the song has some).
+    private var lyricsShowing: Bool { showLyrics && player.lyrics != nil }
+
+    /// Lyrics when they're turned on, else what's coming up. `lyricsHeight`
+    /// overrides the panel's usual height.
+    @ViewBuilder
+    private func lowerPanel(lyricsHeight: CGFloat? = nil) -> some View {
+        if showLyrics, let lyrics = player.lyrics {
+            LyricsPanel(lyrics: lyrics, currentIndex: player.currentLyricIndex, height: lyricsHeight)
+        } else {
+            Shelf(title: "Up Next", items: player.upNext) { song in
+                SquareLockup(item: song, size: MusicMetrics.upNextSize) {
+                    player.skip(to: song)
+                }
+            }
+        }
+    }
+
+    #if !os(tvOS)
+    /// A phone: the artwork on top with everything under it when upright,
+    /// the artwork beside the controls on its side. With the lyrics on, the
+    /// artwork shrinks to give them the room. Scrolls if the lyrics or Up
+    /// Next don't fit.
+    private func phoneLayout(_ track: BaseItem) -> some View {
+        GeometryReader { proxy in
+            let upright = proxy.size.height > proxy.size.width
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 20) {
+                    if upright {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if lyricsShowing {
+                                // A compact header: small cover beside the song.
+                                HStack(spacing: 16) {
+                                    artwork(track, size: 96)
+                                    trackInfo(track, titleSize: 20)
+                                }
+                            } else {
+                                artwork(track, size: min(proxy.size.width - 48, 340))
+                                    .frame(maxWidth: .infinity)
+                                trackInfo(track, titleSize: 24)
+                            }
+                            progress
+                            controls
+                                .frame(maxWidth: .infinity)
+                            errorText
+                        }
+                        .padding(.horizontal, 24)
+                    } else {
+                        HStack(alignment: .center, spacing: 28) {
+                            artwork(track, size: min(proxy.size.height - 60, lyricsShowing ? 140 : 260))
+                            VStack(alignment: .leading, spacing: 14) {
+                                trackInfo(track, titleSize: 22)
+                                progress
+                                controls
+                                errorText
+                            }
+                        }
+                        .padding(.horizontal, 32)
+                    }
+                    // Upright with the compact header, the lyrics take the
+                    // rest of the screen: everything above them is about 300 pt.
+                    lowerPanel(lyricsHeight: upright && lyricsShowing ? max(260, proxy.size.height - 300) : nil)
+                }
+                // Clear of the close button.
+                .padding(.top, upright ? 68 : 20)
+                .padding(.bottom, 24)
+                // Never wider than the screen, whatever a row wants.
+                .frame(width: proxy.size.width)
+            }
+            .scrollIndicators(.hidden)
+            .animation(.easeInOut(duration: 0.3), value: lyricsShowing)
+        }
+    }
+    #endif
+
     private var controls: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: PlayerControl.spacing) {
             PlayerControl(systemImage: "shuffle", label: "Shuffle", active: player.isShuffled) {
                 player.toggleShuffle()
             }
@@ -1126,6 +1330,18 @@ struct NowPlayingView: View {
 struct LyricsPanel: View {
     let lyrics: Lyrics
     let currentIndex: Int?
+    /// Overrides the usual height, e.g. to fill a phone held upright.
+    var height: CGFloat? = nil
+
+    #if os(tvOS)
+    private static let horizontalPadding: CGFloat = 120
+    private static let verticalPadding: CGFloat = 60
+    private static let height: CGFloat = 320
+    #else
+    private static let horizontalPadding: CGFloat = 24
+    private static let verticalPadding: CGFloat = 24
+    private static let height: CGFloat = 260
+    #endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1138,8 +1354,8 @@ struct LyricsPanel: View {
                             .id(index)
                     }
                 }
-                .padding(.horizontal, 120)
-                .padding(.vertical, 60)
+                .padding(.horizontal, Self.horizontalPadding)
+                .padding(.vertical, Self.verticalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: currentIndex) { _, index in
@@ -1149,7 +1365,7 @@ struct LyricsPanel: View {
                 }
             }
         }
-        .frame(height: 320)
+        .frame(height: height ?? Self.height)
         .mask(LinearGradient(colors: [.clear, .black, .black, .black, .clear], startPoint: .top, endPoint: .bottom))
     }
 }
@@ -1162,16 +1378,45 @@ struct PlayerControl: View {
     var active = false
     var action: () -> Void
 
+    #if os(tvOS)
+    static let spacing: CGFloat = 28
+    private static let size: (prominent: CGFloat, regular: CGFloat) = (96, 76)
+    private static let iconSize: (prominent: CGFloat, regular: CGFloat) = (34, 26)
+    #else
+    // Six across fit a phone held upright.
+    static let spacing: CGFloat = 10
+    private static let size: (prominent: CGFloat, regular: CGFloat) = (64, 46)
+    private static let iconSize: (prominent: CGFloat, regular: CGFloat) = (24, 18)
+    #endif
+
+    private var fill: Color {
+        prominent ? .white : (active ? Color.accentColor : Color(white: 0.3))
+    }
+
     var body: some View {
+        let diameter = prominent ? Self.size.prominent : Self.size.regular
+        let icon = Image(systemName: systemImage)
+            .font(.system(size: prominent ? Self.iconSize.prominent : Self.iconSize.regular, weight: .semibold))
+            .frame(width: diameter, height: diameter)
+        #if os(tvOS)
+        Button(action: action) { icon }
+            .buttonStyle(.borderedProminent)
+            .tint(fill)
+            .foregroundStyle(prominent ? .black : .white)
+            .clipShape(Circle())
+            .accessibilityLabel(label)
+        #else
+        // The system's filled style pads the button out past its circle,
+        // which on a phone made six controls wider than the screen. Drawn
+        // here, each is exactly its diameter.
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: prominent ? 34 : 26, weight: .semibold))
-                .frame(width: prominent ? 96 : 76, height: prominent ? 96 : 76)
+            icon
+                .foregroundStyle(prominent ? .black : .white)
+                .background(Circle().fill(fill))
+                .contentShape(Circle())
         }
-        .buttonStyle(.borderedProminent)
-        .tint(prominent ? .white : (active ? Color.accentColor : Color(white: 0.3)))
-        .foregroundStyle(prominent ? .black : .white)
-        .clipShape(Circle())
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
+        #endif
     }
 }

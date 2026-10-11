@@ -39,9 +39,10 @@ struct PlaylistPickerView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 20) {
+                HStack(spacing: Self.spacing) {
                     TextField("New playlist name", text: $newName)
-                        .frame(width: 760)
+                        .onboardingField()
+                        .frame(maxWidth: 760)
                     ActionButton(title: "Create", systemImage: "plus", prominent: true) {
                         create()
                     }
@@ -83,17 +84,52 @@ struct PlaylistPickerView: View {
                         .foregroundStyle(.red)
                 }
             }
-            .padding(.horizontal, 120)
-            .padding(.vertical, 80)
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.top, Self.topPadding)
+            .padding(.bottom, Self.bottomPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        #if !os(tvOS)
+        // No remote Back button on iOS: give the picker a way to close.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .tint(.white)
+            .accessibilityLabel("Close")
+            .padding(Lockup.screenPadding)
+        }
+        #endif
         .task { await load() }
     }
 
+    #if os(tvOS)
+    private static let spacing: CGFloat = 20
+    private static let horizontalPadding: CGFloat = 120
+    private static let topPadding: CGFloat = 80
+    private static let bottomPadding: CGFloat = 80
+    private static let artworkSize: CGFloat = 72
+    private static let rowPadding = EdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24)
+    #else
+    private static let spacing: CGFloat = 12
+    private static let horizontalPadding: CGFloat = Lockup.screenPadding
+    /// Clear of the close button.
+    private static let topPadding: CGFloat = 64
+    private static let bottomPadding: CGFloat = 16
+    private static let artworkSize: CGFloat = 48
+    private static let rowPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 16)
+    #endif
+
     private func row(_ playlist: BaseItem) -> some View {
-        HStack(spacing: 20) {
+        HStack(spacing: Self.spacing) {
             RemoteImage(url: session.client?.posterURL(for: playlist, width: 200), systemImage: "music.note.list")
-                .frame(width: 72, height: 72)
+                .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.displayTitle)
@@ -110,8 +146,7 @@ struct PlaylistPickerView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
+        .padding(Self.rowPadding)
         .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
     }

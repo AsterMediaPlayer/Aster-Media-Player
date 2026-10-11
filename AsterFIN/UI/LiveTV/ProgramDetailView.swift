@@ -22,10 +22,6 @@ struct ProgramDetailView: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
-    #if !os(tvOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    #endif
     @State private var detail: BaseItem?
     @State private var playback: PlaybackRequest?
     @State private var isWorking = false
@@ -89,32 +85,15 @@ struct ProgramDetailView: View {
                         .frame(maxWidth: 600)
                 }
 
-                #if os(tvOS)
-                HStack(spacing: 20) {
+                // On a phone held upright: what to do with this showing, then
+                // the series and the channel.
+                ActionRows {
                     programActions
+                } second: {
                     seriesAndChannelActions
                 }
                 .disabled(isWorking)
                 .padding(.top, 8)
-                #else
-                Group {
-                    if isPortraitPhone {
-                        // Upright, one row is too narrow: what to do with this
-                        // showing, then the series and the channel.
-                        VStack(alignment: .leading, spacing: 10) {
-                            actionRow { programActions }
-                            actionRow { seriesAndChannelActions }
-                        }
-                    } else {
-                        actionRow {
-                            programActions
-                            seriesAndChannelActions
-                        }
-                    }
-                }
-                .disabled(isWorking)
-                .padding(.top, 8)
-                #endif
             }
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.bottom, Self.bottomPadding)
@@ -198,23 +177,6 @@ struct ProgramDetailView: View {
             playback = PlaybackRequest(itemId: channelId)
         }
     }
-
-    #if !os(tvOS)
-    /// A phone held upright: compact width, regular height. An iPad, or a
-    /// phone on its side, keeps everything on one row.
-    private var isPortraitPhone: Bool {
-        horizontalSizeClass == .compact && verticalSizeClass == .regular
-    }
-
-    /// One row of actions, scrolling sideways if it ever runs out of room.
-    private func actionRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 12) { content() }
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-    }
-    #endif
 
     /// Watching and recording this showing. Watch (on now) and Watch Channel
     /// (later) are never both shown.

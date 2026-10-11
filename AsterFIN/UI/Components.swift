@@ -599,6 +599,56 @@ struct IconButton: View {
     }
 }
 
+/// A page's action buttons: on one row, except on a phone held upright, where
+/// one row is too narrow and they split across two. Each row scrolls sideways
+/// if it still runs out of room.
+struct ActionRows<First: View, Second: View>: View {
+    @ViewBuilder var first: First
+    @ViewBuilder var second: Second
+
+    #if !os(tvOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// Compact width with regular height: a phone upright. An iPad, or a
+    /// phone on its side, keeps everything on one row.
+    private var isPortraitPhone: Bool {
+        horizontalSizeClass == .compact && verticalSizeClass == .regular
+    }
+    #endif
+
+    var body: some View {
+        #if os(tvOS)
+        HStack(spacing: 20) {
+            first
+            second
+        }
+        #else
+        if isPortraitPhone {
+            VStack(alignment: .leading, spacing: 10) {
+                row { first }
+                row { second }
+            }
+        } else {
+            row {
+                first
+                second
+            }
+        }
+        #endif
+    }
+
+    #if !os(tvOS)
+    private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) { content() }
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+    }
+    #endif
+}
+
 extension View {
     /// Applies `focused(_:equals:)` only when a binding was supplied.
     @ViewBuilder

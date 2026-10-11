@@ -39,7 +39,7 @@ struct SearchView: View {
                     Shelf(title: "Albums & Playlists", items: albums) { item in
                         SquareLockup(item: item)
                     }
-                    Shelf(title: "Artists", items: artists, spacing: 28) { item in
+                    Shelf(title: "Artists", items: artists, spacing: Lockup.personSpacing) { item in
                         ArtistLockup(artist: item)
                     }
                     Shelf(title: "Songs", items: songs) { song in

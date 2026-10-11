@@ -29,6 +29,17 @@ enum Lockup {
     static let shelfSpacing: CGFloat = 36
     /// Room above and below a shelf's cards for the focused card to grow into.
     static let shelfVerticalPadding: CGFloat = 30
+    /// Cast and crew: the round photo, the column under it, and the gap.
+    static let personPhotoSize: CGFloat = 200
+    static let personWidth: CGFloat = 220
+    static let personSpacing: CGFloat = 28
+    /// Between the photo and the name.
+    static let personLabelSpacing: CGFloat = 10
+    /// Icon-only buttons beside the text buttons on a detail page (heart,
+    /// watched, more): the icon's box and font, chosen so the buttons come
+    /// out as tall as the text ones.
+    static let iconButtonSize: CGFloat = 44
+    static let iconButtonFont: Font = .title3
     #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
@@ -42,6 +53,13 @@ enum Lockup {
     static let screenPadding: CGFloat = 16
     static let shelfSpacing: CGFloat = 12
     static let shelfVerticalPadding: CGFloat = 8
+    static let personPhotoSize: CGFloat = 80
+    static let personWidth: CGFloat = 96
+    static let personSpacing: CGFloat = 12
+    static let personLabelSpacing: CGFloat = 6
+    /// The height of a headline label, so icon and text buttons match.
+    static let iconButtonSize: CGFloat = 22
+    static let iconButtonFont: Font = .headline
     #endif
 }
 
@@ -347,10 +365,10 @@ struct PersonLockup: View {
     @Environment(AppSession.self) private var session
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Lockup.personLabelSpacing) {
             NavigationLink(value: person) {
                 RemoteImage(url: session.client?.personImageURL(person), systemImage: "person.fill")
-                    .frame(width: 200, height: 200)
+                    .frame(width: Lockup.personPhotoSize, height: Lockup.personPhotoSize)
                     .clipShape(Circle())
             }
             .cardButtonStyle()
@@ -367,7 +385,7 @@ struct PersonLockup: View {
                     .lineLimit(1)
             }
         }
-        .frame(width: 220)
+        .frame(width: Lockup.personWidth)
     }
 }
 
@@ -570,8 +588,8 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title3)
-                .frame(width: 44, height: 44)
+                .font(Lockup.iconButtonFont)
+                .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
         }
         .buttonStyle(.borderedProminent)
         .tint(Color(white: 0.3))

@@ -295,7 +295,7 @@ struct ItemDetailView: View {
                         }
                     }
 
-                    Shelf(title: "Cast & Crew", items: model.cast, spacing: 28) { person in
+                    Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
                         PersonLockup(person: person)
                     }
 
@@ -419,27 +419,44 @@ struct ItemDetailView: View {
 
     // MARK: Header
 
+    /// Header sizes: TV-sized on tvOS, phone-sized elsewhere.
+    private enum HeaderMetrics {
+        #if os(tvOS)
+        static let titleSize: CGFloat = 64
+        static let logoSize = CGSize(width: 600, height: 200)
+        static let seriesLogoSize = CGSize(width: 420, height: 130)
+        #else
+        static let titleSize: CGFloat = 30
+        static let logoSize = CGSize(width: 280, height: 100)
+        static let seriesLogoSize = CGSize(width: 220, height: 70)
+        #endif
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if detail.kind == .episode, let series = detail.seriesName {
-                Text(series)
+            // An episode or season page names its show above its own title:
+            // the show's logo when it has one, else its name.
+            if detail.kind == .episode || detail.kind == .season, let series = detail.seriesName {
+                let seriesName = Text(series)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.secondary)
-            }
-            if detail.kind == .season, let series = detail.seriesName {
-                Text(series)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                if let logo = session.client?.logoURL(for: detail) {
+                    RemoteImage(url: logo, contentMode: .fit) { seriesName }
+                        .frame(maxWidth: HeaderMetrics.seriesLogoSize.width, maxHeight: HeaderMetrics.seriesLogoSize.height, alignment: .leading)
+                        .accessibilityLabel(series)
+                } else {
+                    seriesName
+                }
             }
 
             if let logo = session.client?.logoURL(for: detail), detail.kind != .episode, detail.kind != .season {
                 RemoteImage(url: logo, contentMode: .fit) {
-                    Text(detail.displayTitle).font(.system(size: 72, weight: .bold))
+                    Text(detail.displayTitle).font(.system(size: HeaderMetrics.titleSize * 1.125, weight: .bold))
                 }
-                .frame(maxWidth: 600, maxHeight: 200, alignment: .leading)
+                .frame(maxWidth: HeaderMetrics.logoSize.width, maxHeight: HeaderMetrics.logoSize.height, alignment: .leading)
             } else {
                 Text(detail.displayTitle)
-                    .font(.system(size: 64, weight: .bold))
+                    .font(.system(size: HeaderMetrics.titleSize, weight: .bold))
                     .lineLimit(2)
             }
 
@@ -473,11 +490,19 @@ struct ItemDetailView: View {
                 .padding(.top, 8)
             #else
             // A phone can't fit every action across; let the row scroll sideways.
-            ScrollView(.horizontal) {
-                actionRow
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal) {
+                    actionRow
+                }
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+
+                if model.watchOpening != nil || model.watchEnding != nil {
+                    HStack(spacing: 12) {
+                        themeButtons
+                    }
+                }
             }
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
             .padding(.top, 8)
             #endif
         }
@@ -535,17 +560,10 @@ struct ItemDetailView: View {
             if showsMoreMenu {
                 moreMenu
             }
+            #if os(tvOS)
             // Last in the row, so a press to the right ends here.
-            if let opening = model.watchOpening {
-                ActionButton(title: "Watch OP", systemImage: "music.note.tv", focus: $focusedAction, focusID: "watchOP") {
-                    watch(opening)
-                }
-            }
-            if let ending = model.watchEnding {
-                ActionButton(title: "Watch ED", systemImage: "music.note.list", focus: $focusedAction, focusID: "watchED") {
-                    watch(ending)
-                }
-            }
+            themeButtons
+            #endif
             if let remaining = detail.remainingText, detail.kind != .series {
                 Text(remaining)
                     .font(.callout)
@@ -574,6 +592,22 @@ struct ItemDetailView: View {
         #endif
     }
 
+    /// Watch OP and Watch ED: at the end of the action row on tvOS, and in a
+    /// row of their own under it on iOS.
+    @ViewBuilder
+    private var themeButtons: some View {
+        if let opening = model.watchOpening {
+            ActionButton(title: "Watch OP", systemImage: "music.note.tv", focus: $focusedAction, focusID: "watchOP") {
+                watch(opening)
+            }
+        }
+        if let ending = model.watchEnding {
+            ActionButton(title: "Watch ED", systemImage: "music.note.list", focus: $focusedAction, focusID: "watchED") {
+                watch(ending)
+            }
+        }
+    }
+
     /// The "…" menu: Go to Series on episodes (a stub item is enough, the page
     /// reloads it), Add to Playlist, and Delete Recording for recordings.
     private var moreMenu: some View {
@@ -597,8 +631,8 @@ struct ItemDetailView: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.title3)
-                .frame(width: 44, height: 44)
+                .font(Lockup.iconButtonFont)
+                .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
         }
         .buttonStyle(.borderedProminent)
         .tint(Color(white: 0.3))

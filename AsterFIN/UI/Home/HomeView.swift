@@ -227,6 +227,7 @@ struct HeroCarousel: View {
     var focusChanged: (Bool) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
+    @Environment(\.displayScale) private var displayScale
     @State private var index = 0
     @State private var scrollID: String?
     @FocusState private var isFocused: Bool
@@ -278,6 +279,17 @@ struct HeroCarousel: View {
     }
 
     #if !os(tvOS)
+    /// What the hero prefetches for: the featured titles at a banner size.
+    private struct PrefetchKey: Equatable {
+        var ids: [String]
+        var pixels: CGSize
+    }
+
+    /// A size in points as pixels on this screen.
+    private func pixels(_ size: CGSize) -> CGSize {
+        CGSize(width: size.width * displayScale, height: size.height * displayScale)
+    }
+
     /// On touch screens the banner is swiped: each page is its own link, the
     /// scroll view pages between them, and the dots follow the page shown.
     private var touchBanner: some View {
@@ -285,22 +297,60 @@ struct HeroCarousel: View {
         // the phone is: the poster upright, the backdrop on its side. Both
         // are prefetched below, so rotating swaps from the cache.
         GeometryReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    ForEach(items) { item in
-                        NavigationLink(value: item) {
-                            HeroCard(item: item, isFocused: false, isPortrait: proxy.size.height > proxy.size.width)
+            ScrollViewReader { reader in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(items) { item in
+                            NavigationLink(value: item) {
+                                HeroCard(
+                                    item: item,
+                                    isFocused: false,
+                                    isPortrait: proxy.size.height > proxy.size.width,
+                                    screenPixels: pixels(proxy.size)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .id(item.id)
                         }
-                        .buttonStyle(.plain)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .id(item.id)
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $scrollID)
+                .scrollIndicators(.hidden)
+                // The page changes only when a swipe comes to rest. A rotation
+                // keeps the old offset in points, which lands between pages
+                // at the new width, so it must not count as a page change.
+                .onScrollPhaseChange { _, phase in
+                    guard phase == .idle, let id = scrollID,
+                          let page = items.firstIndex(where: { $0.id == id }) else { return }
+                    index = page
+                }
+                // After a rotation, snap straight back to the page that was showing.
+                .onChange(of: proxy.size) { _, _ in
+                    guard items.indices.contains(index) else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        reader.scrollTo(items[index].id, anchor: .leading)
                     }
                 }
-                .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $scrollID)
-            .scrollIndicators(.hidden)
+            .task(id: PrefetchKey(ids: items.map(\.id), pixels: pixels(proxy.size))) {
+                // Every page's picture for this way up and for the phone turned
+                // 90 degrees, at the sizes the cards will ask for, so rotating
+                // swaps from the cache.
+                let client = session.client
+                let upright = pixels(proxy.size)
+                let turned = CGSize(width: upright.height, height: upright.width)
+                let urls = items.flatMap { item in
+                    [upright, turned].compactMap { size in
+                        HeroCard.imageURL(for: item, portrait: size.height > size.width, screenPixels: size, client: client)
+                    }
+                }
+                ImageStore.shared.prefetch(urls, client: client)
+            }
         }
         .containerRelativeFrame(.vertical)
         .overlay(alignment: .bottomTrailing) {
@@ -309,18 +359,6 @@ struct HeroCarousel: View {
                     .padding(.trailing, Lockup.screenPadding)
                     .padding(.bottom, HeroCard.bottomPadding - 40)
             }
-        }
-        .onChange(of: scrollID) { _, id in
-            if let id, let page = items.firstIndex(where: { $0.id == id }) { index = page }
-        }
-        .task(id: items.map(\.id)) {
-            // Both the poster and the backdrop for every page, so turning the
-            // phone swaps pictures without a wait.
-            let client = session.client
-            let urls = items.flatMap { item in
-                [true, false].compactMap { HeroCard.imageURL(for: item, portrait: $0, client: client) }
-            }
-            ImageStore.shared.prefetch(urls, client: client)
         }
         .onAppear { scrollID = items.first?.id }
         .onChange(of: items) { oldItems, newItems in
@@ -434,6 +472,8 @@ struct HeroCard: View {
     let isFocused: Bool
     /// Whether the banner is taller than it is wide (a phone held upright).
     var isPortrait = false
+    /// The banner's size in pixels, which sets the size of picture to fetch.
+    var screenPixels: CGSize = .zero
 
     @Environment(AppSession.self) private var session
 
@@ -441,21 +481,53 @@ struct HeroCard: View {
     /// upright the poster, which fills a tall screen instead of a thin slice
     /// of the backdrop. Shared with the carousel's prefetch so both cache
     /// the same URLs.
-    static func imageURL(for item: BaseItem, portrait: Bool, client: JellyfinClient?) -> URL? {
-        #if !os(tvOS)
-        if portrait, let client {
+    ///
+    /// `screenPixels` is the banner's size in pixels; on touch screens the
+    /// picture is asked for at just the size that fills it without being
+    /// enlarged. tvOS keeps its fixed 1920-wide backdrop.
+    static func imageURL(for item: BaseItem, portrait: Bool, screenPixels: CGSize = .zero, client: JellyfinClient?) -> URL? {
+        #if os(tvOS)
+        return client?.backdropURL(for: item, width: 1920)
+        #else
+        guard let client else { return nil }
+        if portrait {
+            // A 2:3 poster filling the screen is as tall as the screen, or
+            // taller when the screen is wide enough to need the extra width.
+            let height = bucketed(max(screenPixels.height, screenPixels.width * 1.5), fallback: 2800)
             // An episode's own picture is a wide still; use its series' poster.
             if item.kind == .episode {
                 if let series = item.seriesId, let tag = item.seriesPrimaryImageTag {
-                    return client.imageURL(itemId: series, kind: .primary, tag: tag, maxWidth: 1200)
+                    return client.imageURL(itemId: series, kind: .primary, tag: tag, maxHeight: height)
                 }
-            } else if let poster = client.posterURL(for: item, width: 1200) {
+            } else if let poster = posterURL(for: item, maxHeight: height, client: client) {
                 return poster
             }
         }
+        // A 16:9 backdrop filling the screen: as wide as the screen, or wider.
+        let width = bucketed(max(screenPixels.width, screenPixels.height * 16 / 9), fallback: 2800)
+        return client.backdropURL(for: item, width: width)
         #endif
-        return client?.backdropURL(for: item, width: 1920)
     }
+
+    #if !os(tvOS)
+    /// Rounds a pixel length up to the next 100, so small layout changes keep
+    /// the same URL and the cache still hits.
+    private static func bucketed(_ pixels: CGFloat, fallback: Int) -> Int {
+        guard pixels > 0 else { return fallback }
+        return Int((pixels / 100).rounded(.up)) * 100
+    }
+
+    /// `JellyfinClient.posterURL` limits by width; the hero needs a height.
+    private static func posterURL(for item: BaseItem, maxHeight: Int, client: JellyfinClient) -> URL? {
+        if let tag = item.imageTags?["Primary"] {
+            return client.imageURL(itemId: item.id, kind: .primary, tag: tag, maxHeight: maxHeight)
+        }
+        if let series = item.seriesId, let tag = item.seriesPrimaryImageTag {
+            return client.imageURL(itemId: series, kind: .primary, tag: tag, maxHeight: maxHeight)
+        }
+        return nil
+    }
+    #endif
 
     #if os(tvOS)
     private static let titleSize: CGFloat = 64
@@ -472,7 +544,7 @@ struct HeroCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, client: session.client), systemImage: "film")
+            RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, screenPixels: screenPixels, client: session.client), systemImage: "film")
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.45), endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: .center)
 

@@ -117,6 +117,36 @@ struct MainTabView: View {
     }
 }
 
+#if !os(tvOS)
+/// On iPhone, tabs past the fifth sit under iOS's More tab, whose own
+/// navigation bar stacks above the tab's. Once the tab has pushed a page,
+/// this hides More's bar so there's one back button, the tab's, which steps
+/// back a page. At the tab's top level More's "back to the list" shows again.
+/// SwiftUI's toolbar visibility doesn't reach More's bar, so this goes
+/// through UIKit; tabs that aren't under More are left alone.
+private struct MoreBarHider: UIViewControllerRepresentable {
+    var hidden: Bool
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()
+    }
+
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        let hidden = hidden
+        // The controller joins the hierarchy after this first runs.
+        DispatchQueue.main.async { [weak controller] in
+            guard let controller, let more = controller.tabBarController?.moreNavigationController else { return }
+            var ancestor = controller.parent
+            while let current = ancestor, current !== more {
+                ancestor = current.parent
+            }
+            guard ancestor === more, more.isNavigationBarHidden != hidden else { return }
+            more.setNavigationBarHidden(hidden, animated: true)
+        }
+    }
+}
+#endif
+
 /// Pushes an item's page onto the surrounding browse stack.
 struct OpenItemAction {
     let open: (BaseItem) -> Void
@@ -141,6 +171,9 @@ struct BrowseStack<Root: View>: View {
         NavigationStack(path: path) { content }
             // Lets menus, which can't hold navigation links reliably, push pages.
             .environment(\.openItem, OpenItemAction { path.wrappedValue.append($0) })
+            #if !os(tvOS)
+            .background(MoreBarHider(hidden: !path.wrappedValue.isEmpty))
+            #endif
     }
 
     private var content: some View {

@@ -29,6 +29,23 @@ struct SeriesTimerOptionsView: View {
     private static let paddingOptions: [(String, Int)] = [("None", 0), ("1 min", 60), ("2 min", 120), ("5 min", 300), ("10 min", 600), ("15 min", 900)]
 
     var body: some View {
+        #if os(tvOS)
+        form
+        #else
+        // No remote Back button on iOS: a navigation bar gives a way out.
+        NavigationStack {
+            form
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var form: some View {
         Form {
             Section {
                 Text(timer?.name ?? "Series Recording")

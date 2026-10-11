@@ -22,6 +22,10 @@ struct ProgramDetailView: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
+    #if !os(tvOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
     @State private var detail: BaseItem?
     @State private var playback: PlaybackRequest?
     @State private var isWorking = false
@@ -48,7 +52,7 @@ struct ProgramDetailView: View {
                     .foregroundStyle(.secondary)
 
                 Text(current.displayTitle)
-                    .font(.system(size: 60, weight: .bold))
+                    .font(.system(size: Self.titleSize, weight: .bold))
                     .lineLimit(2)
 
                 if let episode = current.episodeTitle {
@@ -56,19 +60,22 @@ struct ProgramDetailView: View {
                         .font(.title3.weight(.semibold))
                 }
 
+                #if os(tvOS)
                 HStack(spacing: 14) {
-                    Text(LiveTVFormat.airing(start: current.start, end: current.end))
-                    if current.isAiringNow { Badge(text: "ON NOW") }
-                    if current.isLive == true { Badge(text: "LIVE") }
-                    if current.isPremiere == true { Badge(text: "NEW") }
-                    if current.isRepeat == true { Badge(text: "REPEAT") }
-                    if let rating = current.officialRating { Badge(text: rating) }
-                    if let genres = current.genres, !genres.isEmpty {
-                        Text(genres.prefix(2).joined(separator: ", "))
-                    }
+                    airingText
+                    badges
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                #else
+                // Too much for one line on a phone: the time, then the badges.
+                VStack(alignment: .leading, spacing: 8) {
+                    airingText
+                    HStack(spacing: 8) { badges }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                #endif
 
                 if let overview = current.overview {
                     Text(overview)
@@ -79,15 +86,56 @@ struct ProgramDetailView: View {
 
                 if let fraction = current.airedFraction {
                     ProgressBar(progress: fraction)
-                        .frame(width: 600)
+                        .frame(maxWidth: 600)
                 }
 
-                actions
-                    .padding(.top, 8)
+                #if os(tvOS)
+                HStack(spacing: 20) {
+                    programActions
+                    seriesAndChannelActions
+                }
+                .disabled(isWorking)
+                .padding(.top, 8)
+                #else
+                Group {
+                    if isPortraitPhone {
+                        // Upright, one row is too narrow: what to do with this
+                        // showing, then the series and the channel.
+                        VStack(alignment: .leading, spacing: 10) {
+                            actionRow { programActions }
+                            actionRow { seriesAndChannelActions }
+                        }
+                    } else {
+                        actionRow {
+                            programActions
+                            seriesAndChannelActions
+                        }
+                    }
+                }
+                .disabled(isWorking)
+                .padding(.top, 8)
+                #endif
             }
-            .padding(.horizontal, 90)
-            .padding(.bottom, 80)
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.bottom, Self.bottomPadding)
         }
+        #if !os(tvOS)
+        // There's no remote Back button: give the page a way to close.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .tint(.white)
+            .accessibilityLabel("Close")
+            .padding(Lockup.screenPadding)
+        }
+        #endif
         .task {
             channelFavorite = isChannelFavorite ?? false
             guard let client = session.client else { return }
@@ -116,6 +164,33 @@ struct ProgramDetailView: View {
         }
     }
 
+    #if os(tvOS)
+    private static let titleSize: CGFloat = 60
+    private static let horizontalPadding: CGFloat = 90
+    private static let bottomPadding: CGFloat = 80
+    #else
+    private static let titleSize: CGFloat = 30
+    private static let horizontalPadding: CGFloat = Lockup.screenPadding
+    private static let bottomPadding: CGFloat = 32
+    #endif
+
+    private var airingText: some View {
+        Text(LiveTVFormat.airing(start: current.start, end: current.end))
+    }
+
+    @ViewBuilder
+    private var badges: some View {
+        if current.isAiringNow { Badge(text: "ON NOW") }
+        if current.isLive == true { Badge(text: "LIVE") }
+        if current.isPremiere == true { Badge(text: "NEW") }
+        if current.isRepeat == true { Badge(text: "REPEAT") }
+        if let rating = current.officialRating { Badge(text: rating) }
+        if let genres = current.genres, !genres.isEmpty {
+            Text(genres.prefix(2).joined(separator: ", "))
+                .lineLimit(1)
+        }
+    }
+
     private func watch(_ channelId: String) {
         if let watchChannel {
             watchChannel(channelId)
@@ -124,51 +199,73 @@ struct ProgramDetailView: View {
         }
     }
 
-    private var actions: some View {
-        HStack(spacing: 20) {
-            if current.isAiringNow, let channel = current.channelId {
-                ActionButton(title: "Watch", systemImage: "play.fill", prominent: true) {
-                    watch(channel)
-                }
-            }
-            if let end = current.end, end > Date() {
-                if let timer = current.timerId {
-                    ActionButton(title: "Cancel Recording", systemImage: "xmark.circle") {
-                        perform { try await $0.cancelTimer(timer) }
-                    }
-                } else {
-                    ActionButton(title: "Record", systemImage: "record.circle", prominent: !current.isAiringNow) {
-                        perform { try await $0.recordProgram(current.id) }
-                    }
-                }
-                if current.isSeries == true {
-                    if current.seriesTimerId != nil {
-                        ActionButton(title: "Series Options", systemImage: "slider.horizontal.3") {
-                            showSeriesOptions = true
-                        }
-                    } else {
-                        ActionButton(title: "Record Series", systemImage: "record.circle.fill") {
-                            perform { try await $0.recordSeries(programId: current.id) }
-                        }
-                    }
-                }
-            }
-            if !current.isAiringNow, let channel = current.channelId {
-                ActionButton(title: "Watch Channel", systemImage: "tv") {
-                    watch(channel)
-                }
-            }
-            if let toggle = onToggleChannelFavorite {
-                IconButton(systemImage: channelFavorite ? "heart.fill" : "heart", accessibilityLabel: channelFavorite ? "Remove channel from favorites" : "Favorite channel") {
-                    channelFavorite.toggle()
-                    toggle()
-                }
-            }
-            if isWorking {
-                ProgressView().controlSize(.small)
+    #if !os(tvOS)
+    /// A phone held upright: compact width, regular height. An iPad, or a
+    /// phone on its side, keeps everything on one row.
+    private var isPortraitPhone: Bool {
+        horizontalSizeClass == .compact && verticalSizeClass == .regular
+    }
+
+    /// One row of actions, scrolling sideways if it ever runs out of room.
+    private func actionRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) { content() }
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+    }
+    #endif
+
+    /// Watching and recording this showing. Watch (on now) and Watch Channel
+    /// (later) are never both shown.
+    @ViewBuilder
+    private var programActions: some View {
+        if current.isAiringNow, let channel = current.channelId {
+            ActionButton(title: "Watch", systemImage: "play.fill", prominent: true) {
+                watch(channel)
             }
         }
-        .disabled(isWorking)
+        if !current.isAiringNow, let channel = current.channelId {
+            ActionButton(title: "Watch Channel", systemImage: "tv") {
+                watch(channel)
+            }
+        }
+        if let end = current.end, end > Date() {
+            if let timer = current.timerId {
+                ActionButton(title: "Cancel Recording", systemImage: "xmark.circle") {
+                    perform { try await $0.cancelTimer(timer) }
+                }
+            } else {
+                ActionButton(title: "Record", systemImage: "record.circle", prominent: !current.isAiringNow) {
+                    perform { try await $0.recordProgram(current.id) }
+                }
+            }
+        }
+    }
+
+    /// Recording the whole series, and favoriting the channel.
+    @ViewBuilder
+    private var seriesAndChannelActions: some View {
+        if let end = current.end, end > Date(), current.isSeries == true {
+            if current.seriesTimerId != nil {
+                ActionButton(title: "Series Options", systemImage: "slider.horizontal.3") {
+                    showSeriesOptions = true
+                }
+            } else {
+                ActionButton(title: "Record Series", systemImage: "record.circle.fill") {
+                    perform { try await $0.recordSeries(programId: current.id) }
+                }
+            }
+        }
+        if let toggle = onToggleChannelFavorite {
+            IconButton(systemImage: channelFavorite ? "heart.fill" : "heart", accessibilityLabel: channelFavorite ? "Remove channel from favorites" : "Favorite channel") {
+                channelFavorite.toggle()
+                toggle()
+            }
+        }
+        if isWorking {
+            ProgressView().controlSize(.small)
+        }
     }
 
     private func perform(_ work: @escaping (JellyfinClient) async throws -> Void) {

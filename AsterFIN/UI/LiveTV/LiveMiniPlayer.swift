@@ -13,7 +13,12 @@ struct LiveMiniPlayer: View {
     let coordinator: PlaybackCoordinator
     var expand: () -> Void
 
+    #if os(tvOS)
     static let width: CGFloat = 352
+    #else
+    /// Sits beside the "Live TV" title on a phone.
+    static let width: CGFloat = 160
+    #endif
     private static let height: CGFloat = width * 9 / 16
 
     var body: some View {

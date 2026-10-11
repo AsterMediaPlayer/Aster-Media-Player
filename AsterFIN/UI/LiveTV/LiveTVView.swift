@@ -110,7 +110,11 @@ struct LiveTVView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             .padding(.horizontal, Lockup.screenPadding)
+            #if os(tvOS)
             .padding(.top, 40)
+            #else
+            .padding(.top, 8)
+            #endif
             .padding(.bottom, 10)
             .tvFocusSection()
 
@@ -183,26 +187,50 @@ struct LiveTVView: View {
     }
 
     private var header: some View {
+        #if os(tvOS)
         HStack(alignment: .center, spacing: 40) {
             Text("Live TV")
                 .font(.largeTitle.weight(.bold))
             Spacer()
-            Picker("Section", selection: $section) {
-                ForEach(LiveTVSection.allCases) { option in
-                    Text(option.rawValue).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            // Narrower while the mini player shares the header.
-            .frame(width: miniPlayerShowing ? 900 : 980)
-            if let live, miniPlayerShowing {
-                LiveMiniPlayer(coordinator: live) {
-                    liveFullScreen = true
-                }
-                .transition(.opacity)
-            }
+            sectionPicker
+                // Narrower while the mini player shares the header.
+                .frame(width: miniPlayerShowing ? 900 : 980)
+            miniPlayer
         }
         .animation(.easeInOut(duration: 0.25), value: miniPlayerShowing)
+        #else
+        // A phone has no room for all three side by side: the title and mini
+        // player share a row, with the sections across the full width below.
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                Text("Live TV")
+                    .font(.largeTitle.weight(.bold))
+                Spacer()
+                miniPlayer
+            }
+            sectionPicker
+        }
+        .animation(.easeInOut(duration: 0.25), value: miniPlayerShowing)
+        #endif
+    }
+
+    private var sectionPicker: some View {
+        Picker("Section", selection: $section) {
+            ForEach(LiveTVSection.allCases) { option in
+                Text(option.rawValue).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    @ViewBuilder
+    private var miniPlayer: some View {
+        if let live, miniPlayerShowing {
+            LiveMiniPlayer(coordinator: live) {
+                liveFullScreen = true
+            }
+            .transition(.opacity)
+        }
     }
 
     /// Opens the channel full screen. With the mini player up, its player
@@ -401,6 +429,11 @@ struct ChannelTile: View {
 
     @Environment(AppSession.self) private var session
 
+    /// The tile is the grid's column wide (280 on tvOS); everything inside
+    /// scales from the tvOS layout so a phone's tile looks the same, smaller.
+    private static let width = Lockup.channelWidth
+    private static let scale = width / 280
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: action) {
@@ -408,19 +441,19 @@ struct ChannelTile: View {
                     LinearGradient(colors: [Color(white: 0.22), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
                     if let logo = session.client?.channelLogoURL(channel) {
                         RemoteImage(url: logo, contentMode: .fit) { EmptyView() }
-                            .padding(30)
+                            .padding(30 * Self.scale)
                     } else {
                         Text(channel.channelNumber ?? channel.displayTitle)
-                            .font(.system(size: 40, weight: .bold))
+                            .font(.system(size: max(18, 40 * Self.scale), weight: .bold))
                     }
                     if let fraction = channel.currentProgram?.airedFraction {
                         ProgressBar(progress: fraction)
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 12)
+                            .padding(.horizontal, 14 * Self.scale)
+                            .padding(.bottom, 12 * Self.scale)
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
-                .frame(width: 280, height: 158)
+                .frame(width: Self.width, height: 158 * Self.scale)
             }
             .cardButtonStyle()
             .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
@@ -429,13 +462,13 @@ struct ChannelTile: View {
             Text([channel.channelNumber, channel.displayTitle].compactMap { $0 }.joined(separator: "  "))
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
-                .frame(width: 280, alignment: .leading)
+                .frame(width: Self.width, alignment: .leading)
             if let now = channel.currentProgram?.name {
                 Text(now)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 280, alignment: .leading)
+                    .frame(width: Self.width, alignment: .leading)
             }
         }
     }

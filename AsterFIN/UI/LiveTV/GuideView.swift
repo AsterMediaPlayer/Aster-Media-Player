@@ -218,11 +218,37 @@ struct GuideView: View {
         return model.detail(for: airing)
     }
 
+    #if os(tvOS)
     static let channelColumnWidth: CGFloat = 250
     static let rowHeight: CGFloat = 96
     static let pointsPerMinute: CGFloat = 8
     static let columnGap: CGFloat = 12
-    static let horizontalPadding: CGFloat = 80
+    /// Space between neighbouring programme cells in a row.
+    static let cellGap: CGFloat = 6
+    static let cellPadding = EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+    static let cornerRadius: CGFloat = 12
+    /// A cell keeps at least this much of itself readable when its start is
+    /// scrolled out of view to the left.
+    static let minimumVisibleCell: CGFloat = 160
+    /// The narrowest a cell is drawn, however short the programme.
+    static let minimumCellWidth: CGFloat = 40
+    static let titleFont: Font = .callout.weight(.semibold)
+    static let subtitleFont: Font = .caption
+    #else
+    // About an hour of guide across a phone held upright, three on its side.
+    static let channelColumnWidth: CGFloat = 88
+    static let rowHeight: CGFloat = 60
+    static let pointsPerMinute: CGFloat = 4
+    static let columnGap: CGFloat = 6
+    static let cellGap: CGFloat = 4
+    static let cellPadding = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+    static let cornerRadius: CGFloat = 8
+    static let minimumVisibleCell: CGFloat = 80
+    static let minimumCellWidth: CGFloat = 20
+    static let titleFont: Font = .footnote.weight(.semibold)
+    static let subtitleFont: Font = .caption2
+    #endif
+    static let horizontalPadding: CGFloat = Lockup.screenPadding
 
     /// Minutes that fit in the timeline at its measured width.
     private var visibleMinutes: Double {
@@ -231,6 +257,9 @@ struct GuideView: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            #if os(tvOS)
+            // The panel follows the remote's focus. A phone has no focus to
+            // follow, and tapping a programme opens its page instead.
             if let channel = highlightedChannel {
                 GuideNowPlayingPanel(
                     channel: channel,
@@ -240,8 +269,9 @@ struct GuideView: View {
                     .padding(.horizontal, Self.horizontalPadding)
                     .padding(.top, 4)
             }
+            #endif
 
-            GuideHeader(guideStart: model.guideStart, guideEnd: model.guideEnd, windowStart: windowStart, visibleMinutes: visibleMinutes) { width in
+            GuideHeader(guideStart: model.guideStart, guideEnd: model.guideEnd, windowStart: windowStart, visibleMinutes: visibleMinutes, jumpToNow: jumpToNow) { width in
                 if width > 0, abs(width - timelineWidth) > 1 { timelineWidth = width }
             }
             .padding(.horizontal, Self.horizontalPadding)
@@ -290,6 +320,9 @@ struct GuideView: View {
                     .tvFocusSection()
                     #if os(tvOS)
                     .focusScope(gridFocus)
+                    #else
+                    // Sideways drags move through time; up and down still scroll.
+                    .simultaneousGesture(timeDrag)
                     #endif
                     // The lazy stack builds a row or two past the bottom edge, so
                     // focus can reach them before the system's animated scroll
@@ -356,6 +389,62 @@ struct GuideView: View {
         }
     }
 
+    /// The earliest and latest the window can start, so it stays inside the guide.
+    private func clampedWindow(_ start: Date) -> Date {
+        let latest = max(model.guideStart, model.guideEnd.addingTimeInterval(-visibleMinutes * 60))
+        return min(max(start, model.guideStart), latest)
+    }
+
+    /// Back to the current half hour, offered once the window has moved on.
+    private var jumpToNow: (() -> Void)? {
+        #if os(tvOS)
+        return nil
+        #else
+        let now = clampedWindow(GuideModel.floorToHalfHour(Date()))
+        guard abs(windowStart.timeIntervalSince(now)) >= 60 else { return nil }
+        return {
+            withAnimation(.easeInOut(duration: 0.25)) { windowStart = now }
+        }
+        #endif
+    }
+
+    #if !os(tvOS)
+    /// Which way the current drag is going, decided by its first movement.
+    private enum DragAxis { case horizontal, vertical }
+    @State private var dragAxis: DragAxis?
+    /// Where the window started when a sideways drag began.
+    @State private var dragOrigin: Date?
+
+    /// On a touch screen the guide is dragged sideways through time: the
+    /// window follows the finger and settles on the nearest quarter hour.
+    /// A drag that starts out vertical is left to the scroll view.
+    private var timeDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                if dragAxis == nil {
+                    let horizontal = abs(value.translation.width) > abs(value.translation.height)
+                    dragAxis = horizontal ? .horizontal : .vertical
+                    if horizontal { dragOrigin = windowStart }
+                }
+                guard dragAxis == .horizontal, let origin = dragOrigin else { return }
+                let minutes = -Double(value.translation.width / Self.pointsPerMinute)
+                windowStart = clampedWindow(origin.addingTimeInterval(minutes * 60))
+            }
+            .onEnded { _ in
+                defer {
+                    dragAxis = nil
+                    dragOrigin = nil
+                }
+                guard dragAxis == .horizontal else { return }
+                let quarter: TimeInterval = 900
+                let snapped = Date(timeIntervalSinceReferenceDate: (windowStart.timeIntervalSinceReferenceDate / quarter).rounded() * quarter)
+                withAnimation(.easeOut(duration: 0.2)) {
+                    windowStart = clampedWindow(snapped)
+                }
+            }
+    }
+    #endif
+
     /// Shifts the time window so the focused programme is in view.
     private func reveal(_ program: BaseItem) {
         guard let start = program.start, let end = program.end else { return }
@@ -406,7 +495,7 @@ struct GuideTimelineLayout: Layout {
             subview.place(
                 at: CGPoint(x: bounds.minX + x, y: bounds.minY),
                 anchor: .topLeading,
-                proposal: ProposedViewSize(width: max(40, width - 6), height: bounds.height)
+                proposal: ProposedViewSize(width: max(GuideView.minimumCellWidth, width - GuideView.cellGap), height: bounds.height)
             )
         }
     }
@@ -419,6 +508,9 @@ struct GuideHeader: View {
     let guideEnd: Date
     let windowStart: Date
     let visibleMinutes: Double
+    /// Shown in place of the day label when the window has moved off the
+    /// current time; nil keeps the label.
+    var jumpToNow: (() -> Void)? = nil
     var onMeasure: (CGFloat) -> Void
 
     private var slots: [Date] {
@@ -435,10 +527,21 @@ struct GuideHeader: View {
 
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
-            Text(LiveTVFormat.dayLabel(windowStart))
-                .font(.headline)
-                .foregroundStyle(.secondary)
-                .frame(width: GuideView.channelColumnWidth, alignment: .leading)
+            Group {
+                if let jumpToNow {
+                    Button(action: jumpToNow) {
+                        Label("Now", systemImage: "arrow.uturn.backward")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Text(LiveTVFormat.dayLabel(windowStart))
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: GuideView.channelColumnWidth, alignment: .leading)
 
             GuideTimelineLayout(windowStart: windowStart, height: 32) {
                 ForEach(slots, id: \.timeIntervalSinceReferenceDate) { slot in
@@ -623,12 +726,12 @@ struct GuideRow: View {
                 }
                 ForEach(nearby) { program in
                     let slot = self.slot(for: program)
-                    let cellWidth = CGFloat(slot.end.timeIntervalSince(slot.start) / 60) * GuideView.pointsPerMinute - 6
+                    let cellWidth = CGFloat(slot.end.timeIntervalSince(slot.start) / 60) * GuideView.pointsPerMinute - GuideView.cellGap
                     let hidden = max(0, CGFloat(windowStart.timeIntervalSince(slot.start) / 60) * GuideView.pointsPerMinute)
                     ProgramCell(
                         program: program,
                         visibleStart: slot.start,
-                        leadingInset: min(hidden, max(0, cellWidth - 160)),
+                        leadingInset: min(hidden, max(0, cellWidth - GuideView.minimumVisibleCell)),
                         isFocused: focus.wrappedValue == program.id
                     ) {
                         select(program)
@@ -672,7 +775,7 @@ struct GuidePlaceholderCell: View {
 
     var body: some View {
         Button(action: action) {
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: GuideView.cornerRadius)
                 .fill(isFocused ? Color.white : Color(white: 0.12))
                 .overlay {
                     if let text {
@@ -699,29 +802,41 @@ struct ChannelCell: View {
 
     @Environment(AppSession.self) private var session
 
+    #if os(tvOS)
+    private static let spacing: CGFloat = 12
+    private static let numberWidth: CGFloat = 56
+    private static let numberFont: Font = .callout.weight(.bold)
+    #else
+    private static let spacing: CGFloat = 4
+    private static let numberWidth: CGFloat = 26
+    private static let numberFont: Font = .caption2.weight(.bold)
+    #endif
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: Self.spacing) {
                 Text(channel.channelNumber ?? "")
-                    .font(.callout.weight(.bold))
+                    .font(Self.numberFont)
                     .foregroundStyle(.secondary)
-                    .frame(width: 56, alignment: .leading)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+                    .frame(width: Self.numberWidth, alignment: .leading)
                 if let logo = session.client?.channelLogoURL(channel, width: 200) {
                     RemoteImage(url: logo, contentMode: .fit) {
-                        Text(channel.displayTitle).font(.callout.weight(.semibold)).lineLimit(2)
+                        Text(channel.displayTitle).font(GuideView.titleFont).lineLimit(2)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     Text(channel.displayTitle)
-                        .font(.callout.weight(.semibold))
+                        .font(GuideView.titleFont)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, GuideView.cellPadding.leading)
+            .padding(.vertical, GuideView.cellPadding.top)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.16)))
+            .background(RoundedRectangle(cornerRadius: GuideView.cornerRadius).fill(Color(white: 0.16)))
         }
         .buttonStyle(GuideCellButtonStyle())
         .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
@@ -762,17 +877,17 @@ struct ProgramCell: View {
                             .accessibilityHidden(true)
                     }
                     Text(program.displayTitle)
-                        .font(.callout.weight(.semibold))
+                        .font(GuideView.titleFont)
                         .lineLimit(1)
                 }
                 Text(subtitle)
-                    .font(.caption)
+                    .font(GuideView.subtitleFont)
                     .foregroundStyle(isFocused ? Color.black.opacity(0.7) : .secondary)
                     .lineLimit(1)
             }
-            .padding(.leading, 14 + leadingInset)
-            .padding(.trailing, 14)
-            .padding(.vertical, 10)
+            .padding(.leading, GuideView.cellPadding.leading + leadingInset)
+            .padding(.trailing, GuideView.cellPadding.trailing)
+            .padding(.vertical, GuideView.cellPadding.top)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .foregroundStyle(isFocused ? .black : .white)
             .background(alignment: .leading) {
@@ -784,8 +899,8 @@ struct ProgramCell: View {
                     }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 12).fill(isFocused ? Color.white : Color(white: program.isAiringNow ? 0.22 : 0.16)))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(RoundedRectangle(cornerRadius: GuideView.cornerRadius).fill(isFocused ? Color.white : Color(white: program.isAiringNow ? 0.22 : 0.16)))
+            .clipShape(RoundedRectangle(cornerRadius: GuideView.cornerRadius))
         }
         .buttonStyle(GuideCellButtonStyle())
         .accessibilityLabel([program.name, program.episodeTitle, LiveTVFormat.timeRange(start: program.start, end: program.end)].compactMap { $0 }.joined(separator: ", "))

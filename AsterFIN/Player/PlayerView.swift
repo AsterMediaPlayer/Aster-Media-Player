@@ -314,6 +314,13 @@ struct SystemPlayer: UIViewControllerRepresentable {
         return controller
     }
 
+    /// Lets go of the player as this view goes away, so playback that carries
+    /// on elsewhere (the Live TV mini player) isn't still tied to a closed
+    /// full-screen controller.
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {
+        controller.player = nil
+    }
+
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         if controller.player !== player {
             controller.player = player

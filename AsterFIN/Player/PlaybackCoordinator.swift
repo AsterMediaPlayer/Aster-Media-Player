@@ -130,6 +130,10 @@ final class PlaybackCoordinator {
     private var mediaSelectionObserver: NSObjectProtocol?
     private var subtitleObserver: Any?
     private var statusObservation: NSKeyValueObservation?
+    /// Watches play and pause for the whole session, across items.
+    private var pauseObservation: NSKeyValueObservation?
+    /// When playback last paused; nil while it plays.
+    private var pausedSince: Date?
 
     /// The subtitle line(s) under the playhead, drawn over the video by
     /// `SubtitleOverlayView`; nil when nothing is showing.
@@ -161,7 +165,26 @@ final class PlaybackCoordinator {
             return
         }
         player.allowsExternalPlayback = true
+        pauseObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.player.timeControlStatus == .paused {
+                    if self.pausedSince == nil { self.pausedSince = Date() }
+                } else {
+                    self.pausedSince = nil
+                }
+            }
+        }
         Task { await play(index: 0) }
+    }
+
+    /// Whether the viewer had paused before the full-screen player began to
+    /// close. AVKit can pause on its own while the player closes, so a pause
+    /// in the last moment doesn't count: only one that had already lasted a
+    /// second, longer than the close takes.
+    var wasPausedByViewer: Bool {
+        guard let pausedSince else { return false }
+        return Date().timeIntervalSince(pausedSince) > 1
     }
 
     /// Stops playback and reports the final position. Safe to call more than once.
@@ -170,6 +193,7 @@ final class PlaybackCoordinator {
         stopped = true
         countdownTask?.cancel()
         let position = currentPositionTicks
+        pauseObservation = nil
         player.pause()
         removeObservers()
         if hasStarted, reportsPlayback, let item = currentItem {

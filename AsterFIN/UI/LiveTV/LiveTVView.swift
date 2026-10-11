@@ -105,6 +105,9 @@ struct LiveTVView: View {
     @State private var liveFullScreen = false
     /// A channel chosen on a programme page, started once that page closes.
     @State private var pendingChannel: String?
+    /// Rebuilds the mini player's video layer once full screen has closed, so
+    /// its picture check runs with only the mini player attached.
+    @State private var miniPlayerLayerID = UUID()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -145,8 +148,14 @@ struct LiveTVView: View {
             if !liveFullScreen && selectedProgram == nil { stopLive() }
         }
         .fullScreenCover(isPresented: $liveFullScreen, onDismiss: {
-            // Back from full screen: keep the channel going in the header.
-            live?.resume()
+            // Leaving full screen while paused ends the channel. Leaving while
+            // it plays keeps it going in the header's mini player.
+            if live?.wasPausedByViewer == true {
+                stopLive()
+            } else {
+                live?.resume()
+                miniPlayerLayerID = UUID()
+            }
         }) {
             if let live {
                 PlayerView(coordinator: live) { stopLive() }
@@ -229,6 +238,7 @@ struct LiveTVView: View {
             LiveMiniPlayer(coordinator: live) {
                 liveFullScreen = true
             }
+            .id(miniPlayerLayerID)
             .transition(.opacity)
         }
     }

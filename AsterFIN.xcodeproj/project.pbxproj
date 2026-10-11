@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		CC98BBB0307A859700B87F6E /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC98BBAF307A859700B87F6E /* TVServices.framework */; };
-		CC98BBB7307A859700B87F6E /* AsterFINTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC98BBB7307A859700B87F6E /* AsterFINTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */; platformFilters = (tvos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -287,6 +287,9 @@
 		};
 		CC98BBB6307A859700B87F6E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				tvos,
+			);
 			target = CC98BBAC307A859700B87F6E /* AsterFINTopShelf */;
 			targetProxy = CC98BBB5307A859700B87F6E /* PBXContainerItemProxy */;
 		};
@@ -416,6 +419,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphonesimulator*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AsterFIN/AsterFIN.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -426,6 +431,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AsterFIN;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
@@ -437,13 +443,16 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos;
 				PRODUCT_NAME = AsterFIN;
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
 			};
 			name = Debug;
 		};
@@ -451,6 +460,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphonesimulator*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AsterFIN/AsterFIN.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -461,6 +472,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = AsterFIN;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
@@ -472,13 +484,16 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos;
 				PRODUCT_NAME = AsterFIN;
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
 			};
 			name = Release;
 		};

@@ -8,7 +8,9 @@
 //
 
 import Foundation
+#if os(tvOS)
 import TVServices
+#endif
 
 enum RecentChannels {
     /// Read by the Top Shelf extension under the same key.
@@ -22,6 +24,8 @@ enum RecentChannels {
         ids.removeAll { $0 == channelId }
         ids.insert(channelId, at: 0)
         defaults.set(Array(ids.prefix(limit)), forKey: key)
+        #if os(tvOS)
         TVTopShelfContentProvider.topShelfContentDidChange()
+        #endif
     }
 }

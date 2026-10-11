@@ -47,7 +47,7 @@ struct PlaylistPickerView: View {
                     }
                     .disabled(!canCreate)
                 }
-                .focusSection()
+                .tvFocusSection()
 
                 if isLoading {
                     ProgressView()
@@ -74,7 +74,7 @@ struct PlaylistPickerView: View {
                         }
                         .padding(.vertical, 10)
                     }
-                    .focusSection()
+                    .tvFocusSection()
                 }
 
                 if let errorMessage {

@@ -29,7 +29,7 @@ struct SearchView: View {
                     if !shows.isEmpty {
                         Text("Movies & TV Shows")
                             .font(.title3.weight(.semibold))
-                            .padding(.horizontal, 80)
+                            .padding(.horizontal, Lockup.screenPadding)
                             .padding(.top, 30)
                         ItemGrid(items: shows)
                     }

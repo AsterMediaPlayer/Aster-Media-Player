@@ -109,10 +109,10 @@ struct LiveTVView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.top, 40)
             .padding(.bottom, 10)
-            .focusSection()
+            .tvFocusSection()
 
             if model.isLoading && model.channels.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -135,7 +135,7 @@ struct LiveTVView: View {
         }
         .task { await reload() }
         // Back on Live TV closes the mini player before leaving the screen.
-        .onExitCommand(perform: closeMiniPlayer)
+        .tvExitCommand(perform: closeMiniPlayer)
         .onDisappear {
             // Leaving the Live TV tab ends the channel; covers don't count.
             if !liveFullScreen && selectedProgram == nil { stopLive() }
@@ -333,7 +333,7 @@ struct ProgramCard: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel([program.name, program.channelName].compactMap { $0 }.joined(separator: ", "))
 
             Text(program.displayTitle)
@@ -422,7 +422,7 @@ struct ChannelTile: View {
                 }
                 .frame(width: 280, height: 158)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
             .accessibilityLabel([channel.channelNumber, channel.displayTitle, channel.currentProgram?.name].compactMap { $0 }.joined(separator: ", "))
 
@@ -446,7 +446,7 @@ struct ChannelsGrid: View {
     var playChannel: (String) -> Void
     var toggleFavorite: (String) -> Void = { _ in }
 
-    private let columns = [GridItem(.adaptive(minimum: 280, maximum: 280), spacing: 40, alignment: .top)]
+    private let columns = [GridItem(.adaptive(minimum: Lockup.channelWidth, maximum: Lockup.channelWidth), spacing: Lockup.gridSpacing, alignment: .top)]
 
     var body: some View {
         ScrollView(.vertical) {
@@ -454,12 +454,12 @@ struct ChannelsGrid: View {
                 MessageView(systemImage: "antenna.radiowaves.left.and.right", title: "No channels", detail: "Add a tuner or M3U source in the Jellyfin dashboard.")
                     .frame(height: 500)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 44) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
                     ForEach(channels) { channel in
                         ChannelTile(channel: channel, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: { toggleFavorite(channel.id) }) { playChannel(channel.id) }
                     }
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.vertical, 40)
             }
         }
@@ -551,7 +551,7 @@ struct SeriesTimerCard: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel("\(rule.name ?? "Series rule"), \(summary)")
 
             Text(rule.name ?? "Series Recording")
@@ -587,7 +587,7 @@ struct TimerCard: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel(timer.name ?? "Recording")
 
             Text(timer.name ?? "Recording")

@@ -63,13 +63,13 @@ struct MusicView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 980)
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 40)
-                .focusSection()
+                .tvFocusSection()
 
                 if session.music.current != nil {
                     NowPlayingBar()
-                        .padding(.horizontal, 80)
+                        .padding(.horizontal, Lockup.screenPadding)
                 }
 
                 if section == .albums {
@@ -166,7 +166,7 @@ struct AlbumsGrid: View {
             }
             .pickerStyle(.menu)
         }
-        .padding(.horizontal, 80)
+        .padding(.horizontal, Lockup.screenPadding)
         .padding(.top, 20)
 
         if model.items.isEmpty, let error = model.errorMessage {
@@ -225,12 +225,12 @@ struct ArtistsGrid: View {
     @Environment(AppSession.self) private var session
     @State private var model = ArtistsModel()
 
-    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 240), spacing: 40, alignment: .top)]
+    private let columns = [GridItem(.adaptive(minimum: Lockup.squareWidth, maximum: Lockup.squareWidth), spacing: Lockup.gridSpacing, alignment: .top)]
 
     var body: some View {
         Text("Artists")
             .font(.title3.weight(.semibold))
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.top, 20)
 
         if model.items.isEmpty, let error = model.errorMessage {
@@ -240,12 +240,12 @@ struct ArtistsGrid: View {
             MessageView(systemImage: "music.mic", title: "No artists yet")
                 .frame(height: 400)
         } else {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 48) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
                 ForEach(model.items) { artist in
                     ArtistLockup(artist: artist)
                 }
             }
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.vertical, 40)
             if model.hasMore {
                 ProgressView()
@@ -284,7 +284,7 @@ struct PlaylistsGrid: View {
     var body: some View {
         Text("Playlists")
             .font(.title3.weight(.semibold))
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.top, 20)
 
         if model.items.isEmpty, let error = model.errorMessage {
@@ -335,7 +335,7 @@ struct SongsList: View {
     var body: some View {
         Text("Songs")
             .font(.title3.weight(.semibold))
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.top, 20)
 
         if model.items.isEmpty, let error = model.errorMessage {
@@ -365,9 +365,9 @@ struct SongsList: View {
                     }
                 }
             }
-            .padding(.horizontal, 80)
+            .padding(.horizontal, Lockup.screenPadding)
             .padding(.vertical, 20)
-            .focusSection()
+            .tvFocusSection()
             if model.hasMore {
                 ProgressView()
                     .frame(maxWidth: .infinity)
@@ -425,7 +425,7 @@ struct SquareLockup: View {
                     NavigationLink(value: item) { artwork }
                 }
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel([item.displayTitle, subtitle].compactMap { $0 }.joined(separator: ", "))
 
             Text(item.displayTitle)
@@ -462,7 +462,7 @@ struct ArtistLockup: View {
                     .frame(width: size, height: size)
                     .clipShape(Circle())
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .clipShape(Circle())
             .accessibilityLabel(artist.displayTitle)
 
@@ -477,15 +477,15 @@ struct ArtistLockup: View {
 struct SquareGrid: View {
     let items: [BaseItem]
 
-    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 240), spacing: 40, alignment: .top)]
+    private let columns = [GridItem(.adaptive(minimum: Lockup.squareWidth, maximum: Lockup.squareWidth), spacing: Lockup.gridSpacing, alignment: .top)]
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 48) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
             ForEach(items) { item in
                 SquareLockup(item: item)
             }
         }
-        .padding(.horizontal, 80)
+        .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
     }
 }
@@ -625,7 +625,7 @@ struct AlbumView: View {
                     header
                         .padding(.horizontal, 90)
                         .padding(.top, 60)
-                        .focusSection()
+                        .tvFocusSection()
 
                     if let errorMessage {
                         MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: errorMessage)
@@ -751,7 +751,7 @@ struct AlbumView: View {
             }
         }
         .padding(.horizontal, 90)
-        .focusSection()
+        .tvFocusSection()
     }
 
     /// Long-press actions: Add to Playlist everywhere; reorder and remove on
@@ -903,7 +903,7 @@ struct ArtistView: View {
                     }
                     .padding(.horizontal, 90)
                     .padding(.top, 60)
-                    .focusSection()
+                    .tvFocusSection()
 
                     if albums.isEmpty, !isLoading {
                         MessageView(systemImage: "music.note", title: "No albums found")
@@ -994,7 +994,7 @@ struct NowPlayingBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Now playing: \(track.displayTitle)")
-            .focusSection()
+            .tvFocusSection()
         }
     }
 }
@@ -1064,7 +1064,7 @@ struct NowPlayingView: View {
                         .frame(width: 900, alignment: .leading)
                     }
                     .padding(.horizontal, 120)
-                    .focusSection()
+                    .tvFocusSection()
 
                     if showLyrics, let lyrics = player.lyrics {
                         LyricsPanel(lyrics: lyrics, currentIndex: player.currentLyricIndex)
@@ -1081,7 +1081,7 @@ struct NowPlayingView: View {
                 MessageView(systemImage: "music.note", title: "Nothing playing")
             }
         }
-        .onPlayPauseCommand { player.togglePlayPause() }
+        .tvPlayPauseCommand { player.togglePlayPause() }
         .onChange(of: player.current == nil) { _, empty in
             if empty { dismiss() }
         }

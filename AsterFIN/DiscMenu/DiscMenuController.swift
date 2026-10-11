@@ -133,15 +133,20 @@ final class DiscMenuController {
 
     // MARK: Input
 
+    #if os(tvOS)
     func move(_ direction: MoveCommandDirection) {
-        let (dx, dy): (Int, Int)
         switch direction {
-        case .left: (dx, dy) = (-1, 0)
-        case .right: (dx, dy) = (1, 0)
-        case .up: (dx, dy) = (0, -1)
-        case .down: (dx, dy) = (0, 1)
+        case .left: move(dx: -1, dy: 0)
+        case .right: move(dx: 1, dy: 0)
+        case .up: move(dx: 0, dy: -1)
+        case .down: move(dx: 0, dy: 1)
         @unknown default: return
         }
+    }
+    #endif
+
+    /// Moves focus one step: -1/1 on each axis, left/up being negative.
+    func move(dx: Int, dy: Int) {
         guard !screen.entries.isEmpty else { return }
         let target: Int
         if let rects = currentFrames {

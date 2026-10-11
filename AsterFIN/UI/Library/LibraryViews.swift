@@ -22,7 +22,7 @@ struct LibraryView: View {
             LazyVStack(alignment: .leading, spacing: 30) {
                 Text("Library")
                     .font(.largeTitle.weight(.bold))
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                     .padding(.top, 40)
 
                 if !libraries.isEmpty {
@@ -32,11 +32,11 @@ struct LibraryView: View {
                                 LibraryTile(library: library)
                             }
                         }
-                        .padding(.horizontal, 80)
+                        .padding(.horizontal, Lockup.screenPadding)
                         .padding(.vertical, 30)
                     }
                     .scrollClipDisabled()
-                    .focusSection()
+                    .tvFocusSection()
                 }
 
                 Shelf(title: "Favorites", items: favorites) { item in
@@ -52,7 +52,7 @@ struct LibraryView: View {
                 }
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red).padding(.horizontal, 80)
+                    Text(errorMessage).foregroundStyle(.red).padding(.horizontal, Lockup.screenPadding)
                 }
             }
             .padding(.bottom, 80)
@@ -188,7 +188,7 @@ struct LibraryGridView: View {
                     }
                     .pickerStyle(.menu)
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 40)
 
                 if model.items.isEmpty, let error = model.errorMessage {
@@ -253,7 +253,7 @@ struct TypeGridView: View {
                     }
                     .pickerStyle(.menu)
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 40)
 
                 Shelf(title: "Recently Added", items: recent) { item in
@@ -266,7 +266,7 @@ struct TypeGridView: View {
                 } else {
                     Text("All \(title)")
                         .font(.title3.weight(.semibold))
-                        .padding(.horizontal, 80)
+                        .padding(.horizontal, Lockup.screenPadding)
                         .padding(.top, 20)
                     ItemGrid(items: model.items)
                     if model.hasMore {
@@ -323,12 +323,12 @@ struct PersonView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 40)
 
                 Text("Filmography")
                     .font(.title3.weight(.semibold))
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                 ItemGrid(items: items)
             }
             .padding(.bottom, 80)

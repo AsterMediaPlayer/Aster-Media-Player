@@ -308,7 +308,9 @@ struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.allowsPictureInPicturePlayback = false
+        #if os(tvOS)
         controller.appliesPreferredDisplayCriteriaAutomatically = true
+        #endif
         return controller
     }
 
@@ -316,15 +318,19 @@ struct SystemPlayer: UIViewControllerRepresentable {
         if controller.player !== player {
             controller.player = player
         }
-        if controller.contextualActions.map(\.title) != contextualActions.map(\.title) {
-            controller.contextualActions = contextualActions
-        }
         if controller.showsPlaybackControls != showsPlaybackControls {
             controller.showsPlaybackControls = showsPlaybackControls
+        }
+        // Skip buttons and the extra info tabs are tvOS player features; on
+        // iOS they're ignored for now and need an overlay of their own.
+        #if os(tvOS)
+        if controller.contextualActions.map(\.title) != contextualActions.map(\.title) {
+            controller.contextualActions = contextualActions
         }
         if controller.customInfoViewControllers.map(ObjectIdentifier.init) != infoTabs.map(ObjectIdentifier.init) {
             controller.customInfoViewControllers = infoTabs
         }
+        #endif
     }
 }
 
@@ -476,8 +482,8 @@ struct UpNextCard: View {
             .padding(.horizontal, 90)
             .padding(.bottom, 80)
         }
-        .focusSection()
-        .onExitCommand(perform: dismiss)
+        .tvFocusSection()
+        .tvExitCommand(perform: dismiss)
         .onAppear { focused = "play" }
     }
 }

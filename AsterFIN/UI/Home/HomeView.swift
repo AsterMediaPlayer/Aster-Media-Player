@@ -226,6 +226,7 @@ struct HeroCarousel: View {
     /// Reports when the banner gains or loses focus.
     var focusChanged: (Bool) -> Void = { _ in }
 
+    @Environment(AppSession.self) private var session
     @State private var index = 0
     @State private var scrollID: String?
     @FocusState private var isFocused: Bool
@@ -248,6 +249,7 @@ struct HeroCarousel: View {
     }
 
     var body: some View {
+        #if os(tvOS)
         // A move command does not stop the focus engine from moving focus when a
         // candidate exists, so a left press on page 2+ would also open the
         // sidebar. A sliver of focusable space at the leading edge catches that
@@ -269,8 +271,65 @@ struct HeroCarousel: View {
             show(max(index - 1, 0))
             isFocused = true
         }
-        .focusSection()
+        .tvFocusSection()
+        #else
+        touchBanner
+        #endif
     }
+
+    #if !os(tvOS)
+    /// On touch screens the banner is swiped: each page is its own link, the
+    /// scroll view pages between them, and the dots follow the page shown.
+    private var touchBanner: some View {
+        // Pages take the banner's measured size, which also says which way up
+        // the phone is: the poster upright, the backdrop on its side. Both
+        // are prefetched below, so rotating swaps from the cache.
+        GeometryReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(items) { item in
+                        NavigationLink(value: item) {
+                            HeroCard(item: item, isFocused: false, isPortrait: proxy.size.height > proxy.size.width)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .id(item.id)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $scrollID)
+            .scrollIndicators(.hidden)
+        }
+        .containerRelativeFrame(.vertical)
+        .overlay(alignment: .bottomTrailing) {
+            if items.count > 1 {
+                PageDots(count: items.count, index: index)
+                    .padding(.trailing, Lockup.screenPadding)
+                    .padding(.bottom, HeroCard.bottomPadding - 40)
+            }
+        }
+        .onChange(of: scrollID) { _, id in
+            if let id, let page = items.firstIndex(where: { $0.id == id }) { index = page }
+        }
+        .task(id: items.map(\.id)) {
+            // Both the poster and the backdrop for every page, so turning the
+            // phone swaps pictures without a wait.
+            let client = session.client
+            let urls = items.flatMap { item in
+                [true, false].compactMap { HeroCard.imageURL(for: item, portrait: $0, client: client) }
+            }
+            ImageStore.shared.prefetch(urls, client: client)
+        }
+        .onAppear { scrollID = items.first?.id }
+        .onChange(of: items) { oldItems, newItems in
+            let currentID = oldItems.indices.contains(index) ? oldItems[index].id : nil
+            index = currentID.flatMap { id in newItems.firstIndex { $0.id == id } } ?? 0
+            scrollID = newItems.indices.contains(index) ? newItems[index].id : newItems.first?.id
+        }
+    }
+    #endif
 
     private var banner: some View {
         NavigationLink(value: current) {
@@ -300,6 +359,7 @@ struct HeroCarousel: View {
         }
         .buttonStyle(HeroButtonStyle())
         .focused($isFocused)
+        #if os(tvOS)
         .onMoveCommand { direction in
             #if DEBUG
             print("DEBUG focus: hero onMoveCommand \(direction)")
@@ -325,6 +385,7 @@ struct HeroCarousel: View {
                 break
             }
         }
+        #endif
         .onChange(of: isFocused) { _, focused in
             if focused { focusGainedAt = Date() }
             focusChanged(focused)
@@ -371,22 +432,57 @@ struct PageDots: View {
 struct HeroCard: View {
     let item: BaseItem
     let isFocused: Bool
+    /// Whether the banner is taller than it is wide (a phone held upright).
+    var isPortrait = false
 
     @Environment(AppSession.self) private var session
 
+    /// The banner's picture: the wide backdrop, or on a touch screen held
+    /// upright the poster, which fills a tall screen instead of a thin slice
+    /// of the backdrop. Shared with the carousel's prefetch so both cache
+    /// the same URLs.
+    static func imageURL(for item: BaseItem, portrait: Bool, client: JellyfinClient?) -> URL? {
+        #if !os(tvOS)
+        if portrait, let client {
+            // An episode's own picture is a wide still; use its series' poster.
+            if item.kind == .episode {
+                if let series = item.seriesId, let tag = item.seriesPrimaryImageTag {
+                    return client.imageURL(itemId: series, kind: .primary, tag: tag, maxWidth: 1200)
+                }
+            } else if let poster = client.posterURL(for: item, width: 1200) {
+                return poster
+            }
+        }
+        #endif
+        return client?.backdropURL(for: item, width: 1920)
+    }
+
+    #if os(tvOS)
+    private static let titleSize: CGFloat = 64
+    private static let logoSize = CGSize(width: 520, height: 180)
+    private static let overviewWidth: CGFloat = 900
+    static let bottomPadding: CGFloat = 90
+    #else
+    private static let titleSize: CGFloat = 34
+    private static let logoSize = CGSize(width: 260, height: 90)
+    private static let overviewWidth: CGFloat = 600
+    /// Clears the floating tab bar, which sits over the bottom of the banner.
+    static let bottomPadding: CGFloat = 110
+    #endif
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: session.client?.backdropURL(for: item, width: 1920), systemImage: "film")
+            RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, client: session.client), systemImage: "film")
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.45), endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: .center)
 
             VStack(alignment: .leading, spacing: 18) {
                 if let logo = session.client?.logoURL(for: item) {
                     RemoteImage(url: logo, contentMode: .fit) { EmptyView() }
-                        .frame(maxWidth: 520, maxHeight: 180, alignment: .leading)
+                        .frame(maxWidth: Self.logoSize.width, maxHeight: Self.logoSize.height, alignment: .leading)
                 } else {
                     Text(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
-                        .font(.system(size: 64, weight: .bold))
+                        .font(.system(size: Self.titleSize, weight: .bold))
                         .lineLimit(2)
                 }
                 if item.kind == .episode {
@@ -399,7 +495,7 @@ struct HeroCard: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
-                        .frame(maxWidth: 900, alignment: .leading)
+                        .frame(maxWidth: Self.overviewWidth, alignment: .leading)
                 }
                 HStack(spacing: 14) {
                     Image(systemName: "play.fill")
@@ -414,8 +510,8 @@ struct HeroCard: View {
                 .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
                 .foregroundStyle(.black)
             }
-            .padding(.horizontal, 80)
-            .padding(.bottom, 90)
+            .padding(.horizontal, Lockup.screenPadding)
+            .padding(.bottom, Self.bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

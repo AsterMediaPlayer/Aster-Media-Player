@@ -304,7 +304,7 @@ struct ItemDetailView: View {
                     }
 
                     InformationSection(item: detail)
-                        .padding(.horizontal, 80)
+                        .padding(.horizontal, Lockup.screenPadding)
                 }
                 .padding(.bottom, 80)
             }
@@ -319,7 +319,7 @@ struct ItemDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focusable()
                     .focused($watchingFocused)
-                    .onExitCommand { stopWatchingOpening() }
+                    .tvExitCommand { stopWatchingOpening() }
                     .accessibilityLabel("Opening")
                 if let watchingInfo {
                     ThemeInfoOverlay(info: watchingInfo)
@@ -468,12 +468,26 @@ struct ItemDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
+            #if os(tvOS)
             actionRow
                 .padding(.top, 8)
+            #else
+            // A phone can't fit every action across; let the row scroll sideways.
+            ScrollView(.horizontal) {
+                actionRow
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .padding(.top, 8)
+            #endif
         }
+        #if os(tvOS)
         .padding(.horizontal, 90)
+        #else
+        .padding(.horizontal, Lockup.screenPadding)
+        #endif
         .padding(.bottom, 20)
-        .focusSection()
+        .tvFocusSection()
     }
 
     private var showsWatchedButton: Bool { detail.kind != .series && detail.kind != .season }
@@ -536,8 +550,11 @@ struct ItemDetailView: View {
                 Text(remaining)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
+            #if os(tvOS)
             // With nothing directly to the right of the last button, the focus
             // engine widens its search and can land on a lockup in the shelf
             // below, which scrolls the page. This sliver sits squarely to the
@@ -547,11 +564,14 @@ struct ItemDetailView: View {
                 .focusable()
                 .focused($actionGuardFocused)
                 .accessibilityHidden(true)
+            #endif
         }
+        #if os(tvOS)
         .onChange(of: actionGuardFocused) { _, focused in
             guard focused else { return }
             focusedAction = trailingActionID
         }
+        #endif
     }
 
     /// The "…" menu: Go to Series on episodes (a stub item is enough, the page
@@ -774,11 +794,11 @@ struct ItemDetailView: View {
                             .foregroundStyle(model.selectedSeasonId == season.id ? .black : .white)
                         }
                     }
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                     .padding(.vertical, 16)
                 }
                 .scrollClipDisabled()
-                .focusSection()
+                .tvFocusSection()
             }
             Shelf(title: "Episodes", items: model.episodes) { episode in
                 LandscapeLockup(item: episode, showSeriesTitle: false)
@@ -836,7 +856,7 @@ struct ExtraLockup: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel("Play \(item.displayTitle)")
 
             Text(item.displayTitle)

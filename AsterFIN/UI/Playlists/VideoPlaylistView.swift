@@ -17,7 +17,7 @@ struct VideoPlaylistView: View {
     @State private var playback: PlaybackRequest?
     @State private var errorMessage: String?
 
-    private let columns = [GridItem(.adaptive(minimum: Lockup.landscapeWidth, maximum: Lockup.landscapeWidth), spacing: 40, alignment: .top)]
+    private let columns = [GridItem(.adaptive(minimum: Lockup.landscapeWidth, maximum: Lockup.landscapeWidth), spacing: Lockup.gridSpacing, alignment: .top)]
 
     var body: some View {
         ScrollView(.vertical) {
@@ -30,7 +30,7 @@ struct VideoPlaylistView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 80)
+                .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 40)
 
                 HStack(spacing: 20) {
@@ -42,21 +42,21 @@ struct VideoPlaylistView: View {
                     }
                 }
                 .disabled(items.isEmpty)
-                .padding(.horizontal, 80)
-                .focusSection()
+                .padding(.horizontal, Lockup.screenPadding)
+                .tvFocusSection()
 
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.callout)
                         .foregroundStyle(.red)
-                        .padding(.horizontal, 80)
+                        .padding(.horizontal, Lockup.screenPadding)
                 }
 
                 if items.isEmpty, !isLoading {
                     MessageView(systemImage: "list.and.film", title: "This playlist is empty", detail: "Use Add to Playlist on a movie or episode to fill it.")
                         .frame(height: 400)
                 } else {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 48) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
                         ForEach(Array(items.enumerated()), id: \.element.playlistRowID) { position, item in
                             PlaylistVideoLockup(item: item) {
                                 if position > 0 {
@@ -69,7 +69,7 @@ struct VideoPlaylistView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                     .padding(.vertical, 40)
                 }
             }
@@ -138,7 +138,7 @@ private struct PlaylistVideoLockup<Actions: View>: View {
                 RemoteImage(url: session.client?.landscapeURL(for: item, width: 800), systemImage: item.kind == .episode ? "tv" : "film")
                     .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .contextMenu(menuItems: actions)
             .accessibilityLabel(item.displayTitle)
 

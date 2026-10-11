@@ -29,7 +29,7 @@ struct LiveMiniPlayer: View {
             }
             .frame(width: Self.width, height: Self.height)
         }
-        .buttonStyle(.card)
+        .cardButtonStyle()
         // The picture speaks for itself; VoiceOver still hears the channel.
         .accessibilityLabel("Now playing: \(channelTitle). Select to watch full screen.")
     }

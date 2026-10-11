@@ -145,7 +145,7 @@ struct ThemeClipLockup: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .accessibilityLabel("\(clip.title), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
 
             VStack(alignment: .leading, spacing: 2) {
@@ -390,7 +390,7 @@ struct OpEdThemeLockup: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .disabled(theme.isPreparing)
             .accessibilityLabel([theme.code, theme.songLine, seasonName, theme.isAudioOnly ? "audio only" : nil].compactMap { $0 }.joined(separator: ", "))
 

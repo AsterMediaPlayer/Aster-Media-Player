@@ -35,9 +35,11 @@ struct DiscMenuView: View {
                     .buttonStyle(DiscCanvasButtonStyle())
                     .focusEffectDisabled()
                     .focused($canvasFocused)
+                    #if os(tvOS)
                     .onMoveCommand { controller.move($0) }
-                    .onExitCommand { controller.hardwareBack() }
-                    .onPlayPauseCommand { controller.playPause() }
+                    #endif
+                    .tvExitCommand { controller.hardwareBack() }
+                    .tvPlayPauseCommand { controller.playPause() }
                     .frame(width: canvas.width, height: canvas.height)
                     .position(x: canvas.midX, y: canvas.midY)
                 }

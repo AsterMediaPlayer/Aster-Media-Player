@@ -22,103 +22,126 @@ struct SignInView: View {
 
     private var client: JellyfinClient? { session.anonymousClient }
 
+    /// Sign In, Quick Connect and Change Server: side by side on a TV,
+    /// stacked full width on a phone.
+    private var buttonLayout: AnyLayout {
+        #if os(tvOS)
+        AnyLayout(HStackLayout(spacing: 24))
+        #else
+        AnyLayout(VStackLayout(spacing: 12))
+        #endif
+    }
+
     var body: some View {
         ZStack {
             OnboardingBackdrop()
-            VStack(spacing: 36) {
-                VStack(spacing: 8) {
-                    Text(session.serverName ?? "Jellyfin")
-                        .font(.system(size: 54, weight: .bold))
-                    Text("Who's watching?")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-
-                if !users.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 40) {
-                            ForEach(users) { user in
-                                Button {
-                                    selectedUser = user
-                                    username = user.name
-                                    password = ""
-                                    if user.hasPassword == false {
-                                        signInWithPassword()
-                                    }
-                                } label: {
-                                    VStack(spacing: 14) {
-                                        UserAvatar(user: user, client: client)
-                                            .frame(width: 180, height: 180)
-                                        Text(user.name)
-                                            .font(.headline)
-                                    }
-                                    .padding(16)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 60)
-                        .padding(.vertical, 20)
-                    }
-                    .scrollClipDisabled()
-                    .focusSection()
-                }
-
-                VStack(spacing: 20) {
-                    TextField("User name", text: $username)
-                        .textContentType(.username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .frame(width: 700)
-                    SecureField("Password", text: $password)
-                        .textContentType(.password)
-                        .frame(width: 700)
-                        .onSubmit(signInWithPassword)
-                    HStack(spacing: 24) {
-                        Button {
-                            signInWithPassword()
-                        } label: {
-                            HStack {
-                                if isWorking { ProgressView().controlSize(.small) }
-                                Text("Sign In")
-                            }
-                            .frame(width: 300)
-                        }
-                        .disabled(username.isEmpty || isWorking)
-
-                        if quickConnectEnabled {
-                            Button {
-                                startQuickConnect()
-                            } label: {
-                                Text("Quick Connect").frame(width: 300)
-                            }
-                        }
-
-                        Button("Change Server", role: .cancel) {
-                            quickConnectTask?.cancel()
-                            session.changeServer()
-                        }
-                    }
-                }
-                .focusSection()
-
-                if let quickConnectCode {
-                    VStack(spacing: 10) {
-                        Text("Enter this code in Jellyfin on another device")
+            OnboardingLayout {
+                VStack(spacing: Onboarding.sectionSpacing) {
+                    VStack(spacing: 8) {
+                        Text(session.serverName ?? "Jellyfin")
+                            .font(.system(size: Onboarding.serverNameSize, weight: .bold))
+                            .multilineTextAlignment(.center)
+                        Text("Who's watching?")
+                            .font(.title3)
                             .foregroundStyle(.secondary)
-                        Text(quickConnectCode)
-                            .font(.system(size: 72, weight: .bold, design: .monospaced))
-                            .kerning(12)
+                    }
+
+                    if !users.isEmpty {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: Onboarding.avatarSpacing) {
+                                ForEach(users) { user in
+                                    Button {
+                                        selectedUser = user
+                                        username = user.name
+                                        password = ""
+                                        if user.hasPassword == false {
+                                            signInWithPassword()
+                                        }
+                                    } label: {
+                                        VStack(spacing: 14) {
+                                            UserAvatar(user: user, client: client)
+                                                .frame(width: Onboarding.avatarSize, height: Onboarding.avatarSize)
+                                            Text(user.name)
+                                                .font(.headline)
+                                        }
+                                        .padding(16)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, Onboarding.avatarRowPadding)
+                            .padding(.vertical, 20)
+                        }
+                        .scrollClipDisabled()
+                        .tvFocusSection()
+                    }
+
+                    VStack(spacing: Onboarding.controlSpacing) {
+                        TextField("User name", text: $username)
+                            .textContentType(.username)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onboardingField()
+                            .frame(maxWidth: Onboarding.credentialsWidth)
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                            .onboardingField()
+                            .frame(maxWidth: Onboarding.credentialsWidth)
+                            .onSubmit(signInWithPassword)
+                        buttonLayout {
+                            Button {
+                                signInWithPassword()
+                            } label: {
+                                HStack {
+                                    if isWorking { ProgressView().controlSize(.small) }
+                                    Text("Sign In")
+                                }
+                                .frame(maxWidth: Onboarding.signInButtonWidth)
+                            }
+                            .onboardingPrimaryButton()
+                            .disabled(username.isEmpty || isWorking)
+
+                            if quickConnectEnabled {
+                                Button {
+                                    startQuickConnect()
+                                } label: {
+                                    Text("Quick Connect").frame(maxWidth: Onboarding.signInButtonWidth)
+                                }
+                                .onboardingSecondaryButton()
+                            }
+
+                            Button(role: .cancel) {
+                                quickConnectTask?.cancel()
+                                session.changeServer()
+                            } label: {
+                                Text("Change Server")
+                            }
+                        }
+                    }
+                    .tvFocusSection()
+
+                    if let quickConnectCode {
+                        VStack(spacing: 10) {
+                            Text("Enter this code in Jellyfin on another device")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Text(quickConnectCode)
+                                .font(.system(size: Onboarding.quickConnectCodeSize, weight: .bold, design: .monospaced))
+                                .kerning(12)
+                        }
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.callout)
+                            .multilineTextAlignment(.center)
                     }
                 }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.callout)
-                }
+                #if os(tvOS)
+                .padding(.vertical, 60)
+                #endif
             }
-            .padding(.vertical, 60)
         }
         .task { await load() }
         .onDisappear { quickConnectTask?.cancel() }
@@ -190,7 +213,7 @@ struct UserAvatar: View {
                 .clipShape(Circle())
             } else {
                 Text(String(user.name.prefix(1)).uppercased())
-                    .font(.system(size: 72, weight: .semibold))
+                    .font(.system(size: Onboarding.avatarInitialSize, weight: .semibold))
                     .foregroundStyle(.white)
             }
         }

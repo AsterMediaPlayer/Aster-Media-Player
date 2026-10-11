@@ -287,8 +287,10 @@ struct GuideView: View {
                         .padding(.vertical, 20)
                         .padding(.bottom, 60)
                     }
-                    .focusSection()
+                    .tvFocusSection()
+                    #if os(tvOS)
                     .focusScope(gridFocus)
+                    #endif
                     // The lazy stack builds a row or two past the bottom edge, so
                     // focus can reach them before the system's animated scroll
                     // catches up, and a held button repeats faster than that
@@ -632,7 +634,9 @@ struct GuideRow: View {
                         select(program)
                     }
                     .focused(focus, equals: program.id)
+                    #if os(tvOS)
                     .prefersDefaultFocus(isFirstRow && program.isAiringNow, in: focusNamespace)
+                    #endif
                     .layoutValue(key: GuideSlotKey.self, value: slot)
                 }
             }

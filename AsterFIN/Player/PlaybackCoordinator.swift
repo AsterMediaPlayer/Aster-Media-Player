@@ -321,7 +321,9 @@ final class PlaybackCoordinator {
             async let assetMetadata = asset.load(.commonMetadata, .metadata)
             playerItem.externalMetadata = await Self.metadata(for: item, client: client)
             _ = try? await assetMetadata
+            #if os(tvOS)
             playerItem.navigationMarkerGroups = Self.chapterMarkers(for: item)
+            #endif
             player.appliesMediaSelectionCriteriaAutomatically = true
             installObservers(for: playerItem, startTicks: isLive ? 0 : entry.startTicks)
             player.replaceCurrentItem(with: playerItem)
@@ -332,7 +334,9 @@ final class PlaybackCoordinator {
             // Markers and the following episode load after playback starts so
             // they never delay it; results are dropped if the item changed.
             let client = client
+            #if os(tvOS)
             async let artwork = Self.chapterArtwork(for: item, client: client)
+            #endif
             // A clip gets no skip markers (Skip Intro would skip the very
             // opening asked for) and no Up Next.
             let loadedSegments = isLive || isClip ? [] : ((try? await client.mediaSegments(itemId: entry.itemId)) ?? [])
@@ -340,11 +344,13 @@ final class PlaybackCoordinator {
             guard currentItem?.id == item.id else { return }
             segments = loadedSegments
             upNext = next
+            #if os(tvOS)
             // Chapter names show at once; their frames replace them when ready.
             let frames = await artwork
             if !frames.isEmpty, currentItem?.id == item.id {
                 playerItem.navigationMarkerGroups = Self.chapterMarkers(for: item, artwork: frames)
             }
+            #endif
         } catch {
             handlePlaybackFailure(error.localizedDescription)
         }
@@ -942,8 +948,10 @@ final class PlaybackCoordinator {
         return item
     }
 
+    #if os(tvOS)
     /// The Chapters panel's markers: names, plus each chapter's frame from
-    /// `artwork` (keyed by chapter index) once it has loaded.
+    /// `artwork` (keyed by chapter index) once it has loaded. tvOS only: the
+    /// iOS player has no chapters panel.
     private static func chapterMarkers(for item: BaseItem, artwork: [Int: Data] = [:]) -> [AVNavigationMarkersGroup] {
         guard let chapters = item.chapters, chapters.count > 1 else { return [] }
         let total = item.runTimeTicks ?? 0
@@ -965,6 +973,7 @@ final class PlaybackCoordinator {
         }
         return [AVNavigationMarkersGroup(title: "Chapters", timedNavigationMarkers: groups)]
     }
+    #endif
 
     /// Downloads the frames Jellyfin extracted for each chapter, side by side.
     /// Chapters without a frame, or whose download fails, are left out.

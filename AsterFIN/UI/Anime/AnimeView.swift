@@ -104,7 +104,7 @@ struct AnimeView: View {
             LazyVStack(alignment: .leading, spacing: 20) {
                 Text("Anime")
                     .font(.largeTitle.weight(.bold))
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                     .padding(.top, 40)
 
                 if model.isLoading {

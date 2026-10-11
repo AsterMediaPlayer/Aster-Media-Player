@@ -8,12 +8,41 @@
 
 import SwiftUI
 
+/// Card and grid sizes. tvOS sizes are for a 1920-point-wide screen seen
+/// from the sofa; iOS sizes fit three posters (or two landscape cards)
+/// across a phone, and adaptive grids add columns on an iPad.
 enum Lockup {
+    #if os(tvOS)
     static let landscapeWidth: CGFloat = 400
     static let landscapeHeight: CGFloat = 225
     static let posterWidth: CGFloat = 240
     static let posterHeight: CGFloat = 360
+    /// Album and playlist artwork.
+    static let squareWidth: CGFloat = 240
+    /// Live TV channel tiles.
+    static let channelWidth: CGFloat = 280
     static let cornerRadius: CGFloat = 14
+    static let gridSpacing: CGFloat = 40
+    static let gridRowSpacing: CGFloat = 48
+    /// The inset from the screen's left and right edges.
+    static let screenPadding: CGFloat = 80
+    static let shelfSpacing: CGFloat = 36
+    /// Room above and below a shelf's cards for the focused card to grow into.
+    static let shelfVerticalPadding: CGFloat = 30
+    #else
+    static let landscapeWidth: CGFloat = 175
+    static let landscapeHeight: CGFloat = 98
+    static let posterWidth: CGFloat = 110
+    static let posterHeight: CGFloat = 165
+    static let squareWidth: CGFloat = 110
+    static let channelWidth: CGFloat = 110
+    static let cornerRadius: CGFloat = 10
+    static let gridSpacing: CGFloat = 12
+    static let gridRowSpacing: CGFloat = 20
+    static let screenPadding: CGFloat = 16
+    static let shelfSpacing: CGFloat = 12
+    static let shelfVerticalPadding: CGFloat = 8
+    #endif
 }
 
 // MARK: - Shelf
@@ -22,7 +51,7 @@ enum Lockup {
 struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
     let title: String
     let items: [Item]
-    var spacing: CGFloat = 36
+    var spacing: CGFloat = Lockup.shelfSpacing
     @ViewBuilder var content: (Item) -> Content
 
     var body: some View {
@@ -30,19 +59,19 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .padding(.horizontal, 80)
+                    .padding(.horizontal, Lockup.screenPadding)
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: spacing) {
                         ForEach(items) { item in
                             content(item)
                         }
                     }
-                    .padding(.horizontal, 80)
-                    .padding(.vertical, 30)
+                    .padding(.horizontal, Lockup.screenPadding)
+                    .padding(.vertical, Lockup.shelfVerticalPadding)
                 }
                 .scrollClipDisabled()
             }
-            .focusSection()
+            .tvFocusSection()
         }
     }
 }
@@ -82,7 +111,7 @@ struct LandscapeLockup: View {
                 }
                 .frame(width: width, height: height)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .itemActions(for: item, userData: $editedUserData.or(item.userData))
             .optionallyFocused(focus, equals: item.id)
             .accessibilityLabel(accessibilityTitle)
@@ -160,7 +189,7 @@ struct PosterLockup: View {
                 }
                 .frame(width: width, height: width * 1.5)
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .itemActions(for: item, userData: $editedUserData.or(item.userData))
             .accessibilityLabel(item.yearText.map { "\(item.displayTitle), \($0)" } ?? item.displayTitle)
             .onChange(of: item.userData) { _, _ in editedUserData = nil }
@@ -324,7 +353,7 @@ struct PersonLockup: View {
                     .frame(width: 200, height: 200)
                     .clipShape(Circle())
             }
-            .buttonStyle(.card)
+            .cardButtonStyle()
             .clipShape(Circle())
             .accessibilityLabel([person.name, person.role].compactMap { $0 }.joined(separator: ", "))
 
@@ -359,7 +388,7 @@ struct LibraryTile: View {
             }
             .frame(width: 440, height: 248)
         }
-        .buttonStyle(.card)
+        .cardButtonStyle()
         .accessibilityLabel(library.displayTitle)
     }
 
@@ -456,13 +485,13 @@ struct ItemGrid: View {
 
     private var columns: [GridItem] {
         if landscape {
-            return [GridItem(.adaptive(minimum: Lockup.landscapeWidth, maximum: Lockup.landscapeWidth), spacing: 40, alignment: .top)]
+            return [GridItem(.adaptive(minimum: Lockup.landscapeWidth, maximum: Lockup.landscapeWidth), spacing: Lockup.gridSpacing, alignment: .top)]
         }
-        return [GridItem(.adaptive(minimum: Lockup.posterWidth, maximum: Lockup.posterWidth), spacing: 40, alignment: .top)]
+        return [GridItem(.adaptive(minimum: Lockup.posterWidth, maximum: Lockup.posterWidth), spacing: Lockup.gridSpacing, alignment: .top)]
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 48) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
             ForEach(items) { item in
                 if landscape {
                     LandscapeLockup(item: item)
@@ -471,7 +500,7 @@ struct ItemGrid: View {
                 }
             }
         }
-        .padding(.horizontal, 80)
+        .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
     }
 }
@@ -518,6 +547,9 @@ struct ActionButton: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
+                // Never wrap: a squeezed row would stack the title letter by letter.
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
         }
         .buttonStyle(.borderedProminent)

@@ -1,0 +1,50 @@
+//
+//  DeepLinkRouter.swift
+//  AsterFIN
+//
+//  Links into the app, from the Top Shelf: `asterfin://item/{id}` opens a
+//  title's page and `asterfin://play/{id}` starts playing it. A link that
+//  arrives before the main screen exists is held until it can be used.
+//
+
+import Foundation
+import Observation
+
+@Observable
+final class DeepLinkRouter {
+    private(set) var pendingItemId: String?
+    private(set) var pendingPlayItemId: String?
+    /// Playback asked for from inside the app, such as a lockup's long-press
+    /// menu, played by the main screen so any tab can start it.
+    private(set) var pendingPlayback: PlaybackRequest?
+
+    func play(_ request: PlaybackRequest) {
+        pendingPlayback = request
+    }
+
+    /// Hands over the in-app playback request, once.
+    func takePlayback() -> PlaybackRequest? {
+        defer { pendingPlayback = nil }
+        return pendingPlayback
+    }
+
+    func handle(_ url: URL) {
+        guard url.scheme?.lowercased() == "asterfin" else { return }
+        let id = url.lastPathComponent
+        guard !id.isEmpty, id != "/" else { return }
+        switch url.host()?.lowercased() {
+        case "play":
+            pendingPlayItemId = id
+        case "item":
+            pendingItemId = id
+        default:
+            break
+        }
+    }
+
+    func clear() {
+        pendingItemId = nil
+        pendingPlayItemId = nil
+        pendingPlayback = nil
+    }
+}

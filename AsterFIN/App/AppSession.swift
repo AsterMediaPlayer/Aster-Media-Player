@@ -86,6 +86,9 @@ final class AppSession {
         animeItemIds = ids
     }
 
+    /// The one session, shared with scenes outside SwiftUI (CarPlay).
+    static let shared = AppSession()
+
     init() {
         restore()
         music.onStart = { [weak self] in self?.theme.hide() }

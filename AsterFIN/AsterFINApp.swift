@@ -10,7 +10,7 @@ import AVFoundation
 
 @main
 struct AsterFINApp: App {
-    @State private var session = AppSession()
+    @State private var session = AppSession.shared
 
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)

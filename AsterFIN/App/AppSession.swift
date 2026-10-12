@@ -217,6 +217,8 @@ enum AppSettings {
     static let themeVideosKey = "AsterFIN.themeVideos"
     /// Whether an anime opening used as the theme video plays its sound.
     static let openingSoundKey = "AsterFIN.openingSound"
+    /// The song card as an episode's opening or ending plays. On by default.
+    static let themeCardsKey = "AsterFIN.themeCards"
     /// iPhone and iPad: the tabs in the order chosen, and those hidden (see
     /// `TabLayout`).
     static let tabOrderKey = "AsterFIN.tabOrder"
@@ -239,6 +241,10 @@ enum AppSettings {
     /// Start the next episode when one ends. On by default.
     static var autoplayNext: Bool {
         UserDefaults.standard.object(forKey: autoplayNextKey) as? Bool ?? true
+    }
+
+    static var themeCards: Bool {
+        UserDefaults.standard.object(forKey: themeCardsKey) as? Bool ?? true
     }
 
     /// Jump past intros without asking. Off by default.

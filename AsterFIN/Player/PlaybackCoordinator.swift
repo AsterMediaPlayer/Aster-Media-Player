@@ -101,6 +101,16 @@ final class PlaybackCoordinator {
     private(set) var selectedAudioIndex: Int?
     private(set) var selectedSubtitleIndex = -1
 
+    /// An opening or ending inside the episode playing, with its song card.
+    struct ThemeMoment: Identifiable, Hashable {
+        var range: ClosedRange<Double>
+        var info: ThemeInfo
+        var id: Double { range.lowerBound }
+    }
+
+    /// The current episode's openings and endings, when the song card is on.
+    private(set) var themeMoments: [ThemeMoment] = []
+
     /// The music video card for the clip playing, if it has one.
     var themeInfo: ThemeInfo? {
         index < queue.count ? queue[index].themeInfo : nil
@@ -253,6 +263,7 @@ final class PlaybackCoordinator {
         showsUpNextAction = false
         autoSkipped = []
         isDownloaded = false
+        themeMoments = []
 
         #if !os(tvOS)
         // A download plays from the device. Not for a clip, nor once it has
@@ -413,6 +424,12 @@ final class PlaybackCoordinator {
             guard currentItem?.id == item.id else { return }
             segments = loadedSegments
             upNext = next
+            if AppSettings.themeCards, !isClip, item.kind == .episode {
+                let themes = await client.opEdThemes(for: item.id) ?? []
+                if currentItem?.id == item.id {
+                    themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes)
+                }
+            }
             #if os(tvOS)
             // Chapter names show at once; their frames replace them when ready.
             let frames = await artwork
@@ -458,8 +475,42 @@ final class PlaybackCoordinator {
         player.play()
         loadSubtitles()
         segments = download.segments
+        if AppSettings.themeCards {
+            // Offline: placed by the saved chapters, without song details.
+            themeMoments = Self.themeMoments(for: item, segments: download.segments, pluginThemes: [])
+        }
     }
     #endif
+
+    /// Where an episode's openings and endings are, and what the card says.
+    /// Placed by its OP and ED chapters; with none, by its skip markers, but
+    /// only when the OP/ED plugin says a theme plays in it, so an ordinary
+    /// show's intro gets no song card. The plugin names the song when it
+    /// knows it.
+    private static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
+        guard item.kind == .episode else { return [] }
+        let series = item.seriesName ?? item.displayTitle
+        let playing = pluginThemes.filter { $0.playsInEpisode == true }
+        var found: [(opening: Bool, range: ClosedRange<Double>, clip: ThemeClip?)] = OpeningsEndings.find(in: [item]).map { clip in
+            (clip.kind == .opening, Double(clip.startTicks) / 10_000_000 ... Double(clip.endTicks) / 10_000_000, clip)
+        }
+        if found.isEmpty, !playing.isEmpty {
+            for segment in segments where (segment.type == "Intro" || segment.type == "Outro") && segment.endTicks > segment.startTicks {
+                found.append((segment.type == "Intro", Double(segment.startTicks) / 10_000_000 ... Double(segment.endTicks) / 10_000_000, nil))
+            }
+        }
+        return found.map { entry in
+            let info: ThemeInfo
+            if let theme = playing.first(where: { $0.isOpening == entry.opening }) {
+                info = ThemeInfo(theme: theme, series: series, seasonName: item.seasonName)
+            } else if let clip = entry.clip {
+                info = ThemeInfo(clip: clip, series: series)
+            } else {
+                info = ThemeInfo(kicker: entry.opening ? "Opening" : "Ending", title: series, detail: item.episodeCode)
+            }
+            return ThemeMoment(range: entry.range, info: info)
+        }
+    }
 
     // MARK: Track selection
 

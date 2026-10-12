@@ -77,6 +77,14 @@ struct PlayerView: View {
                         ThemeInfoOverlay(player: coordinator.player, range: coordinator.clipRange, info: info)
                     }
                 }
+                .overlay {
+                    // So does an episode's own opening and ending, as it plays.
+                    if coordinator.hasStarted, !coordinator.endCardVisible {
+                        ForEach(coordinator.themeMoments) { moment in
+                            ThemeInfoOverlay(player: coordinator.player, range: moment.range, info: moment.info)
+                        }
+                    }
+                }
                 #if !os(tvOS)
                 .overlay(alignment: .bottomTrailing) {
                     // The tvOS player shows these as contextual actions; iOS

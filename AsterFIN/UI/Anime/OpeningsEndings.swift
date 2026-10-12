@@ -193,6 +193,14 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
         detail = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    init(kicker: String, title: String, artists: String? = nil, series: String? = nil, detail: String? = nil) {
+        self.kicker = kicker
+        self.title = title
+        self.artists = artists
+        self.series = series
+        self.detail = detail
+    }
+
     init(clip: ThemeClip, series: String) {
         kicker = clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue
         title = series
@@ -355,9 +363,11 @@ struct ThemeInfoOverlay: View {
         guard seconds.isFinite else { return }
         let start = range?.lowerBound ?? 0
         let end = range?.upperBound ?? player.currentItem?.duration.seconds ?? .nan
-        let atStart = seconds - start < Self.showFor
+        // Only inside the theme: an episode's opening comes after its start.
+        let inside = seconds >= start - 0.5 && (!end.isFinite || seconds <= end)
+        let atStart = inside && seconds - start < Self.showFor
         // The closing card only when the theme is long enough for two.
-        let atEnd = end.isFinite && end - start > Self.showFor * 3 && end - seconds < Self.showFor
+        let atEnd = inside && end.isFinite && end - start > Self.showFor * 3 && end - seconds < Self.showFor
         let show = atStart || atEnd
         if show != visible { visible = show }
     }

@@ -182,6 +182,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.maxBitrateKey) private var maxBitrate = 120_000_000
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
+    @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
 
     private let bitrates: [(String, Int)] = [
         ("Auto (120 Mbps)", 120_000_000),
@@ -205,6 +206,10 @@ private struct PlaybackSettingsView: View {
                 Toggle("Autoplay next episode", isOn: $autoplayNext)
                 Toggle("Skip intros automatically", isOn: $autoSkipIntro)
                 SettingsNote("Skip Intro and Skip Credits need markers on the server, from the Intro Skipper plugin or chapter markers.")
+            }
+            Section("Anime") {
+                Toggle("Song card at openings and endings", isOn: $themeCards)
+                SettingsNote("As an episode's opening or ending starts, and again as it finishes, the song and artist show in the corner, like a music channel. Found from the episode's OP and ED chapters, with the song named by the OP/ED plugin when the server has it.")
             }
         }
     }

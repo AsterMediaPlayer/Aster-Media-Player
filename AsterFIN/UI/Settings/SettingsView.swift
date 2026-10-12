@@ -5,43 +5,63 @@
 
 import SwiftUI
 
+/// The pages the Settings root opens.
+private enum SettingsDestination: Hashable {
+    case playback, audioSubtitles, discMenus, titlePages, account, about
+}
+
 /// The Settings root: one row per category, each opening its own page.
+/// The pages go on the tab's navigation path, as browsing pages do, so the
+/// tab knows a page is open (iPhone's More tab then hides its own back
+/// button; see `MoreBarHider`).
 struct SettingsView: View {
     @Environment(AppSession.self) private var session
 
     var body: some View {
         SettingsPage(title: "Settings") {
             Section {
-                NavigationLink { PlaybackSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.playback) {
                     Label("Playback", systemImage: "play.rectangle")
                 }
-                NavigationLink { AudioSubtitleSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.audioSubtitles) {
                     Label("Audio & Subtitles", systemImage: "captions.bubble")
                 }
-                NavigationLink { DiscMenuSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.discMenus) {
                     Label("Disc Menus", systemImage: "opticaldisc")
                 }
-                NavigationLink { TitlePageSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
             }
             Section {
-                NavigationLink { AccountSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.account) {
                     LabeledContent {
                         Text(session.userName ?? "")
                     } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
                 }
-                NavigationLink { AboutSettingsView() } label: {
+                NavigationLink(value: SettingsDestination.about) {
                     Label("About", systemImage: "info.circle")
                 }
+            }
+        }
+        .navigationDestination(for: SettingsDestination.self) { destination in
+            switch destination {
+            case .playback: PlaybackSettingsView()
+            case .audioSubtitles: AudioSubtitleSettingsView()
+            case .discMenus: DiscMenuSettingsView()
+            case .titlePages: TitlePageSettingsView()
+            case .account: AccountSettingsView()
+            case .about: AboutSettingsView()
             }
         }
     }
 }
 
-/// A settings form with the large page title as its first row.
+/// A settings form with the large page title as its first row, like the
+/// in-page titles elsewhere. (A navigation bar title would add a second bar
+/// under iPhone's More tab.)
 private struct SettingsPage<Content: View>: View {
     let title: String
     @ViewBuilder var content: () -> Content
@@ -57,6 +77,15 @@ private struct SettingsPage<Content: View>: View {
             content()
         }
     }
+}
+
+/// What to call this device in settings notes: "Apple TV", "iPhone" or "iPad".
+private var deviceName: String {
+    #if os(tvOS)
+    "Apple TV"
+    #else
+    UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    #endif
 }
 
 /// The small grey explanation under a group of settings.
@@ -183,7 +212,7 @@ private struct AudioSubtitleSettingsView: View {
     }
 
     // Each preference writes through to the Jellyfin profile when it is known,
-    // and always to this Apple TV as a fallback.
+    // and always to this device as a fallback.
     private var audioLanguage: Binding<String> {
         Binding(
             get: { session.userConfiguration?.audioLanguagePreference ?? UserDefaults.standard.string(forKey: AppSettings.audioLanguageKey) ?? "" },
@@ -238,8 +267,8 @@ private struct AudioSubtitleSettingsView: View {
                     selection: subtitleMode
                 )
                 SettingsNote(session.userConfiguration == nil
-                     ? "Saved on this Apple TV. These sync with your Jellyfin profile once the server settings load."
-                     : "Synced with your Jellyfin profile, so the web app and this Apple TV make the same choices. A title's own Audio & Subtitles menu overrides them for that title.")
+                     ? "Saved on this \(deviceName). These sync with your Jellyfin profile once the server settings load."
+                     : "Synced with your Jellyfin profile, so the web app and this \(deviceName) make the same choices. A title's own Audio & Subtitles menu overrides them for that title.")
             }
         }
     }
@@ -322,7 +351,7 @@ private struct AboutSettingsView: View {
             Section {
                 LabeledContent("AsterFIN", value: "1.0")
                     .focusable()
-                SettingsNote("A Jellyfin client for Apple TV with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
+                SettingsNote("A Jellyfin client for Apple TV, iPhone and iPad with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
                     .focusable()
             }
         }

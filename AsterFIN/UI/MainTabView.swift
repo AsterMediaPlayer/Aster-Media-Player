@@ -132,17 +132,33 @@ private struct MoreBarHider: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIViewController, context: Context) {
-        let hidden = hidden
-        // The controller joins the hierarchy after this first runs.
-        DispatchQueue.main.async { [weak controller] in
-            guard let controller, let more = controller.tabBarController?.moreNavigationController else { return }
-            var ancestor = controller.parent
-            while let current = ancestor, current !== more {
-                ancestor = current.parent
+        // Usually in the hierarchy already, so the bar changes in the same
+        // update as the push and the page slides in at its final height.
+        // Animating it, or waiting a turn, let the page arrive low and then
+        // jump up as the bar left. The first time, the controller joins the
+        // hierarchy after this runs, so that one waits.
+        if !Self.apply(hidden, from: controller) {
+            let hidden = hidden
+            DispatchQueue.main.async { [weak controller] in
+                guard let controller else { return }
+                Self.apply(hidden, from: controller)
             }
-            guard ancestor === more, more.isNavigationBarHidden != hidden else { return }
-            more.setNavigationBarHidden(hidden, animated: true)
         }
+    }
+
+    /// Sets the More bar's visibility when `controller` is under More.
+    /// Returns false when it isn't in a tab bar controller yet.
+    @discardableResult
+    private static func apply(_ hidden: Bool, from controller: UIViewController) -> Bool {
+        guard let more = controller.tabBarController?.moreNavigationController else { return false }
+        var ancestor = controller.parent
+        while let current = ancestor, current !== more {
+            ancestor = current.parent
+        }
+        if ancestor === more, more.isNavigationBarHidden != hidden {
+            more.setNavigationBarHidden(hidden, animated: false)
+        }
+        return true
     }
 }
 #endif

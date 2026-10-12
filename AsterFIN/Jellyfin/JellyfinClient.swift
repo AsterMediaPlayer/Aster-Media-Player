@@ -901,12 +901,17 @@ nonisolated final class JellyfinClient: Sendable {
 
     // MARK: Media segments
 
+    /// The marker kinds the player offers to skip.
+    private static let skippableSegmentTypes: Set<String> = ["Intro", "Outro", "Preview", "Recap", "Commercial"]
+
     /// Intro, credits and similar markers for an item, when a provider has made
     /// them. An empty list is the normal "nothing to skip", as is a 404.
+    ///
+    /// No `includeSegmentTypes` filter is sent: the server wants each type as
+    /// its own repeated parameter and rejects a comma-joined list with a 400,
+    /// so all markers are fetched and the skippable kinds kept here.
     func mediaSegments(itemId: String) async throws -> [MediaSegment] {
-        let request = authorizedRequest(url("/MediaSegments/\(itemId)", query: [
-            "includeSegmentTypes": "Intro,Outro,Preview,Recap,Commercial",
-        ]))
+        let request = authorizedRequest(url("/MediaSegments/\(itemId)"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return [] }
         if http.statusCode == 404 { return [] }
@@ -914,6 +919,7 @@ nonisolated final class JellyfinClient: Sendable {
             throw JellyfinError.http(http.statusCode, nil)
         }
         return try await decode(ItemsEnvelope<MediaSegment>.self, from: data).items
+            .filter { Self.skippableSegmentTypes.contains($0.type) }
     }
 
     // MARK: JellyDisc

@@ -363,7 +363,18 @@ final class PlaybackCoordinator {
             #endif
             // A clip gets no skip markers (Skip Intro would skip the very
             // opening asked for) and no Up Next.
-            let loadedSegments = isLive || isClip ? [] : ((try? await client.mediaSegments(itemId: entry.itemId)) ?? [])
+            var loadedSegments: [MediaSegment] = []
+            if !isLive, !isClip {
+                do {
+                    loadedSegments = try await client.mediaSegments(itemId: entry.itemId)
+                } catch {
+                    // No markers is a normal answer; a failed request is
+                    // worth seeing, since it silently hides every skip button.
+                    #if DEBUG
+                    print("DEBUG playback: loading skip markers failed: \(error)")
+                    #endif
+                }
+            }
             let next = item.kind == .episode && !isClip && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
             guard currentItem?.id == item.id else { return }
             segments = loadedSegments

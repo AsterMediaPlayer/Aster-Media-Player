@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, tabBar, account, about
+    case playback, audioSubtitles, discMenus, titlePages, tabBar, downloads, account, about
 }
 
 /// The Settings root: one row per category, each opening its own page.
@@ -36,6 +36,9 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsDestination.tabBar) {
                     Label("Tab Bar", systemImage: "rectangle.bottomhalf.inset.filled")
                 }
+                NavigationLink(value: SettingsDestination.downloads) {
+                    Label("Downloads", systemImage: "arrow.down.circle")
+                }
                 #endif
             }
             Section {
@@ -62,6 +65,12 @@ struct SettingsView: View {
                 EmptyView()
                 #else
                 TabBarSettingsView()
+                #endif
+            case .downloads:
+                #if os(tvOS)
+                EmptyView()
+                #else
+                DownloadSettingsView()
                 #endif
             case .account: AccountSettingsView()
             case .about: AboutSettingsView()
@@ -384,6 +393,48 @@ private struct TabBarSettingsView: View {
             session.hasContent(for: tab) ? (remaining.next() ?? tab) : tab
         }
         tabOrder = TabLayout.encode(full)
+    }
+}
+#endif
+
+// MARK: - Downloads
+
+#if !os(tvOS)
+/// Downloads on or off, then where and how they're saved.
+private struct DownloadSettingsView: View {
+    @Environment(AppSession.self) private var session
+    @AppStorage(AppSettings.downloadsEnabledKey) private var enabled = true
+    @State private var confirmRemoveAll = false
+
+    private let store = DownloadStore.shared
+
+    var body: some View {
+        SettingsPage(title: "Downloads") {
+            Section {
+                Toggle("Allow downloads", isOn: $enabled)
+                SettingsNote(enabled
+                    ? "Download movies and episodes from the ⋯ button on their page to watch without a connection. They're in the Downloads tab."
+                    : "Download is hidden and the Downloads tab is gone. Titles already downloaded stay until you remove them.")
+            }
+            if enabled, !session.canDownload {
+                Section {
+                    SettingsNote("Your Jellyfin account isn't allowed to download media. The server's administrator can allow it in the user's settings, under Allow media downloading.")
+                }
+            }
+            if enabled {
+                DownloadOptionsSections()
+            }
+            if !store.records.isEmpty {
+                Section {
+                    Button("Remove All Downloads", role: .destructive) { confirmRemoveAll = true }
+                }
+            }
+        }
+        .confirmationDialog("Remove all downloads?", isPresented: $confirmRemoveAll, titleVisibility: .visible) {
+            Button("Remove All", role: .destructive) { store.removeAll() }
+        } message: {
+            Text("This frees \(DownloadStore.format(store.usedBytes)) and stops any downloads in progress.")
+        }
     }
 }
 #endif

@@ -25,5 +25,15 @@ struct AsterFINApp: App {
                     session.router.handle(url)
                 }
         }
+        #if !os(tvOS)
+        // Downloads finish in the background; the system relaunches the app
+        // to hand over their results.
+        .backgroundTask(.urlSession(DownloadStore.wifiSessionID)) {
+            await DownloadStore.shared.waitForBackgroundEvents()
+        }
+        .backgroundTask(.urlSession(DownloadStore.cellularSessionID)) {
+            await DownloadStore.shared.waitForBackgroundEvents()
+        }
+        #endif
     }
 }

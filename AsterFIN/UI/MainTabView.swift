@@ -9,7 +9,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, liveTV, library, settings, search
+    case home, movies, shows, anime, music, liveTV, library, downloads, settings, search
 
     var title: String {
         switch self {
@@ -20,6 +20,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "Music"
         case .liveTV: "Live TV"
         case .library: "Library"
+        case .downloads: "Downloads"
         case .settings: "Settings"
         case .search: "Search"
         }
@@ -34,6 +35,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "music.note"
         case .liveTV: "antenna.radiowaves.left.and.right"
         case .library: "square.stack.fill"
+        case .downloads: "arrow.down.circle.fill"
         case .settings: "gearshape.fill"
         case .search: "magnifyingglass"
         }
@@ -67,6 +69,7 @@ struct MainTabView: View {
     @Environment(AppSession.self) private var session
     @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
     @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
+    @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var linkedPlayback: PlaybackRequest?
@@ -81,7 +84,7 @@ struct MainTabView: View {
         let order = TabLayout.order(from: tabOrder)
         let hidden = TabLayout.hidden(from: hiddenTabs)
         #endif
-        return order.filter { !hidden.contains($0) && session.hasContent(for: $0) }
+        return order.filter { !hidden.contains($0) && session.hasContent(for: $0) && ($0 != .downloads || downloadsEnabled) }
     }
 
     var body: some View {
@@ -144,6 +147,12 @@ struct MainTabView: View {
         case .music: BrowseStack { MusicView() }
         case .liveTV: BrowseStack { LiveTVView() }
         case .library: BrowseStack { LibraryView() }
+        case .downloads:
+            #if os(tvOS)
+            EmptyView()
+            #else
+            BrowseStack { DownloadsView() }
+            #endif
         case .settings: BrowseStack { SettingsView() }
         case .search: BrowseStack { SearchView() }
         }

@@ -31,6 +31,7 @@ nonisolated struct JellyfinUser: Codable, Sendable, Identifiable, Hashable {
     var hasPassword: Bool?
     var hasConfiguredPassword: Bool?
     var configuration: UserConfiguration?
+    var policy: UserPolicy?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -39,6 +40,17 @@ nonisolated struct JellyfinUser: Codable, Sendable, Identifiable, Hashable {
         case hasPassword = "HasPassword"
         case hasConfiguredPassword = "HasConfiguredPassword"
         case configuration = "Configuration"
+        case policy = "Policy"
+    }
+}
+
+/// What the server's administrator allows this user. Only what the app uses.
+nonisolated struct UserPolicy: Codable, Sendable, Hashable {
+    /// "Allow media downloading" in the user's settings on the server.
+    var enableContentDownloading: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case enableContentDownloading = "EnableContentDownloading"
     }
 }
 

@@ -13,7 +13,7 @@ import MediaAccessibility
 import SwiftUI
 
 /// One subtitle line, in seconds from the start of the title.
-nonisolated struct SubtitleCue: Sendable, Equatable {
+nonisolated struct SubtitleCue: Codable, Sendable, Equatable {
     var start: Double
     var end: Double
     var text: String

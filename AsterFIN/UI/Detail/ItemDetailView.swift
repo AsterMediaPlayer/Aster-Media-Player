@@ -228,6 +228,12 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @State private var model = DetailModel()
     @State private var playback: PlaybackRequest?
+    #if !os(tvOS)
+    @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
+    /// A title waiting on the first-download setup sheet.
+    @State private var downloadSetupItem: BaseItem?
+    @State private var downloadError: String?
+    #endif
     /// An OP/ED plugin theme playing, which isn't a Jellyfin item.
     @State private var urlPlayback: URLPlayback?
     /// A spoiler or NSFW theme waiting for the viewer's go-ahead.
@@ -416,6 +422,19 @@ struct ItemDetailView: View {
                 notice = "Added to \(name)."
             }
         }
+        #if !os(tvOS)
+        .sheet(item: $downloadSetupItem) { item in
+            DownloadSetupView { proceed in
+                downloadSetupItem = nil
+                if proceed { beginDownload(item) }
+            }
+        }
+        .alert("Couldn't Download", isPresented: Binding(get: { downloadError != nil }, set: { if !$0 { downloadError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(downloadError ?? "")
+        }
+        #endif
     }
 
     // MARK: Header
@@ -630,6 +649,9 @@ struct ItemDetailView: View {
                     Label("Delete Recording", systemImage: "trash")
                 }
             }
+            #if !os(tvOS)
+            downloadMenuItem
+            #endif
         } label: {
             Image(systemName: "ellipsis")
                 .font(Lockup.iconButtonFont)
@@ -641,6 +663,59 @@ struct ItemDetailView: View {
     }
 
 
+
+    #if !os(tvOS)
+    /// Download, its progress (tap to cancel), or Remove Download: movies and
+    /// episodes, when downloads are on and the server allows them.
+    @ViewBuilder
+    private var downloadMenuItem: some View {
+        let downloadable: [ItemKind] = [.movie, .episode, .video]
+        if downloadsEnabled, session.canDownload, downloadable.contains(detail.kind) {
+            let store = DownloadStore.shared
+            switch store.record(for: detail.id)?.state {
+            case .downloading:
+                let percent = Int((store.record(for: detail.id)?.progress ?? 0) * 100)
+                Button(role: .destructive) {
+                    store.remove(detail.id)
+                } label: {
+                    Label("Cancel Download (\(percent)%)", systemImage: "xmark.circle")
+                }
+            case .finished:
+                Button(role: .destructive) {
+                    store.remove(detail.id)
+                } label: {
+                    Label("Remove Download", systemImage: "trash")
+                }
+            case .failed, nil:
+                Button {
+                    if DownloadSettings.isSetUp {
+                        beginDownload(detail)
+                    } else {
+                        downloadSetupItem = detail
+                    }
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            }
+        }
+    }
+
+    private func beginDownload(_ item: BaseItem) {
+        guard let client = session.client else { return }
+        Task {
+            do {
+                let store = DownloadStore.shared
+                if store.record(for: item.id)?.state == .failed {
+                    try await store.retry(item.id, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
+                } else {
+                    try await store.start(item, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
+                }
+            } catch {
+                downloadError = error.localizedDescription
+            }
+        }
+    }
+    #endif
 
     /// Series and seasons add their episodes; everything else adds itself.
     private func addToPlaylist() {

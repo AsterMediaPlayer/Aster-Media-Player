@@ -70,6 +70,10 @@ final class AppSession {
         case .anime: !animeLibraries.isEmpty
         case .music: hasMusic
         case .liveTV: hasLiveTV
+        #if os(tvOS)
+        // Apple TV has no storage to download to.
+        case .downloads: false
+        #endif
         default: true
         }
     }
@@ -110,9 +114,15 @@ final class AppSession {
         )
     }
 
+    /// Whether the server lets this user download media; false until known.
+    private(set) var canDownload = false
+
     func refreshUserConfiguration() async {
-        guard let client, let me = try? await client.me(), let config = me.configuration else { return }
-        userConfiguration = config
+        guard let client, let me = try? await client.me() else { return }
+        canDownload = me.policy?.enableContentDownloading ?? false
+        if let config = me.configuration {
+            userConfiguration = config
+        }
     }
 
     /// Changes one or more settings and saves them to the server, keeping the
@@ -211,6 +221,15 @@ enum AppSettings {
     /// `TabLayout`).
     static let tabOrderKey = "AsterFIN.tabOrder"
     static let hiddenTabsKey = "AsterFIN.hiddenTabs"
+    /// Downloads (iPhone and iPad; see `DownloadStore`).
+    static let downloadsEnabledKey = "AsterFIN.downloadsEnabled"
+    static let downloadsSetUpKey = "AsterFIN.downloadsSetUp"
+    /// The most the downloads may take, in gigabytes; 0 for no limit.
+    static let downloadStorageLimitKey = "AsterFIN.downloadStorageLimit"
+    static let downloadQualityKey = "AsterFIN.downloadQuality"
+    static let downloadHEVCKey = "AsterFIN.downloadHEVC"
+    static let downloadSubtitlesKey = "AsterFIN.downloadSubtitles"
+    static let downloadCellularKey = "AsterFIN.downloadCellular"
 
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)

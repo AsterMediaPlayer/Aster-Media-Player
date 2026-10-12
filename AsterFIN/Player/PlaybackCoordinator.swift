@@ -149,6 +149,8 @@ final class PlaybackCoordinator {
     private var lastReport = Date.distantPast
     /// The current item is ready and playing.
     private(set) var hasStarted = false
+    /// The current item plays from a download on the device (iOS).
+    private var isDownloaded = false
     private var stopped = false
 
     init(client: JellyfinClient, request: PlaybackRequest, autoplayNext: Bool = true, autoSkipIntro: Bool = false, preferences: PlaybackPreferences = PlaybackPreferences()) {
@@ -198,6 +200,11 @@ final class PlaybackCoordinator {
         stopped = true
         countdownTask?.cancel()
         let position = currentPositionTicks
+        #if !os(tvOS)
+        if isDownloaded, hasStarted, let item = currentItem {
+            DownloadStore.shared.notePosition(itemId: item.id, ticks: position)
+        }
+        #endif
         pauseObservation = nil
         player.pause()
         removeObservers()
@@ -245,6 +252,16 @@ final class PlaybackCoordinator {
         upNext = nil
         showsUpNextAction = false
         autoSkipped = []
+        isDownloaded = false
+
+        #if !os(tvOS)
+        // A download plays from the device. Not for a clip, nor once it has
+        // failed to play: then the stream from the server takes over.
+        if entry.endTicks == nil, entry.fallback == .none, let download = DownloadStore.shared.playable(entry.itemId) {
+            await playDownload(download, entry: entry)
+            return
+        }
+        #endif
 
         do {
             let item = try await client.item(entry.itemId)
@@ -408,11 +425,47 @@ final class PlaybackCoordinator {
         }
     }
 
+    #if !os(tvOS)
+    /// Plays a downloaded title. Everything comes from the device, so it
+    /// plays with no connection: the saved stream (one audio track), its
+    /// subtitle track, skip markers and artwork. Progress reports still go
+    /// to the server, which gets them once it can be reached.
+    private func playDownload(_ download: DownloadRecord, entry: PlaybackQueueItem) async {
+        guard let url = DownloadStore.shared.assetURL(for: download) else { return }
+        isDownloaded = true
+        let item = download.item
+        currentItem = item
+        isLive = false
+        audioTracks = []
+        subtitleTracks = download.subtitleTrack.map { [$0] } ?? []
+        selectedAudioIndex = nil
+        preferredAudioLanguage = preferences.audioLanguage
+        selectedSubtitleIndex = entry.subtitleStreamIndex ?? download.subtitleTrack?.index ?? -1
+        playSessionId = nil
+        mediaSourceId = download.mediaSourceId
+        liveStreamId = nil
+        playMethod = "DirectPlay"
+
+        let asset = AVURLAsset(url: url)
+        let playerItem = AVPlayerItem(asset: asset)
+        playerItem.externalMetadata = await Self.metadata(for: item, client: client, artworkFile: DownloadStore.shared.artworkURL(for: item.id))
+        player.appliesMediaSelectionCriteriaAutomatically = true
+        if entry.startTicks > 0 {
+            playerItem.seek(to: CMTime(value: entry.startTicks, timescale: 10_000_000), toleranceBefore: .zero, toleranceAfter: .positiveInfinity, completionHandler: nil)
+        }
+        installObservers(for: playerItem, startTicks: entry.startTicks)
+        player.replaceCurrentItem(with: playerItem)
+        player.play()
+        loadSubtitles()
+        segments = download.segments
+    }
+    #endif
+
     // MARK: Track selection
 
     /// The subtitle track for a title: the entry's explicit choice (-1 for
     /// none) wins, then the user's preferences, then the server's default.
-    private static func resolveSubtitle(for entry: PlaybackQueueItem, source: MediaSourceInfo, among tracks: [MediaStream], preferences: PlaybackPreferences) -> Int {
+    static func resolveSubtitle(for entry: PlaybackQueueItem, source: MediaSourceInfo, among tracks: [MediaStream], preferences: PlaybackPreferences) -> Int {
         if let explicit = entry.subtitleStreamIndex { return explicit }
         let serverDefault = source.defaultSubtitleStreamIndex ?? -1
         let language = preferences.subtitleLanguage
@@ -439,7 +492,7 @@ final class PlaybackCoordinator {
 
     /// Text tracks are fetched and drawn by the app; the rest (PGS, VobSub)
     /// are pictures the server has to burn into the video.
-    private static func isTextTrack(_ track: MediaStream) -> Bool {
+    static func isTextTrack(_ track: MediaStream) -> Bool {
         track.isTextSubtitleStream ?? (track.deliveryMethod != "Encode")
     }
 
@@ -490,6 +543,15 @@ final class PlaybackCoordinator {
         subtitleCues = []
         subtitleText = nil
         isLoadingSubtitles = false
+        #if !os(tvOS)
+        if isDownloaded {
+            // The track saved with the download.
+            guard selectedSubtitleIndex >= 0, let itemId = currentItem?.id else { return }
+            subtitleCues = DownloadStore.shared.subtitleCues(for: itemId) ?? []
+            updateSubtitleText()
+            return
+        }
+        #endif
         guard index < queue.count, let mediaSourceId,
               let track = subtitleTracks.first(where: { $0.index == selectedSubtitleIndex }),
               Self.isTextTrack(track), let streamIndex = track.index else { return }
@@ -942,6 +1004,11 @@ final class PlaybackCoordinator {
         }
         guard hasStarted, reportsPlayback, let item = currentItem, Date().timeIntervalSince(lastReport) >= 10 else { return }
         lastReport = Date()
+        #if !os(tvOS)
+        if isDownloaded {
+            DownloadStore.shared.notePosition(itemId: item.id, ticks: currentPositionTicks)
+        }
+        #endif
         let report = makeReport(itemId: item.id, position: currentPositionTicks, paused: player.timeControlStatus != .playing)
         Task { await client.reportProgress(report) }
     }
@@ -963,7 +1030,8 @@ final class PlaybackCoordinator {
 
     // MARK: System player metadata
 
-    private static func metadata(for item: BaseItem, client: JellyfinClient) async -> [AVMetadataItem] {
+    /// `artworkFile`, for a download, is read instead of fetching the artwork.
+    private static func metadata(for item: BaseItem, client: JellyfinClient, artworkFile: URL? = nil) async -> [AVMetadataItem] {
         var items: [AVMetadataItem] = []
         var title = item.displayTitle
         var overview = item.overview
@@ -982,8 +1050,15 @@ final class PlaybackCoordinator {
         if let overview {
             items.append(metadataItem(.commonIdentifierDescription, value: overview))
         }
-        if let url = client.landscapeURL(for: item, width: 1200) ?? client.posterURL(for: item),
-           let data = try? await client.data(from: url) {
+        let data: Data?
+        if let artworkFile {
+            data = try? Data(contentsOf: artworkFile)
+        } else if let url = client.landscapeURL(for: item, width: 1200) ?? client.posterURL(for: item) {
+            data = try? await client.data(from: url)
+        } else {
+            data = nil
+        }
+        if let data {
             let artwork = AVMutableMetadataItem()
             artwork.identifier = .commonIdentifierArtwork
             artwork.value = data as NSData

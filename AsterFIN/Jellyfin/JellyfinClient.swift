@@ -434,7 +434,7 @@ nonisolated final class JellyfinClient: Sendable {
     /// server for picture-based tracks, which it burns in; -1 means none.
     /// `mostCompatible` asks for a fresh 8-bit H.264 + AAC encode, copying
     /// nothing from the file: the last resort when other streams won't play.
-    func playbackInfo(itemId: String, mediaSourceId: String? = nil, startTicks: Int64, maxBitrate: Int, audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, allowDirect: Bool = true, mostCompatible: Bool = false) async throws -> PlaybackInfoResponse {
+    func playbackInfo(itemId: String, mediaSourceId: String? = nil, startTicks: Int64, maxBitrate: Int, audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, allowDirect: Bool = true, mostCompatible: Bool = false, profile: DeviceProfile? = nil) async throws -> PlaybackInfoResponse {
         let user = try requireUser()
         nonisolated struct Body: Encodable, Sendable {
             var DeviceProfile: DeviceProfile
@@ -453,7 +453,7 @@ nonisolated final class JellyfinClient: Sendable {
         }
         let direct = allowDirect && !mostCompatible
         let body = Body(
-            DeviceProfile: mostCompatible ? .appleTVMostCompatible(maxBitrate: maxBitrate) : .appleTV(maxBitrate: maxBitrate),
+            DeviceProfile: profile ?? (mostCompatible ? .appleTVMostCompatible(maxBitrate: maxBitrate) : .appleTV(maxBitrate: maxBitrate)),
             MediaSourceId: mediaSourceId,
             StartTimeTicks: startTicks,
             MaxStreamingBitrate: maxBitrate,
@@ -1115,6 +1115,34 @@ nonisolated struct DeviceProfile: Encodable, Sendable {
                 .init(Condition: "NotEquals", Property: "IsAnamorphic", Value: "true"),
             ]),
         ]
+        return profile
+    }
+
+    /// A file for offline viewing on a phone or tablet: always an HLS stream
+    /// (so it downloads in segments and resumes), with stereo AAC, at most
+    /// `maxWidth` pixels wide. The video is copied when it already fits.
+    static func download(maxBitrate: Int, maxWidth: Int?, allowHEVC: Bool) -> DeviceProfile {
+        var profile = appleTV(maxBitrate: maxBitrate)
+        profile.Name = "AsterFIN Download"
+        profile.DirectPlayProfiles = []
+        let videoCodecs = allowHEVC ? "hevc,h264" : "h264"
+        profile.TranscodingProfiles = [
+            TranscodingProfile(Container: "mp4", kind: "Video", VideoCodec: videoCodecs, AudioCodec: "aac", Protocol: "hls", MaxAudioChannels: "2"),
+        ]
+        let sizeLimit: [CodecProfile.Condition] = maxWidth.map {
+            [.init(Condition: "LessThanEqual", Property: "Width", Value: String($0))]
+        } ?? []
+        profile.CodecProfiles = [
+            CodecProfile(kind: "Video", Codec: "h264", Conditions: [
+                .init(Condition: "LessThanEqual", Property: "VideoLevel", Value: "52"),
+                .init(Condition: "NotEquals", Property: "IsAnamorphic", Value: "true"),
+            ] + sizeLimit),
+        ]
+        if allowHEVC {
+            profile.CodecProfiles.append(CodecProfile(kind: "Video", Codec: "hevc", Conditions: [
+                .init(Condition: "NotEquals", Property: "IsAnamorphic", Value: "true"),
+            ] + sizeLimit))
+        }
         return profile
     }
 }

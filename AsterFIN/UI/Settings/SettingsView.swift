@@ -219,6 +219,7 @@ private struct PlaybackSettingsView: View {
 
 private struct AudioSubtitleSettingsView: View {
     @Environment(AppSession.self) private var session
+    @AppStorage(AppSettings.styledSubtitlesKey) private var styledSubtitles = true
 
     /// ISO 639-2 codes as Jellyfin stores them, with an "Any" entry.
     private static let languages: [(code: String, name: String)] = [
@@ -294,6 +295,10 @@ private struct AudioSubtitleSettingsView: View {
                 SettingsNote(session.userConfiguration == nil
                      ? "Saved on this \(deviceName). These sync with your Jellyfin profile once the server settings load."
                      : "Synced with your Jellyfin profile, so the web app and this \(deviceName) make the same choices. A title's own Audio & Subtitles menu overrides them for that title.")
+            }
+            Section("Styled Subtitles") {
+                Toggle("Draw ASS and SSA subtitles as styled", isOn: $styledSubtitles)
+                SettingsNote("Draws anime subtitles as the release intended: signs where they belong on screen, their drawings, and the fonts inside the file. Turn off for plain text at the bottom, in your caption style.")
             }
         }
     }

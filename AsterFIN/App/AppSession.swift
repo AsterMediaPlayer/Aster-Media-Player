@@ -222,6 +222,9 @@ enum AppSettings {
     static let openingSoundKey = "AsterFIN.openingSound"
     /// The song card as an episode's opening or ending plays. On by default.
     static let themeCardsKey = "AsterFIN.themeCards"
+    /// ASS/SSA tracks drawn with libass (positions, drawings, fonts) rather
+    /// than as plain text. On by default.
+    static let styledSubtitlesKey = "AsterFIN.styledSubtitles"
     /// iPhone and iPad: the tabs in the order chosen, and those hidden (see
     /// `TabLayout`).
     static let tabOrderKey = "AsterFIN.tabOrder"
@@ -248,6 +251,10 @@ enum AppSettings {
 
     static var themeCards: Bool {
         UserDefaults.standard.object(forKey: themeCardsKey) as? Bool ?? true
+    }
+
+    static var styledSubtitles: Bool {
+        UserDefaults.standard.object(forKey: styledSubtitlesKey) as? Bool ?? true
     }
 
     /// Jump past intros without asking. Off by default.

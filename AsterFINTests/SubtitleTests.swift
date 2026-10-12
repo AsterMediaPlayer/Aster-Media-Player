@@ -32,6 +32,17 @@ struct SubtitleTests {
         #expect(SubtitleCue.plainText("<c.yellow>&lt;tag&gt;</c>") == "<tag>")
     }
 
+    @Test func leavesOutDrawings() {
+        // A sign's box: only shape commands, so nothing to show.
+        #expect(SubtitleCue.plainText("{\\an7\\pos(336,172)\\blur1\\p1}m 278 -116 l 278 201 -276 203") == "")
+        // Text, a drawing, then text again once \p0 ends it.
+        #expect(SubtitleCue.plainText("Before{\\p1}m 0 0 l 10 0 10 10{\\p0} after") == "Before after")
+        // \pos and \pbo are not drawing mode.
+        #expect(SubtitleCue.plainText("{\\pos(10,20)\\pbo5}Sign text") == "Sign text")
+        // The last \p in a block wins.
+        #expect(SubtitleCue.plainText("{\\p1\\p0}Shown") == "Shown")
+    }
+
     @Test func findsCuesUnderThePlayhead() {
         let cues = [
             SubtitleCue(start: 1, end: 3, text: "A"),

@@ -68,7 +68,11 @@ struct PlayerView: View {
                 .overlay {
                     // The app's own subtitles, drawn over the system player.
                     if !coordinator.endCardVisible {
-                        SubtitleOverlayView(text: coordinator.subtitleText)
+                        if let track = coordinator.assTrack {
+                            AssSubtitleOverlay(track: track, videoSize: coordinator.videoSize)
+                        } else {
+                            SubtitleOverlayView(text: coordinator.subtitleText)
+                        }
                     }
                 }
                 .overlay {

@@ -478,6 +478,24 @@ nonisolated final class JellyfinClient: Sendable {
         return try SubtitleCue.parse(json: data)
     }
 
+    /// An ASS/SSA track as the script itself, with its styles and
+    /// positions, for drawing with libass. Extracted on first request, as
+    /// with `subtitleCues`.
+    func subtitleScript(itemId: String, mediaSourceId: String, streamIndex: Int) async throws -> String {
+        var request = authorizedRequest(url("/Videos/\(itemId)/\(mediaSourceId)/Subtitles/\(streamIndex)/Stream.ass"))
+        request.timeoutInterval = 600
+        let (data, _) = try await send(request)
+        guard let script = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            throw JellyfinError.decoding("Subtitle script isn't text")
+        }
+        return script
+    }
+
+    /// A file embedded in the video's container, such as a font.
+    func attachment(itemId: String, mediaSourceId: String, index: Int) async throws -> Data {
+        try await send(authorizedRequest(url("/Videos/\(itemId)/\(mediaSourceId)/Attachments/\(index)"))).0
+    }
+
     func reportStart(_ report: PlaybackReport) async {
         try? await post("/Sessions/Playing", body: report)
     }

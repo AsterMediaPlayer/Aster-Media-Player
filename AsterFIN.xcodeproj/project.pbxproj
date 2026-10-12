@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CC358C56307D252800AC8EC1 /* SwiftAssRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = CC358C55307D252800AC8EC1 /* SwiftAssRenderer */; };
 		CC98BBB0307A859700B87F6E /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC98BBAF307A859700B87F6E /* TVServices.framework */; };
 		CC98BBB7307A859700B87F6E /* AsterFINTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */; platformFilters = (tvos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -92,6 +93,7 @@
 		CC43C0653079BD3E008B3A22 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				CC358C56307D252800AC8EC1 /* SwiftAssRenderer in Frameworks */,
 			);
 		};
 		CC43C0773079BEAC008B3A22 /* Frameworks */ = {
@@ -158,6 +160,9 @@
 				CC43C06A3079BD3E008B3A22 /* AsterFIN */,
 			);
 			name = AsterFIN;
+			packageProductDependencies = (
+				CC358C55307D252800AC8EC1 /* SwiftAssRenderer */,
+			);
 			productName = AsterFIN;
 			productReference = CC43C0683079BD3E008B3A22 /* AsterFIN.app */;
 			productType = "com.apple.product-type.application";
@@ -231,6 +236,9 @@
 			);
 			mainGroup = CC43C05F3079BD3E008B3A22;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CC358C54307D252800AC8EC1 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC43C0693079BD3E008B3A22 /* Products */;
 			projectDirPath = "";
@@ -656,6 +664,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CC358C54307D252800AC8EC1 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mihai8804858/swift-ass-renderer";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC358C55307D252800AC8EC1 /* SwiftAssRenderer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC358C54307D252800AC8EC1 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */;
+			productName = SwiftAssRenderer;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CC43C0603079BD3E008B3A22 /* Project object */;
 	validationLevel = 1;

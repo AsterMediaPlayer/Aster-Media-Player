@@ -296,6 +296,8 @@ nonisolated struct MediaSourceInfo: Codable, Sendable, Hashable, Identifiable {
     var requiresOpening: Bool?
     var defaultAudioStreamIndex: Int?
     var defaultSubtitleStreamIndex: Int?
+    /// Files embedded in the container, such as the fonts an ASS track uses.
+    var mediaAttachments: [MediaAttachment]?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -317,6 +319,27 @@ nonisolated struct MediaSourceInfo: Codable, Sendable, Hashable, Identifiable {
         case requiresOpening = "RequiresOpening"
         case defaultAudioStreamIndex = "DefaultAudioStreamIndex"
         case defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
+        case mediaAttachments = "MediaAttachments"
+    }
+}
+
+/// A file inside a video's container, e.g. an MKV's fonts.
+nonisolated struct MediaAttachment: Codable, Sendable, Hashable {
+    var index: Int
+    var fileName: String?
+    var mimeType: String?
+
+    /// Whether this is a font a subtitle track can use.
+    var isFont: Bool {
+        if let mimeType, mimeType.lowercased().contains("font") { return true }
+        let name = (fileName ?? "").lowercased()
+        return [".ttf", ".otf", ".ttc"].contains { name.hasSuffix($0) }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case index = "Index"
+        case fileName = "FileName"
+        case mimeType = "MimeType"
     }
 }
 

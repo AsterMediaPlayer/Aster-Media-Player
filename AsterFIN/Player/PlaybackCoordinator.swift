@@ -154,6 +154,13 @@ final class PlaybackCoordinator {
     private(set) var isLoadingSubtitles = false
     private var subtitleCues: [SubtitleCue] = []
     private var subtitleTask: Task<Void, Never>?
+    /// The chosen ASS/SSA track when it's drawn by libass, in place of
+    /// `subtitleText` (see `AssSubtitleOverlay`).
+    private(set) var assTrack: AssSubtitleTrack?
+    /// The picture's size, for placing styled subtitles over it.
+    private(set) var videoSize: CGSize = .zero
+    /// The current file's embedded files, such as an ASS track's fonts.
+    private var mediaAttachments: [MediaAttachment] = []
     /// The audio language to pick when the stream offers several tracks.
     private var preferredAudioLanguage: String?
     private var lastReport = Date.distantPast
@@ -227,7 +234,7 @@ final class PlaybackCoordinator {
             Task { await client.closeLiveStream(id) }
         }
         stopUnreportedTranscode()
-        subtitleTask?.cancel()
+        clearSubtitles()
         player.replaceCurrentItem(with: nil)
     }
 
@@ -342,6 +349,7 @@ final class PlaybackCoordinator {
             selectedSubtitleIndex = chosenSubtitle
             playSessionId = info.playSessionId
             mediaSourceId = source.id
+            mediaAttachments = source.mediaAttachments ?? item.mediaSources?.first { $0.id == source.id }?.mediaAttachments ?? []
             liveStreamId = source.liveStreamId
             isLive = source.isInfiniteStream == true || item.kind == .tvChannel
 
@@ -604,10 +612,7 @@ final class PlaybackCoordinator {
     /// Fetches the chosen text track and starts showing its cues. Nothing
     /// to fetch for none, or for a track burned into the picture.
     private func loadSubtitles() {
-        subtitleTask?.cancel()
-        subtitleCues = []
-        subtitleText = nil
-        isLoadingSubtitles = false
+        clearSubtitles()
         #if !os(tvOS)
         if isDownloaded {
             // The track saved with the download.
@@ -622,8 +627,29 @@ final class PlaybackCoordinator {
               Self.isTextTrack(track), let streamIndex = track.index else { return }
         let itemId = queue[index].itemId
         let client = client
+        let styled = AppSettings.styledSubtitles && AssSubtitleTrack.isAvailable && AssSubtitleTrack.handles(track)
+        let attachments = mediaAttachments
         isLoadingSubtitles = true
         subtitleTask = Task { [weak self] in
+            if styled {
+                // Drawn by libass; on failure the same track falls back to text.
+                do {
+                    let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex, attachments: attachments, client: client)
+                    guard !Task.isCancelled, let self, self.selectedSubtitleIndex == streamIndex else {
+                        loaded.unload()
+                        return
+                    }
+                    self.isLoadingSubtitles = false
+                    self.assTrack = loaded
+                    self.updateSubtitleText()
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    #if DEBUG
+                    print("DEBUG subtitles: styled track \(streamIndex) failed (\(error)); showing it as text")
+                    #endif
+                }
+            }
             do {
                 let cues = try await client.subtitleCues(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex)
                 guard !Task.isCancelled, let self else { return }
@@ -641,9 +667,17 @@ final class PlaybackCoordinator {
         }
     }
 
-    /// Called ten times a second: shows the cue under the playhead.
+    /// Called 30 times a second: shows the cue under the playhead, or moves
+    /// a styled track on (signs can slide and fade, so 10 a second judders).
     private func updateSubtitleText() {
         let time = player.currentTime().seconds
+        if let size = player.currentItem?.presentationSize, size != videoSize, size.width > 0 {
+            videoSize = size
+        }
+        if let assTrack {
+            assTrack.update(seconds: time)
+            return
+        }
         let text = time.isFinite ? SubtitleCue.text(at: time, in: subtitleCues) : nil
         if text != subtitleText {
             subtitleText = text
@@ -656,6 +690,8 @@ final class PlaybackCoordinator {
         subtitleCues = []
         subtitleText = nil
         isLoadingSubtitles = false
+        assTrack?.unload()
+        assTrack = nil
     }
 
     // MARK: Changing tracks during playback
@@ -990,7 +1026,7 @@ final class PlaybackCoordinator {
             }
         }
 
-        subtitleObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 10), queue: .main) { [weak self] _ in
+        subtitleObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateSubtitleText()
             }
@@ -1032,7 +1068,7 @@ final class PlaybackCoordinator {
             // app's cues step aside for it.
             if let group = try? await item.asset.loadMediaSelectionGroup(for: .legible),
                item.currentMediaSelection.selectedMediaOption(in: group) != nil,
-               !subtitleCues.isEmpty || isLoadingSubtitles {
+               !subtitleCues.isEmpty || assTrack != nil || isLoadingSubtitles {
                 clearSubtitles()
             }
             // Only direct play offers more than one audio option (the file's

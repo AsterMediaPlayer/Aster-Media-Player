@@ -66,7 +66,7 @@ nonisolated struct SubtitleCue: Codable, Sendable, Equatable {
     /// Cue text as it should read on screen: line breaks kept, markup
     /// (`<i>`, `{\an8}`, `<br>`) removed, entities decoded.
     static func plainText(_ raw: String) -> String {
-        var text = raw
+        var text = withoutDrawings(raw)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\\N", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
@@ -82,6 +82,34 @@ nonisolated struct SubtitleCue: Codable, Sendable, Equatable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    /// ASS text with its vector drawings left out. `{\p1}` (any `\p` above
+    /// 0) makes the text that follows shape commands, such as the boxes
+    /// behind signs ("m 0 0 l 100 0 100 50"), until `{\p0}`; shown as
+    /// text they read as coordinates. `\pos` and `\pbo` are other tags.
+    static func withoutDrawings(_ raw: String) -> String {
+        guard raw.contains("\\p") else { return raw }
+        let drawingTag = /\\p(\d+)(?![a-z])/
+        var result = ""
+        var drawing = false
+        var rest = Substring(raw)
+        while let open = rest.firstIndex(of: "{") {
+            if !drawing { result += rest[..<open] }
+            guard let close = rest[open...].firstIndex(of: "}") else {
+                rest = rest[open...]
+                break
+            }
+            let block = rest[open...close]
+            // The last \p in a block decides, as in a renderer.
+            if let last = block.matches(of: drawingTag).last, let level = Int(last.output.1) {
+                drawing = level > 0
+            }
+            result += block
+            rest = rest[rest.index(after: close)...]
+        }
+        if !drawing { result += rest }
+        return result
     }
 }
 

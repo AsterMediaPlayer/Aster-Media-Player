@@ -95,7 +95,7 @@ final class AppSession {
 
     init() {
         restore()
-        music.onStart = { [weak self] in self?.theme.hide() }
+        music.onStart = { [weak self] in self?.theme.hide(evenIfShowing: true) }
         UserDefaults(suiteName: Self.appGroup)?.set(JellyfinDevice.deviceId, forKey: "AsterFIN.deviceId")
     }
 

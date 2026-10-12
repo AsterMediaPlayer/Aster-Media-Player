@@ -239,14 +239,37 @@ final class ThemePlayer {
         return (url, info.playSessionId)
     }
 
+    /// Title pages showing each theme (by series or item id). The Mac can
+    /// build a page twice and drop the spare at once; counting means that
+    /// spare going away doesn't stop the theme the real page started.
+    private var pagesShowing: [String: Int] = [:]
+
+    /// A title page for `item` is on screen.
+    func pageAppeared(for item: BaseItem) {
+        pagesShowing[item.seriesId ?? item.id, default: 0] += 1
+        hideTask?.cancel()
+        hideTask = nil
+    }
+
+    /// A title page for `item` went away; the theme fades once none is left.
+    func pageDisappeared(for item: BaseItem) {
+        let themeKey = item.seriesId ?? item.id
+        let left = (pagesShowing[themeKey] ?? 1) - 1
+        pagesShowing[themeKey] = left > 0 ? left : nil
+        if left <= 0 { hide() }
+    }
+
     /// Fades the theme out. Delayed slightly so pushing from a series to one of
-    /// its episodes keeps the music going instead of restarting it.
-    func hide() {
+    /// its episodes keeps the music going instead of restarting it. With
+    /// `evenIfShowing` (music starting elsewhere) it goes regardless of pages.
+    func hide(evenIfShowing: Bool = false) {
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.release()
+            guard !Task.isCancelled, let self else { return }
+            // A page for this theme came (back) in the meantime.
+            if !evenIfShowing, let key = self.key, self.pagesShowing[key] != nil { return }
+            self.release()
         }
     }
 

@@ -87,6 +87,10 @@ final class KeyboardTargets {
     /// How each pushed page goes back: its own dismiss action.
     @ObservationIgnored private var dismissals: [UUID: () -> Void] = [:]
 
+    /// Each page's last selection, given back when the keyboard returns to
+    /// it after a page opened over it closes.
+    @ObservationIgnored private var lastSelections: [UUID: UUID] = [:]
+
     func pageAppeared(_ page: UUID, on tab: AppTab?, dismiss: (() -> Void)?) {
         pages[tab, default: []].removeAll { $0 == page }
         pages[tab, default: []].append(page)
@@ -99,6 +103,11 @@ final class KeyboardTargets {
     func pageDisappeared(_ page: UUID, on tab: AppTab?) {
         pages[tab]?.removeAll { $0 == page }
         dismissals[page] = nil
+        lastSelections[page] = nil
+        // Back on the page underneath: its card from before is selected again.
+        if let front = pages[tab]?.last, let saved = lastSelections[front], targets[saved] != nil {
+            selected = saved
+        }
         #if DEBUG
         sidebarDebugLog.notice("page disappeared \(page.uuidString.prefix(4), privacy: .public) tab=\(tab?.rawValue ?? "nil", privacy: .public) stack=\(self.pages[tab]?.map { String($0.uuidString.prefix(4)) }.joined(separator: ",") ?? "", privacy: .public)")
         #endif
@@ -165,6 +174,7 @@ final class KeyboardTargets {
 
     private func select(_ id: UUID) {
         selected = id
+        if let page = targets[id]?.page { lastSelections[page] = id }
         if let frame = targets[id]?.frame {
             #if DEBUG
             sidebarDebugLog.notice("targets selected frame=\(String(describing: frame), privacy: .public) window=\(String(describing: Self.windowBounds), privacy: .public)")

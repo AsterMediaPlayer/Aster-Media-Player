@@ -275,7 +275,10 @@ struct MainTabView: View {
         }
         // Esc goes back a page, as the back button does.
         if key == .exit {
-            return KeyboardTargets.shared.goBack(on: tab) ? .handled : .ignored
+            guard KeyboardTargets.shared.goBack(on: tab) else { return .ignored }
+            // Closing the page takes the window's key focus with it.
+            restoreKeyboardFocus()
+            return .handled
         }
         // A page's own handling applies at its top level, not under a page
         // pushed over it.
@@ -338,6 +341,13 @@ struct MainTabView: View {
         // focus with it, so the content is given it back, now and again
         // once the slide is over.
         WindowSidebar.setShown(false)
+        restoreKeyboardFocus()
+    }
+
+    /// Gives the keyboard back to the page after something took the window's
+    /// key focus with it (the sidebar collapsing, a page closing): now, and
+    /// again once the animation is over.
+    private func restoreKeyboardFocus() {
         WindowSidebar.returnKeyboardToContent()
         claimKeyboard()
         Task {
@@ -345,7 +355,7 @@ struct MainTabView: View {
             WindowSidebar.returnKeyboardToContent()
             claimKeyboard()
             #if DEBUG
-            sidebarDebugLog.notice("after leaveSidebar firstResponder=\(String(describing: (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder.map { type(of: $0) }), privacy: .public)")
+            sidebarDebugLog.notice("restoreKeyboardFocus firstResponder=\(String(describing: (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder.map { type(of: $0) }), privacy: .public)")
             #endif
         }
     }

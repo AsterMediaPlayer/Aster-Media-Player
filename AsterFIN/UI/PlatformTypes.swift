@@ -77,6 +77,15 @@ final class PlayerLayerHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Hands the player over again once in the window: given it before, the
+    /// layer sometimes stayed black though the video played.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, let current = playerLayer.player else { return }
+        playerLayer.player = nil
+        playerLayer.player = current
+    }
 }
 #endif
 

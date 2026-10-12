@@ -403,9 +403,10 @@ struct ItemDetailView: View {
                 await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
             }
         }
+        .onAppear { session.theme.pageAppeared(for: item) }
         .onDisappear {
             if watchingOpening { stopWatchingOpening() }
-            session.theme.hide()
+            session.theme.pageDisappeared(for: item)
         }
         .onChange(of: playback != nil || urlPlayback != nil || showDiscMenu) { _, covered in
             // Quiet the theme while a video or disc menu is on screen.

@@ -24,6 +24,8 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: session.phase)
+        // macOS draws full-screen presentations (the player...) from here.
+        .appCoverHost()
     }
 }
 

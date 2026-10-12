@@ -14,7 +14,7 @@ struct SeriesTimerOptionsView: View {
     var onChanged: () -> Void = {}
 
     @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.coverDismiss) private var dismiss
     @State private var timer: SeriesTimerInfo?
     @State private var isWorking = false
     @State private var confirmCancel = false
@@ -35,7 +35,9 @@ struct SeriesTimerOptionsView: View {
         // No remote Back button on iOS: a navigation bar gives a way out.
         NavigationStack {
             form
+                #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
+                #endif
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }

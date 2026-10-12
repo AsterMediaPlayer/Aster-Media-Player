@@ -7,28 +7,27 @@
 //
 
 import SwiftUI
-import UIKit
 
 /// Decoded images shared across the app. Network responses are also cached on
 /// disk by the client's image URLSession.
 final class ImageStore {
     static let shared = ImageStore()
 
-    private let cache = NSCache<NSURL, UIImage>()
-    private var inFlight: [URL: Task<UIImage?, Never>] = [:]
+    private let cache = NSCache<NSURL, PlatformImage>()
+    private var inFlight: [URL: Task<PlatformImage?, Never>] = [:]
 
     init() {
         cache.totalCostLimit = 300 * 1024 * 1024
     }
 
-    func cached(_ url: URL) -> UIImage? {
+    func cached(_ url: URL) -> PlatformImage? {
         cache.object(forKey: url as NSURL)
     }
 
-    func image(for url: URL, client: JellyfinClient?) async -> UIImage? {
+    func image(for url: URL, client: JellyfinClient?) async -> PlatformImage? {
         if let hit = cache.object(forKey: url as NSURL) { return hit }
         if let task = inFlight[url] { return await task.value }
-        let task = Task<UIImage?, Never> {
+        let task = Task<PlatformImage?, Never> {
             let data: Data?
             if url.scheme == "data" {
                 data = try? Data(contentsOf: url)
@@ -41,7 +40,7 @@ final class ImageStore {
             } else {
                 data = nil
             }
-            guard let data, let image = UIImage(data: data) else {
+            guard let data, let image = PlatformImage(data: data) else {
                 #if DEBUG
                 if let data {
                     let head = data.prefix(12).map { String(format: "%02x", $0) }.joined()
@@ -50,13 +49,17 @@ final class ImageStore {
                 #endif
                 return nil
             }
+            #if canImport(UIKit)
             return await image.byPreparingForDisplay() ?? image
+            #else
+            return image
+            #endif
         }
         inFlight[url] = task
         let result = await task.value
         inFlight[url] = nil
         if let result {
-            let cost = Int(result.size.width * result.size.height * result.scale * result.scale * 4)
+            let cost = result.platformCGImage.map { $0.bytesPerRow * $0.height } ?? Int(result.size.width * result.size.height * 4)
             cache.setObject(result, forKey: url as NSURL, cost: cost)
         }
         return result
@@ -79,13 +82,13 @@ struct RemoteImage<Placeholder: View>: View {
     @ViewBuilder var placeholder: () -> Placeholder
 
     @Environment(AppSession.self) private var session
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         ZStack {
             if let image {
                 if stretch {
-                    Image(uiImage: image)
+                    Image(platformImage: image)
                         .resizable()
                         .transition(.opacity)
                 } else if contentMode == .fill {
@@ -93,14 +96,14 @@ struct RemoteImage<Placeholder: View>: View {
                     // size to the proposal and crop the overflow.
                     Color.clear
                         .overlay {
-                            Image(uiImage: image)
+                            Image(platformImage: image)
                                 .resizable()
                                 .scaledToFill()
                         }
                         .clipped()
                         .transition(.opacity)
                 } else {
-                    Image(uiImage: image)
+                    Image(platformImage: image)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
                         .transition(.opacity)

@@ -32,7 +32,7 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
-                #if !os(tvOS)
+                #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {
                     Label("Tab Bar", systemImage: "rectangle.bottomhalf.inset.filled")
                 }
@@ -61,16 +61,16 @@ struct SettingsView: View {
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
             case .tabBar:
-                #if os(tvOS)
-                EmptyView()
-                #else
+                #if os(iOS)
                 TabBarSettingsView()
+                #else
+                EmptyView()
                 #endif
             case .downloads:
-                #if os(tvOS)
-                EmptyView()
-                #else
+                #if os(iOS)
                 DownloadSettingsView()
+                #else
+                EmptyView()
                 #endif
             case .account: AccountSettingsView()
             case .about: AboutSettingsView()
@@ -78,6 +78,31 @@ struct SettingsView: View {
         }
     }
 }
+
+#if os(macOS)
+/// The Mac's Settings window (AsterFIN › Settings…, ⌘,): a pane per section,
+/// as Mac apps do, in place of the Settings tab the other platforms have.
+struct MacSettingsView: View {
+    var body: some View {
+        TabView {
+            PlaybackSettingsView()
+                .tabItem { Label("Playback", systemImage: "play.rectangle") }
+            AudioSubtitleSettingsView()
+                .tabItem { Label("Audio & Subtitles", systemImage: "captions.bubble") }
+            DiscMenuSettingsView()
+                .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
+            TitlePageSettingsView()
+                .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
+            AccountSettingsView()
+                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            AboutSettingsView()
+                .tabItem { Label("About", systemImage: "info.circle") }
+        }
+        .frame(width: 560)
+        .frame(minHeight: 380)
+    }
+}
+#endif
 
 /// A settings form with the large page title as its first row, like the
 /// in-page titles elsewhere. (A navigation bar title would add a second bar
@@ -87,6 +112,13 @@ private struct SettingsPage<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        #if os(macOS)
+        // A pane of the Settings window, whose tab names it.
+        Form {
+            content()
+        }
+        .formStyle(.grouped)
+        #else
         Form {
             Section {
                 Text(title)
@@ -96,6 +128,7 @@ private struct SettingsPage<Content: View>: View {
             }
             content()
         }
+        #endif
     }
 }
 
@@ -103,6 +136,8 @@ private struct SettingsPage<Content: View>: View {
 private var deviceName: String {
     #if os(tvOS)
     "Apple TV"
+    #elseif os(macOS)
+    "Mac"
     #else
     UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
     #endif
@@ -130,11 +165,21 @@ private struct SettingsChoiceRow<Value: Hashable>: View {
     let selection: Binding<Value>
 
     var body: some View {
+        #if os(macOS)
+        // The Settings window has no pages to push: a pop-up menu.
+        Picker(title, selection: selection) {
+            ForEach(options, id: \.value) { option in
+                Text(option.name).tag(option.value)
+            }
+        }
+        .pickerStyle(.menu)
+        #else
         NavigationLink {
             SettingsChoicePage(title: title, options: options, selection: selection)
         } label: {
             LabeledContent(title, value: options.first { $0.value == selection.wrappedValue }?.name ?? "")
         }
+        #endif
     }
 }
 
@@ -346,7 +391,7 @@ private struct TitlePageSettingsView: View {
 
 // MARK: - Tab Bar
 
-#if !os(tvOS)
+#if os(iOS)
 /// Which tabs show on iPhone and iPad, and in what order. The list is
 /// always in edit mode, so each row can be dragged; the switch hides it.
 private struct TabBarSettingsView: View {
@@ -409,7 +454,7 @@ private struct TabBarSettingsView: View {
 
 // MARK: - Downloads
 
-#if !os(tvOS)
+#if os(iOS)
 /// Downloads on or off, then where and how they're saved.
 private struct DownloadSettingsView: View {
     @Environment(AppSession.self) private var session
@@ -486,7 +531,7 @@ private struct AboutSettingsView: View {
             Section {
                 LabeledContent("AsterFIN", value: "1.0")
                     .focusable()
-                SettingsNote("A Jellyfin client for Apple TV, iPhone and iPad with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
+                SettingsNote("A Jellyfin client for Apple TV, iPhone, iPad and Mac with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
                     .focusable()
             }
         }

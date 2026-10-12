@@ -453,7 +453,7 @@ struct SongsList: View {
         Color.clear
             .frame(height: 1)
             .task { await load(reset: true) }
-            .fullScreenCover(isPresented: $showPlaylistPicker) {
+            .appCover(isPresented: $showPlaylistPicker) {
                 PlaylistPickerView(itemIds: playlistTargets, mediaType: "Audio") { name in
                     notice = "Added to \(name)."
                 }
@@ -481,6 +481,7 @@ struct SquareLockup: View {
     var action: (() -> Void)? = nil
 
     @Environment(AppSession.self) private var session
+    @Environment(\.openItem) private var openItem
 
     private var subtitle: String? {
         switch item.kind {
@@ -501,6 +502,7 @@ struct SquareLockup: View {
                 }
             }
             .cardButtonStyle()
+            .keyboardTarget { if let action { action() } else { openItem?(item) } }
             .accessibilityLabel([item.displayTitle, subtitle].compactMap { $0 }.joined(separator: ", "))
 
             Text(item.displayTitle)
@@ -538,6 +540,7 @@ struct ArtistLockup: View {
                     .clipShape(Circle())
             }
             .cardButtonStyle()
+            .keyboardTarget(opening: artist)
             .clipShape(Circle())
             .accessibilityLabel(artist.displayTitle)
 
@@ -603,15 +606,18 @@ struct TrackRow: View {
     #endif
 
     var body: some View {
-        if contextActions.isEmpty {
-            button
-        } else {
-            button.contextMenu {
-                ForEach(contextActions) { entry in
-                    Button(entry.title, systemImage: entry.systemImage, role: entry.role, action: entry.action)
+        Group {
+            if contextActions.isEmpty {
+                button
+            } else {
+                button.contextMenu {
+                    ForEach(contextActions) { entry in
+                        Button(entry.title, systemImage: entry.systemImage, role: entry.role, action: entry.action)
+                    }
                 }
             }
         }
+        .keyboardTarget(action: action)
     }
 
     private var button: some View {
@@ -734,7 +740,7 @@ struct AlbumView: View {
             .scrollClipDisabled()
         }
         .task(id: item.id) { await load() }
-        .fullScreenCover(isPresented: $showPlaylistPicker) {
+        .appCover(isPresented: $showPlaylistPicker) {
             PlaylistPickerView(itemIds: playlistTargets, mediaType: "Audio") { name in
                 notice = "Added to \(name)."
             }
@@ -1102,7 +1108,7 @@ struct NowPlayingBar: View {
 /// The full-screen player: artwork, progress, transport controls and what's next.
 struct NowPlayingView: View {
     @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.coverDismiss) private var dismiss
     @FocusState private var focusedControl: String?
     @State private var showLyrics = false
 

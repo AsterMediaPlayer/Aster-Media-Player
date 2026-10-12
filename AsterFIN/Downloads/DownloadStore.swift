@@ -9,7 +9,7 @@
 //  device whether or not the server can be reached.
 //
 
-#if !os(tvOS)
+#if os(iOS)
 import AVFoundation
 import Foundation
 import Observation

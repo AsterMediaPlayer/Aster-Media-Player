@@ -79,7 +79,9 @@ struct SignInView: View {
                     VStack(spacing: Onboarding.controlSpacing) {
                         TextField("User name", text: $username)
                             .textContentType(.username)
+                            #if !os(macOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .onboardingField()
                             .frame(maxWidth: Onboarding.credentialsWidth)

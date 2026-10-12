@@ -228,7 +228,7 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @State private var model = DetailModel()
     @State private var playback: PlaybackRequest?
-    #if !os(tvOS)
+    #if os(iOS)
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     /// A title waiting on the first-download setup sheet.
     @State private var downloadSetupItem: BaseItem?
@@ -254,6 +254,10 @@ struct ItemDetailView: View {
     /// Watch OP with the opening already behind the page: everything else
     /// fades away and it plays with full sound, with its card.
     @State private var watchingOpening = false
+    #if os(macOS)
+    /// The window's height, which the header is sized from (`headerMinHeight`).
+    @State private var pageHeight: CGFloat = 0
+    #endif
     @State private var watchingInfo: ThemeInfo?
     @FocusState private var watchingFocused: Bool
 
@@ -271,7 +275,7 @@ struct ItemDetailView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 36) {
                     header
-                        .frame(maxWidth: .infinity, minHeight: 780, alignment: .bottomLeading)
+                        .frame(maxWidth: .infinity, minHeight: headerMinHeight, alignment: .bottomLeading)
 
                     if detail.kind == .series || detail.kind == .season {
                         episodesSection
@@ -320,6 +324,9 @@ struct ItemDetailView: View {
                 .padding(.bottom, 80)
             }
             .scrollClipDisabled()
+            #if os(macOS)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+            #endif
             .opacity(watchingOpening ? 0 : 1)
             .disabled(watchingOpening)
 
@@ -362,9 +369,11 @@ struct ItemDetailView: View {
         }
         // Watching an opening takes the whole screen: the page's own back
         // button would leave the page rather than end the opening.
+        #if os(iOS)
         .toolbar(watchingOpening ? .hidden : .automatic, for: .navigationBar)
         .toolbar(watchingOpening ? .hidden : .automatic, for: .tabBar)
         .statusBarHidden(watchingOpening)
+        #endif
         #endif
         .onChange(of: watchingOpening) { _, watching in
             if watching {
@@ -406,12 +415,12 @@ struct ItemDetailView: View {
                 session.theme.resume()
             }
         }
-        .fullScreenCover(item: $playback, onDismiss: {
+        .appCover(item: $playback, onDismiss: {
             Task { if let client = session.client { await model.refresh(client: client) } }
         }) { request in
             PlayerView(request: request) { playback = nil }
         }
-        .fullScreenCover(item: $urlPlayback) { theme in
+        .appCover(item: $urlPlayback) { theme in
             URLPlayerView(playback: theme) { urlPlayback = nil }
         }
         .alert(confirmTheme?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirmTheme != nil }, set: { if !$0 { confirmTheme = nil } })) {
@@ -425,7 +434,7 @@ struct ItemDetailView: View {
                  ? "This opening or ending is marked as not safe for work."
                  : "This opening or ending is marked as containing spoilers.")
         }
-        .fullScreenCover(isPresented: $showDiscMenu, onDismiss: {
+        .appCover(isPresented: $showDiscMenu, onDismiss: {
             Task { if let client = session.client { await model.refresh(client: client) } }
         }) {
             if let document = model.discMenu {
@@ -448,12 +457,12 @@ struct ItemDetailView: View {
         } message: {
             Text("The recording is removed from the server and cannot be recovered.")
         }
-        .fullScreenCover(isPresented: $showPlaylistPicker) {
+        .appCover(isPresented: $showPlaylistPicker) {
             PlaylistPickerView(itemIds: playlistTargets, mediaType: "Video") { name in
                 notice = "Added to \(name)."
             }
         }
-        #if !os(tvOS)
+        #if os(iOS)
         .sheet(item: $downloadSetupItem, onDismiss: {
             // One sheet at a time: the track choice opens once setup has gone.
             if let item = downloadAfterSetup {
@@ -481,6 +490,18 @@ struct ItemDetailView: View {
     }
 
     // MARK: Header
+
+    /// The space the header fills before the rest of the page, its details
+    /// along the bottom over the backdrop. A Mac window is often shorter than
+    /// a phone, so there it takes the TV's share of the window (780 of 1080
+    /// points) and the details show without scrolling.
+    private var headerMinHeight: CGFloat {
+        #if os(macOS)
+        pageHeight > 0 ? pageHeight * 0.72 : 520
+        #else
+        780
+        #endif
+    }
 
     /// Header sizes: TV-sized on tvOS, phone-sized elsewhere.
     private enum HeaderMetrics {
@@ -692,20 +713,20 @@ struct ItemDetailView: View {
                     Label("Delete Recording", systemImage: "trash")
                 }
             }
-            #if !os(tvOS)
+            #if os(iOS)
             downloadMenuItem
             #endif
         } label: {
             Image(systemName: "ellipsis")
                 .font(Lockup.iconButtonFont)
                 .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
-                #if !os(tvOS)
+                #if os(iOS)
                 // Pulses while this title downloads, and when its download failed.
                 .symbolEffect(.pulse, options: .repeating, isActive: downloadRecord.map { $0.state != .finished } ?? false)
                 #endif
         }
         .actionButtonStyle()
-        #if !os(tvOS)
+        #if os(iOS)
         .overlay {
             if downloadRecord?.state == .failed {
                 DownloadFailedGlow()
@@ -720,7 +741,7 @@ struct ItemDetailView: View {
         .focused($focusedAction, equals: "more")
     }
 
-    #if !os(tvOS)
+    #if os(iOS)
     private var downloadRecord: DownloadRecord? {
         DownloadStore.shared.record(for: detail.id)
     }
@@ -781,7 +802,7 @@ struct ItemDetailView: View {
 
 
 
-    #if !os(tvOS)
+    #if os(iOS)
     /// Download, its progress (tap to cancel), or Remove Download: movies and
     /// episodes, when downloads are on and the server allows them.
     @ViewBuilder
@@ -1048,6 +1069,9 @@ struct ItemDetailView: View {
                             .buttonStyle(.bordered)
                             .tint(model.selectedSeasonId == season.id ? .white : Color(white: 0.3))
                             .foregroundStyle(model.selectedSeasonId == season.id ? .black : .white)
+                            .keyboardTarget {
+                                Task { if let client = session.client { await model.selectSeason(season.id, client: client) } }
+                            }
                         }
                     }
                     .padding(.horizontal, Lockup.screenPadding)
@@ -1080,6 +1104,7 @@ private struct Backdrop: View {
             RemoteImage(url: url) { Color(white: 0.08) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
+                .extendsUnderSidebar()
                 .opacity(watching && video != nil ? 0 : 1)
             if watching, video != nil {
                 Color.black
@@ -1120,6 +1145,7 @@ struct ExtraLockup: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
+            .keyboardTarget(action: play)
             .accessibilityLabel("Play \(item.displayTitle)")
 
             Text(item.displayTitle)

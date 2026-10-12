@@ -11,7 +11,9 @@ import AVFoundation
 import AVKit
 import Foundation
 import Observation
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// One thing to play: an item, from an offset, optionally with chosen tracks.
 /// A subtitle index of -1 means none, even if the server would default one.
@@ -217,7 +219,7 @@ final class PlaybackCoordinator {
         stopped = true
         countdownTask?.cancel()
         let position = currentPositionTicks
-        #if !os(tvOS)
+        #if os(iOS)
         if isDownloaded, hasStarted, let item = currentItem {
             DownloadStore.shared.notePosition(itemId: item.id, ticks: position)
         }
@@ -272,7 +274,7 @@ final class PlaybackCoordinator {
         isDownloaded = false
         themeMoments = []
 
-        #if !os(tvOS)
+        #if os(iOS)
         // A download plays from the device. Not for a clip, nor once it has
         // failed to play: then the stream from the server takes over.
         if entry.endTicks == nil, entry.fallback == .none, let download = DownloadStore.shared.playable(entry.itemId) {
@@ -393,11 +395,14 @@ final class PlaybackCoordinator {
                 // A clip: the player stops here and reports reaching the end.
                 playerItem.forwardPlaybackEndTime = CMTime(value: endTicks, timescale: 10_000_000)
             }
+            #if !os(macOS)
             // AVKit's info panel reads the asset's own metadata and expects it
             // loaded ("caller's responsibility"); load it alongside the artwork.
+            // The Mac's player has no info panel.
             async let assetMetadata = asset.load(.commonMetadata, .metadata)
             playerItem.externalMetadata = await Self.metadata(for: item, client: client)
             _ = try? await assetMetadata
+            #endif
             #if os(tvOS)
             playerItem.navigationMarkerGroups = Self.chapterMarkers(for: item)
             #endif
@@ -456,7 +461,7 @@ final class PlaybackCoordinator {
         }
     }
 
-    #if !os(tvOS)
+    #if os(iOS)
     /// Plays a downloaded title. Everything comes from the device, so it
     /// plays with no connection: the saved stream (one audio track), its
     /// subtitle track, skip markers and artwork. Progress reports still go
@@ -613,7 +618,7 @@ final class PlaybackCoordinator {
     /// to fetch for none, or for a track burned into the picture.
     private func loadSubtitles() {
         clearSubtitles()
-        #if !os(tvOS)
+        #if os(iOS)
         if isDownloaded {
             // The track saved with the download.
             guard selectedSubtitleIndex >= 0, let itemId = currentItem?.id else { return }
@@ -1105,7 +1110,7 @@ final class PlaybackCoordinator {
         }
         guard hasStarted, reportsPlayback, let item = currentItem, Date().timeIntervalSince(lastReport) >= 10 else { return }
         lastReport = Date()
-        #if !os(tvOS)
+        #if os(iOS)
         if isDownloaded {
             DownloadStore.shared.notePosition(itemId: item.id, ticks: currentPositionTicks)
         }

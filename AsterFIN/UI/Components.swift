@@ -103,6 +103,9 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
     let title: String
     let items: [Item]
     var spacing: CGFloat = Lockup.shelfSpacing
+    /// Mac: the item the keyboard has selected in this shelf, highlighted
+    /// and scrolled into view (see `isKeyboardSelected`); nil for none.
+    var keyboardSelection: Item.ID?
     @ViewBuilder var content: (Item) -> Content
 
     var body: some View {
@@ -111,19 +114,52 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .padding(.horizontal, Lockup.screenPadding)
-                ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: spacing) {
-                        ForEach(items) { item in
-                            content(item)
+                ScrollViewReader { reader in
+                    ScrollView(.horizontal) {
+                        LazyHStack(alignment: .top, spacing: spacing) {
+                            ForEach(items) { item in
+                                content(item)
+                                    .environment(\.isKeyboardSelected, keyboardSelection == item.id)
+                                    .id(item.id)
+                            }
+                        }
+                        .padding(.horizontal, Lockup.screenPadding)
+                        .padding(.vertical, Lockup.shelfVerticalPadding)
+                    }
+                    .scrollClipDisabled()
+                    .onChange(of: keyboardSelection) { _, selection in
+                        guard let selection else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            reader.scrollTo(selection)
                         }
                     }
-                    .padding(.horizontal, Lockup.screenPadding)
-                    .padding(.vertical, Lockup.shelfVerticalPadding)
                 }
-                .scrollClipDisabled()
             }
             .tvFocusSection()
         }
+    }
+}
+
+extension EnvironmentValues {
+    /// Mac: this lockup is the one the keyboard has selected. The Mac has no
+    /// focus engine to move between cards, so pages with shelves keep their
+    /// own selection, moved with the arrow keys, and lockups draw it.
+    @Entry var isKeyboardSelected = false
+}
+
+extension View {
+    /// A lockup's artwork as the keyboard's selection: outlined and lifted,
+    /// like a focused card on Apple TV.
+    func keyboardSelectionHighlight(_ selected: Bool) -> some View {
+        overlay {
+            if selected {
+                Rectangle()
+                    .strokeBorder(.white, lineWidth: 3)
+            }
+        }
+        .scaleEffect(selected ? 1.05 : 1)
+        .shadow(color: .black.opacity(selected ? 0.5 : 0), radius: 10, y: 4)
+        .animation(.easeOut(duration: 0.15), value: selected)
     }
 }
 
@@ -138,6 +174,7 @@ struct LandscapeLockup: View {
     var focus: FocusState<String?>.Binding? = nil
 
     @Environment(AppSession.self) private var session
+    @Environment(\.isKeyboardSelected) private var isKeyboardSelected
     @State private var editedUserData: UserItemData?
 
     private var height: CGFloat { width * 9 / 16 }
@@ -163,6 +200,8 @@ struct LandscapeLockup: View {
                 .frame(width: width, height: height)
             }
             .cardButtonStyle()
+            .keyboardSelectionHighlight(isKeyboardSelected)
+            .keyboardTarget(opening: item)
             .itemActions(for: item, userData: $editedUserData.or(item.userData))
             .optionallyFocused(focus, equals: item.id)
             .accessibilityLabel(accessibilityTitle)
@@ -217,6 +256,7 @@ struct PosterLockup: View {
     var width: CGFloat = Lockup.posterWidth
 
     @Environment(AppSession.self) private var session
+    @Environment(\.isKeyboardSelected) private var isKeyboardSelected
     @State private var editedUserData: UserItemData?
 
     private var shown: BaseItem { item.withUserData(editedUserData) }
@@ -241,6 +281,8 @@ struct PosterLockup: View {
                 .frame(width: width, height: width * 1.5)
             }
             .cardButtonStyle()
+            .keyboardSelectionHighlight(isKeyboardSelected)
+            .keyboardTarget(opening: item)
             .itemActions(for: item, userData: $editedUserData.or(item.userData))
             .accessibilityLabel(item.yearText.map { "\(item.displayTitle), \($0)" } ?? item.displayTitle)
             .onChange(of: item.userData) { _, _ in editedUserData = nil }
@@ -405,6 +447,7 @@ struct PersonLockup: View {
                     .clipShape(Circle())
             }
             .cardButtonStyle()
+            .keyboardTarget(opening: person)
             .clipShape(Circle())
             .accessibilityLabel([person.name, person.role].compactMap { $0 }.joined(separator: ", "))
 
@@ -445,6 +488,7 @@ struct LibraryTile: View {
             .frame(width: Lockup.libraryTileWidth, height: Lockup.libraryTileHeight)
         }
         .cardButtonStyle()
+        .keyboardTarget(opening: library)
         .accessibilityLabel(library.displayTitle)
     }
 
@@ -619,6 +663,9 @@ struct ActionButton: View {
         .actionButtonStyle(prominent: prominent)
         .accessibilityLabel(title)
         .optionallyFocused(focus, equals: focusID)
+        // The prominent button is the page's main action (Play), where the
+        // keyboard starts.
+        .keyboardTarget(isDefault: prominent, action: action)
     }
 }
 
@@ -668,6 +715,7 @@ struct IconButton: View {
         .actionButtonStyle()
         .accessibilityLabel(accessibilityLabel)
         .optionallyFocused(focus, equals: focusID)
+        .keyboardTarget(action: action)
     }
 }
 

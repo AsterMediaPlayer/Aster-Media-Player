@@ -175,13 +175,13 @@ struct SubtitleOverlayView: View {
     private static var foreground: Color {
         let color = MACaptionAppearanceCopyForegroundColor(.user, nil).takeRetainedValue()
         let opacity = MACaptionAppearanceGetForegroundOpacity(.user, nil)
-        return Color(UIColor(cgColor: color)).opacity(opacity > 0 ? opacity : 1)
+        return Color(cgColor: color).opacity(opacity > 0 ? opacity : 1)
     }
 
     private static var background: Color {
         let color = MACaptionAppearanceCopyBackgroundColor(.user, nil).takeRetainedValue()
         let opacity = MACaptionAppearanceGetBackgroundOpacity(.user, nil)
-        return Color(UIColor(cgColor: color)).opacity(opacity > 0 ? opacity : 0.65)
+        return Color(cgColor: color).opacity(opacity > 0 ? opacity : 0.65)
     }
 }
 

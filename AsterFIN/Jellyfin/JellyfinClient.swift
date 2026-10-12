@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import UIKit
 
 nonisolated enum JellyfinError: LocalizedError, Sendable {
     case invalidURL

@@ -77,7 +77,7 @@ struct VideoPlaylistView: View {
         }
         .scrollClipDisabled()
         .task(id: playlist.id) { await load() }
-        .fullScreenCover(item: $playback) { request in
+        .appCover(item: $playback) { request in
             PlayerView(request: request) { playback = nil }
         }
     }
@@ -140,6 +140,7 @@ private struct PlaylistVideoLockup<Actions: View>: View {
             }
             .cardButtonStyle()
             .contextMenu(menuItems: actions)
+            .keyboardTarget(opening: item)
             .accessibilityLabel(item.displayTitle)
 
             Text(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)

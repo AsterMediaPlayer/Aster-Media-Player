@@ -11,7 +11,11 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 import Observation
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 enum RepeatMode {
     case off, all, one
@@ -278,9 +282,11 @@ final class MusicPlayer {
     /// Activating the session can block, so it is done off the main thread;
     /// AVPlayer activates it implicitly anyway, this just makes it explicit.
     private static func activateAudioSession() {
+        #if !os(macOS)
         Task.detached(priority: .userInitiated) {
             try? AVAudioSession.sharedInstance().setActive(true)
         }
+        #endif
     }
 
     // MARK: Observing

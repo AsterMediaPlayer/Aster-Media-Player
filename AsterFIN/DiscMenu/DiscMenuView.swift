@@ -14,7 +14,7 @@ struct DiscMenuView: View {
     let itemId: String
 
     @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.coverDismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppSettings.discMenuSoundsKey) private var soundsEnabled = true
     @State private var controller: DiscMenuController?
@@ -94,7 +94,7 @@ struct DiscMenuView: View {
         .onDisappear {
             if playback == nil { controller?.close() }
         }
-        .fullScreenCover(item: $playback, onDismiss: {
+        .appCover(item: $playback, onDismiss: {
             canvasFocused = true
             Task { await controller?.resumeAfterPlayback() }
         }) { request in
@@ -434,31 +434,12 @@ struct DiscBackgroundView: View {
 
 /// An AVPlayerLayer that cover-fits the canvas, or with `fits` shows the
 /// whole picture, letterboxed.
-struct DiscTrailerLayer: UIViewRepresentable {
+struct DiscTrailerLayer: View {
     let player: AVPlayer
     var fits = false
 
-    final class PlayerLayerView: UIView {
-        override static var layerClass: AnyClass { AVPlayerLayer.self }
-        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-    }
-
-    func makeUIView(context: Context) -> PlayerLayerView {
-        let view = PlayerLayerView()
-        view.playerLayer.videoGravity = fits ? .resizeAspect : .resizeAspectFill
-        view.playerLayer.player = player
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ view: PlayerLayerView, context: Context) {
-        if view.playerLayer.player !== player {
-            view.playerLayer.player = player
-        }
-        let gravity: AVLayerVideoGravity = fits ? .resizeAspect : .resizeAspectFill
-        if view.playerLayer.videoGravity != gravity {
-            view.playerLayer.videoGravity = gravity
-        }
+    var body: some View {
+        VideoLayerView(player: player, gravity: fits ? .resizeAspect : .resizeAspectFill)
     }
 }
 

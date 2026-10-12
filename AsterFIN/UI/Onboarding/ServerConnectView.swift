@@ -31,9 +31,13 @@ struct ServerConnectView: View {
 
                     VStack(spacing: Onboarding.controlSpacing) {
                         TextField("https://jellyfin.example.com", text: $address)
+                            #if os(macOS)
+                            .textContentType(.URL)
+                            #else
                             .textContentType(.URL)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .onboardingField()
                             .frame(maxWidth: Onboarding.fieldWidth)

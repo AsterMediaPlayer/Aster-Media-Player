@@ -15,7 +15,7 @@ struct PlaylistPickerView: View {
     var onDone: (String) -> Void
 
     @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.coverDismiss) private var dismiss
     @State private var playlists: [BaseItem] = []
     @State private var isLoading = true
     @State private var newName = ""

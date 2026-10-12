@@ -7,6 +7,13 @@
 //
 
 import SwiftUI
+#if DEBUG && os(macOS)
+import AppKit
+import os
+
+/// Temporary: the Mac sidebar and keyboard, read with `log show`.
+let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar")
+#endif
 
 enum AppTab: String, CaseIterable, Hashable {
     case home, movies, shows, anime, music, liveTV, library, downloads, settings, search
@@ -73,6 +80,11 @@ struct MainTabView: View {
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var linkedPlayback: PlaybackRequest?
+    #if os(macOS)
+    @State private var keyboard = KeyboardNavigation()
+    @FocusState private var keyboardFocused: Bool
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     /// The tabs to show, in order: tvOS's fixed sidebar, or on iPhone and
     /// iPad the viewer's choice. Tabs the server has nothing for are left out.
@@ -91,19 +103,42 @@ struct MainTabView: View {
         @Bindable var player = session.music
         tabView
         .tabViewStyle(.sidebarAdaptable)
+        #if os(macOS)
+        // Settings lives in its own window on the Mac (⌘,); this opens it
+        // from the foot of the sidebar too.
+        .tabViewSidebarBottomBar {
+            Button {
+                openSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .help("Settings (⌘,)")
+            // Where it is, for the keyboard's outline (below the last tab).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                keyboard.settingsButtonFrame = frame
+                #if DEBUG
+                sidebarDebugLog.notice("settings button frame=\(String(describing: frame), privacy: .public)")
+                #endif
+            }
+        }
+        #endif
         // A tab hidden while showing hands over to Home.
         .onChange(of: shownTabs) { _, tabs in
             if !tabs.contains(tab) { tab = .home }
         }
         // Music can start from any tab (Search, Library), so the player is
         // presented from here rather than from the Music screen.
-        .fullScreenCover(isPresented: $player.isNowPlayingPresented) {
+        .appCover(isPresented: $player.isNowPlayingPresented) {
             NowPlayingView()
         }
         // A second presentation needs its own host view.
         .background {
             Color.clear
-                .fullScreenCover(item: $linkedPlayback, onDismiss: {
+                .appCover(item: $linkedPlayback, onDismiss: {
                     // Progress changed, so Continue Watching and Next Up should too.
                     session.userDataChanged()
                 }) { request in
@@ -129,9 +164,194 @@ struct MainTabView: View {
                 linkedPlayback = request
             }
         }
+        #if os(macOS)
+        // The window's one keyboard handler (see `KeyboardNavigation`): a
+        // focusable page inside a focusable page shares its focus on the
+        // Mac, so pages register what the keys do rather than taking focus.
+        .environment(keyboard)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($keyboardFocused)
+        .onAppear { claimKeyboard() }
+        .onChange(of: tab) { _, _ in
+            KeyboardTargets.shared.clearSelection()
+            claimKeyboard()
+        }
+        .onKeyPress(.upArrow) { routeKey(.up) }
+        .onKeyPress(.downArrow) { routeKey(.down) }
+        .onKeyPress(.leftArrow) { routeKey(.left) }
+        .onKeyPress(.rightArrow) { routeKey(.right) }
+        .onKeyPress(.return) { routeKey(.select) }
+        .onKeyPress(.escape) { routeKey(.exit) }
+        // The window's keyboard handling takes key presses before the menu
+        // bar sees them, so Settings… (⌘,) is opened from here too.
+        .onKeyPress(characters: [","]) { press in
+            #if DEBUG
+            sidebarDebugLog.notice("comma key modifiers=\(press.modifiers.rawValue)")
+            #endif
+            guard press.modifiers.contains(.command) else { return .ignored }
+            openSettings()
+            return .handled
+        }
+        .overlay {
+            // The keyboard's tab in the sidebar, before Return opens it,
+            // measured from the window's top left, so it ignores the safe area.
+            ZStack(alignment: .topLeading) {
+                if let frame = keyboard.highlightFrame {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.tint, lineWidth: 2.5)
+                        .background(.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(x: frame.minX, y: frame.minY)
+                        .animation(.easeOut(duration: 0.15), value: frame)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+        #endif
     }
 
-    #if !os(tvOS)
+    #if os(macOS)
+    /// Takes the keyboard once the view is in its window (set as it
+    /// appears, focus doesn't take), so no click is needed first.
+    private func claimKeyboard() {
+        Task { keyboardFocused = true }
+        #if DEBUG
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            sidebarDebugLog.notice("window at launch tabs=\(shownTabs.map(\.rawValue).joined(separator: ","), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
+            let appMenu = NSApp.mainMenu?.items.first?.submenu?.items.map { "\($0.title)[\($0.keyEquivalent)|\($0.keyEquivalentModifierMask.rawValue)|enabled=\($0.isEnabled)]" } ?? []
+            sidebarDebugLog.notice("app menu: \(appMenu.joined(separator: "  "), privacy: .public)")
+        }
+        #endif
+    }
+
+    /// The page showing gets the key first. Left past its leading edge, or
+    /// up past its top, moves into the sidebar (sliding it out if hidden),
+    /// where up and down move a highlight, Return opens that tab and gives
+    /// it the keyboard, and right or Esc go back without switching; either
+    /// way the sidebar slides away again. Nothing here while a cover (the
+    /// player) is up.
+    private func routeKey(_ key: KeyboardNavigation.Key) -> KeyPress.Result {
+        #if DEBUG
+        sidebarDebugLog.notice("routeKey \(String(describing: key), privacy: .public) inSidebar=\(keyboard.inSidebar) highlight=\(keyboard.sidebarHighlight?.rawValue ?? "nil", privacy: .public) tab=\(tab.rawValue, privacy: .public)")
+        #endif
+        guard WindowCovers.shared.covers.isEmpty else { return .ignored }
+        if keyboard.inSidebar {
+            switch key {
+            case .up, .down:
+                let tabs = shownTabs
+                if keyboard.settingsHighlighted {
+                    // Settings sits under the last tab.
+                    if key == .up {
+                        keyboard.settingsHighlighted = false
+                        keyboard.sidebarHighlight = tabs.last
+                    }
+                } else {
+                    let current = keyboard.sidebarHighlight.flatMap { tabs.firstIndex(of: $0) } ?? tabs.firstIndex(of: tab) ?? 0
+                    if key == .down, current == tabs.count - 1 {
+                        keyboard.settingsHighlighted = true
+                        keyboard.sidebarHighlight = nil
+                    } else {
+                        keyboard.sidebarHighlight = tabs[key == .up ? max(current - 1, 0) : min(current + 1, tabs.count - 1)]
+                    }
+                }
+                measureHighlight()
+            case .select:
+                if keyboard.settingsHighlighted {
+                    openSettings()
+                } else if let chosen = keyboard.sidebarHighlight {
+                    tab = chosen
+                }
+                leaveSidebar()
+            case .right, .exit:
+                leaveSidebar()
+            case .left:
+                break
+            }
+            return .handled
+        }
+        // Esc goes back a page, as the back button does.
+        if key == .exit {
+            return KeyboardTargets.shared.goBack(on: tab) ? .handled : .ignored
+        }
+        // A page's own handling applies at its top level, not under a page
+        // pushed over it.
+        let atRoot = tab != .home || homePath.isEmpty
+        if atRoot, let handler = keyboard.handler(for: tab) {
+            if handler(key) == .handled { return .handled }
+        } else if KeyboardTargets.shared.handle(key, on: tab) == .handled {
+            // Every other page: the nearest card or button that way.
+            return .handled
+        }
+        if key == .left || key == .up {
+            enterSidebar()
+            return .handled
+        }
+        return .ignored
+    }
+
+    private func enterSidebar() {
+        #if DEBUG
+        sidebarDebugLog.notice("enterSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
+        #endif
+        keyboard.inSidebar = true
+        keyboard.sidebarHighlight = tab
+        // Slides out if hidden; it's put away again on the way out.
+        WindowSidebar.setShown(true)
+        measureHighlight()
+        // Again once the sidebar has slid out.
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            measureHighlight()
+        }
+    }
+
+    /// Where the keyboard's tab sits in the sidebar, for drawing its outline.
+    /// The system draws the sidebar's rows itself and ignores styling on
+    /// our tab labels, so the outline is drawn over the row instead.
+    private func measureHighlight() {
+        if keyboard.inSidebar, keyboard.settingsHighlighted {
+            keyboard.highlightFrame = keyboard.settingsButtonFrame
+            return
+        }
+        guard keyboard.inSidebar, let highlight = keyboard.sidebarHighlight,
+              let index = shownTabs.firstIndex(of: highlight) else {
+            keyboard.highlightFrame = nil
+            return
+        }
+        keyboard.highlightFrame = WindowSidebar.rowFrame(index)
+    }
+
+    private func leaveSidebar() {
+        #if DEBUG
+        sidebarDebugLog.notice("leaveSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)")
+        #endif
+        keyboard.inSidebar = false
+        keyboard.sidebarHighlight = nil
+        keyboard.settingsHighlighted = false
+        keyboard.highlightFrame = nil
+        // As on Apple TV, the sidebar goes away once the keyboard leaves it,
+        // however it came to be open. Collapsing it takes the window's key
+        // focus with it, so the content is given it back, now and again
+        // once the slide is over.
+        WindowSidebar.setShown(false)
+        WindowSidebar.returnKeyboardToContent()
+        claimKeyboard()
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            WindowSidebar.returnKeyboardToContent()
+            claimKeyboard()
+            #if DEBUG
+            sidebarDebugLog.notice("after leaveSidebar firstResponder=\(String(describing: (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder.map { type(of: $0) }), privacy: .public)")
+            #endif
+        }
+    }
+    #endif
+
+    #if os(iOS)
     /// What the More tab shows: downloads running or failed, when the
     /// Downloads tab is one of those under More (past the bar's first four).
     private var moreTabDownloadState: MoreTabDownloadIndicator.State {
@@ -156,22 +376,27 @@ struct MainTabView: View {
 
     private func tab(for item: AppTab) -> some TabContent<AppTab> {
         let role: TabRole? = item == .search ? .search : nil
-        #if os(tvOS)
-        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
-            content(for: item)
-        }
-        #else
-        // Tab badges are iOS only.
+        #if os(iOS)
+        // Only iPhone and iPad have downloads to count.
         return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
             content(for: item)
         }
         .badge(badgeCount(for: item))
+        #elseif os(macOS)
+        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
+            content(for: item)
+                .environment(\.keyboardTab, item)
+        }
+        #else
+        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
+            content(for: item)
+        }
         #endif
     }
 
     /// Downloads in progress, on the Downloads tab (and so on More when it's
     /// there). Zero shows no badge.
-    #if !os(tvOS)
+    #if os(iOS)
     private func badgeCount(for tab: AppTab) -> Int {
         tab == .downloads ? DownloadStore.shared.records.filter { $0.state == .downloading }.count : 0
     }
@@ -182,7 +407,7 @@ struct MainTabView: View {
         switch tab {
         case .home:
             BrowseStack(path: $homePath) { HomeView() }
-                #if !os(tvOS)
+                #if os(iOS)
                 // Home is always there, so it hosts the More tab's indicator.
                 .background(MoreTabDownloadIndicator(state: moreTabDownloadState))
                 #endif
@@ -193,10 +418,10 @@ struct MainTabView: View {
         case .liveTV: BrowseStack { LiveTVView() }
         case .library: BrowseStack { LibraryView() }
         case .downloads:
-            #if os(tvOS)
-            EmptyView()
-            #else
+            #if os(iOS)
             BrowseStack { DownloadsView() }
+            #else
+            EmptyView()
             #endif
         case .settings: BrowseStack { SettingsView() }
         case .search: BrowseStack { SearchView() }
@@ -225,7 +450,7 @@ struct MainTabView: View {
     }
 }
 
-#if !os(tvOS)
+#if os(iOS)
 /// On iPhone, tabs past the fifth sit under iOS's More tab, whose own
 /// navigation bar stacks above the tab's. Once the tab has pushed a page,
 /// this hides More's bar so there's one back button, the tab's, which steps
@@ -271,7 +496,7 @@ private struct MoreBarHider: UIViewControllerRepresentable {
 }
 #endif
 
-#if !os(tvOS)
+#if os(iOS)
 /// Pulses the iPhone's More tab while a download under it runs, in red once
 /// one has failed. Tab bar icons can't be animated, so the icon is swapped
 /// between full and faded copies on a timer; with Reduce Motion it stays
@@ -362,8 +587,51 @@ private struct MoreTabDownloadIndicator: UIViewControllerRepresentable {
 #endif
 
 /// Pushes an item's page onto the surrounding browse stack.
+#if os(macOS)
+/// The Mac's keyboard navigation: the arrows and Return go to the page
+/// showing (a page registers what they do there), and left past a page's
+/// edge moves into the sidebar, as on Apple TV. Owned by `MainTabView`.
+@MainActor
+@Observable
+final class KeyboardNavigation {
+    enum Key {
+        case up, down, left, right, select, exit
+    }
+
+    /// The keyboard is in the sidebar, moving between tabs.
+    var inSidebar = false
+    /// The tab the keyboard is on in the sidebar, opened with Return.
+    var sidebarHighlight: AppTab?
+    /// Where the highlighted tab's row is, in the window from its top left.
+    var highlightFrame: CGRect?
+    /// The Settings button under the tabs is highlighted instead of a tab.
+    var settingsHighlighted = false
+    /// Where that button is, for its outline.
+    @ObservationIgnored var settingsButtonFrame: CGRect?
+
+    @ObservationIgnored private var handlers: [AppTab: (Key) -> KeyPress.Result] = [:]
+
+    /// What the keys do on `tab`'s top page. Return `.ignored` for a key
+    /// the page doesn't use, such as left at its leading edge.
+    func register(_ tab: AppTab, handler: @escaping (Key) -> KeyPress.Result) {
+        handlers[tab] = handler
+    }
+
+    func unregister(_ tab: AppTab) {
+        handlers[tab] = nil
+    }
+
+    func handler(for tab: AppTab) -> ((Key) -> KeyPress.Result)? {
+        handlers[tab]
+    }
+}
+#endif
+
 struct OpenItemAction {
     let open: (BaseItem) -> Void
+    /// Pushes any page the stack knows (a person, say), for code that has
+    /// the value a link would carry.
+    var push: (any Hashable) -> Void = { _ in }
 
     func callAsFunction(_ item: BaseItem) { open(item) }
 }
@@ -379,25 +647,56 @@ struct BrowseStack<Root: View>: View {
     @ViewBuilder var root: () -> Root
     /// Used when the owner does not supply a path.
     @State private var ownPath = NavigationPath()
+    #if os(macOS)
+    @Environment(KeyboardNavigation.self) private var keyboard: KeyboardNavigation?
+    @Environment(\.keyboardTab) private var keyboardTab
+    #endif
+
+    /// The stack's path: the owner's, or its own.
+    private var currentPath: Binding<NavigationPath> { path ?? $ownPath }
+
+    /// Lets menus and the Mac keyboard, which can't use navigation links,
+    /// push pages.
+    private var openAction: OpenItemAction {
+        let path = currentPath
+        return OpenItemAction(open: { path.wrappedValue.append($0) }, push: { path.wrappedValue.append($0) })
+    }
 
     var body: some View {
-        let path = path ?? $ownPath
+        let path = currentPath
         NavigationStack(path: path) { content }
-            // Lets menus, which can't hold navigation links reliably, push pages.
-            .environment(\.openItem, OpenItemAction { path.wrappedValue.append($0) })
-            #if !os(tvOS)
+            .environment(\.openItem, openAction)
+            #if os(iOS)
             .background(MoreBarHider(hidden: !path.wrappedValue.isEmpty))
             #endif
     }
 
     private var content: some View {
         root()
+            .keyboardPage()
             .navigationDestination(for: BaseItem.self) { item in
-                destination(for: item)
+                pushed(destination(for: item))
             }
             .navigationDestination(for: PersonInfo.self) { person in
-                PersonView(person: person)
+                pushed(PersonView(person: person))
             }
+    }
+
+    /// A page pushed on the stack. Pushed pages don't inherit what's set on
+    /// the stack or the tab, so it's passed on: the open action (Return on a
+    /// card, menus), and on the Mac the keyboard's tab and page.
+    @ViewBuilder
+    private func pushed(_ page: some View) -> some View {
+        #if os(macOS)
+        page
+            .environment(\.openItem, openAction)
+            .keyboardPage(pushed: true)
+            .environment(\.keyboardTab, keyboardTab)
+            .environment(keyboard)
+        #else
+        page
+            .environment(\.openItem, openAction)
+        #endif
     }
 
     @ViewBuilder

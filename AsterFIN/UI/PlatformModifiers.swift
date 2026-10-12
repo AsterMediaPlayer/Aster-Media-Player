@@ -31,6 +31,18 @@ extension View {
         #endif
     }
 
+    /// Mac: mirrors and blurs a full-bleed picture under the sidebar, which
+    /// floats over the content in Liquid Glass and only looks like glass with
+    /// something beneath it. Use on the picture alone, not text over it.
+    @ViewBuilder
+    func extendsUnderSidebar() -> some View {
+        #if os(macOS)
+        backgroundExtensionEffect()
+        #else
+        self
+        #endif
+    }
+
     /// The remote's Back/Menu button (`onExitCommand` on tvOS).
     @ViewBuilder
     func tvExitCommand(perform action: (() -> Void)?) -> some View {

@@ -147,7 +147,7 @@ struct LiveTVView: View {
             // Leaving the Live TV tab ends the channel; covers don't count.
             if !liveFullScreen && selectedProgram == nil { stopLive() }
         }
-        .fullScreenCover(isPresented: $liveFullScreen, onDismiss: {
+        .appCover(isPresented: $liveFullScreen, onDismiss: {
             // Leaving full screen while paused ends the channel. Leaving while
             // it plays keeps it going in the header's mini player.
             if live?.wasPausedByViewer == true {
@@ -161,7 +161,7 @@ struct LiveTVView: View {
                 PlayerView(coordinator: live) { stopLive() }
             }
         }
-        .fullScreenCover(item: $selectedProgram, onDismiss: {
+        .appCover(item: $selectedProgram, onDismiss: {
             Task { if let client = session.client { await model.refreshRecordings(client: client) } }
             if let channel = pendingChannel {
                 pendingChannel = nil
@@ -372,6 +372,7 @@ struct ProgramCard: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
+            .keyboardTarget(action: action)
             .accessibilityLabel([program.name, program.channelName].compactMap { $0 }.joined(separator: ", "))
 
             Text(program.displayTitle)
@@ -466,6 +467,7 @@ struct ChannelTile: View {
                 .frame(width: Self.width, height: 158 * Self.scale)
             }
             .cardButtonStyle()
+            .keyboardTarget(action: action)
             .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
             .accessibilityLabel([channel.channelNumber, channel.displayTitle, channel.currentProgram?.name].compactMap { $0 }.joined(separator: ", "))
 
@@ -544,7 +546,7 @@ struct RecordingsView: View {
         .scrollClipDisabled()
         // Deleting a recording happens on its own page, so refresh on return.
         .task { if let client = session.client { await model.refreshRecordings(client: client) } }
-        .fullScreenCover(item: $editingRule) { rule in
+        .appCover(item: $editingRule) { rule in
             SeriesTimerOptionsView(timerId: rule.id) {
                 Task { if let client = session.client { await model.refreshRecordings(client: client) } }
             }

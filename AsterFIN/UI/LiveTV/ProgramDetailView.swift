@@ -21,7 +21,7 @@ struct ProgramDetailView: View {
     var onUpdate: (BaseItem) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.coverDismiss) private var dismiss
     @State private var detail: BaseItem?
     @State private var playback: PlaybackRequest?
     @State private var isWorking = false
@@ -120,10 +120,10 @@ struct ProgramDetailView: View {
             guard let client = session.client else { return }
             detail = try? await client.program(program.id)
         }
-        .fullScreenCover(item: $playback) { request in
+        .appCover(item: $playback) { request in
             PlayerView(request: request) { playback = nil }
         }
-        .fullScreenCover(isPresented: $showSeriesOptions) {
+        .appCover(isPresented: $showSeriesOptions) {
             if let seriesTimerId = current.seriesTimerId {
                 SeriesTimerOptionsView(timerId: seriesTimerId) {
                     Task {

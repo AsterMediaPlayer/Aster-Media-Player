@@ -91,24 +91,53 @@ final class HomeModel {
     }
 }
 
+/// Where the keyboard is among a page's shelves on a Mac.
+struct ShelfCursor: Equatable {
+    var row = 0
+    var column = 0
+}
+
+/// Which part of Home the Mac keyboard is moving through.
+enum HomeKeyboardArea {
+    case hero, shelves
+}
+
 struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var model = HomeModel()
     @FocusState private var focusedLockup: String?
+    #if os(macOS)
+    @Environment(\.openItem) private var openItem
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+    /// Scrolled all the way up, with the hero filling the window.
+    @State private var atTop = true
+    /// The page holds the keyboard; this says whether it's paging the hero
+    /// or moving through the shelves. One focusable view for the whole page,
+    /// since a focusable hero inside a focusable page shares its focus.
+    @State private var keyboardArea = HomeKeyboardArea.hero
+    @State private var heroPage = 0
+    /// The keyboard's place in the shelves: which row, and which card in it.
+    @State private var cursor = ShelfCursor()
+    @Environment(KeyboardNavigation.self) private var keyboard
+    #endif
 
-    /// The first non-empty shelf and its first item: where focus goes when
-    /// pressing down from the hero. Only that shelf binds the focus state, because
-    /// the same title can appear in several shelves and the binding is keyed by
-    /// item id.
-    private var firstShelf: (key: String, itemID: String)? {
-        let named: [(String, [BaseItem])] = [
+    /// The shelves in the order they're shown, each with a key.
+    private var shelfRows: [(key: String, items: [BaseItem])] {
+        [
             ("continue", model.continueWatching),
             ("nextUp", model.nextUp),
             ("movies", model.latestMovies),
             ("shows", model.latestShows),
             ("anime", model.latestAnime),
         ] + model.libraryShelves.map { ($0.id, $0.items) }
-        for (key, items) in named {
+    }
+
+    /// The first non-empty shelf and its first item: where focus goes when
+    /// pressing down from the hero. Only that shelf binds the focus state, because
+    /// the same title can appear in several shelves and the binding is keyed by
+    /// item id.
+    private var firstShelf: (key: String, itemID: String)? {
+        for (key, items) in shelfRows {
             if let first = items.first { return (key, first.id) }
         }
         return nil
@@ -169,7 +198,13 @@ struct HomeView: View {
                                 #if DEBUG
                                 print("DEBUG focus: hero moveDown -> \(firstShelfItemID ?? "nil")")
                                 #endif
+                                #if os(macOS)
+                                // No focus engine to carry the keyboard down:
+                                // the shelves keep their own selection.
+                                enterShelves()
+                                #else
                                 if let target = firstShelfItemID { focusedLockup = target }
+                                #endif
                             }, focusChanged: { focused in
                                 #if DEBUG
                                 print("DEBUG focus: hero focused=\(focused)")
@@ -177,36 +212,167 @@ struct HomeView: View {
                                 // Once the hero has focus again, forget the shelf target so a
                                 // re-rendered poster cannot pull focus back down later.
                                 if focused { focusedLockup = nil }
+                            }, keyboardPage: heroKeyboardPage, pageChanged: { page in
+                                #if os(macOS)
+                                heroPage = page
+                                #endif
                             })
                         }
-                        Shelf(title: "Continue Watching", items: model.continueWatching) { item in
+                        Shelf(title: "Continue Watching", items: model.continueWatching, keyboardSelection: keyboardSelection(in: "continue")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "continue"))
                         }
-                        Shelf(title: "Up Next", items: model.nextUp) { item in
+                        .id(Self.rowID("continue"))
+                        Shelf(title: "Up Next", items: model.nextUp, keyboardSelection: keyboardSelection(in: "nextUp")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "nextUp"))
                         }
-                        Shelf(title: "Recently Added Movies", items: model.latestMovies) { item in
+                        .id(Self.rowID("nextUp"))
+                        Shelf(title: "Recently Added Movies", items: model.latestMovies, keyboardSelection: keyboardSelection(in: "movies")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "movies"))
                         }
-                        Shelf(title: "Recently Added TV Shows", items: model.latestShows) { item in
+                        .id(Self.rowID("movies"))
+                        Shelf(title: "Recently Added TV Shows", items: model.latestShows, keyboardSelection: keyboardSelection(in: "shows")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "shows"))
                         }
-                        Shelf(title: "Recently Added Anime", items: model.latestAnime) { item in
+                        .id(Self.rowID("shows"))
+                        Shelf(title: "Recently Added Anime", items: model.latestAnime, keyboardSelection: keyboardSelection(in: "anime")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "anime"))
                         }
+                        .id(Self.rowID("anime"))
                         ForEach(model.libraryShelves) { shelf in
-                            Shelf(title: shelf.library.displayTitle, items: shelf.items) { item in
+                            Shelf(title: shelf.library.displayTitle, items: shelf.items, keyboardSelection: keyboardSelection(in: shelf.id)) { item in
                                 LandscapeLockup(item: item, focus: lockupFocus(for: shelf.id))
                             }
+                            .id(Self.rowID(shelf.id))
                         }
                     }
                     .padding(.bottom, 80)
                 }
                 .scrollClipDisabled()
                 .ignoresSafeArea()
+                #if os(macOS)
+                .scrollPosition($scrollPosition)
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top < 40
+                } action: { _, top in
+                    atTop = top
+                    // Back at the top, however it got there: the hero again.
+                    if top { keyboardArea = .hero }
+                }
+                // At the top the arrows page the hero and down goes on to
+                // the shelves; there they move the selection, and up from the
+                // top row goes back. Return opens what's chosen; left past the
+                // first page or card goes on to the sidebar.
+                .onAppear {
+                    keyboard.register(.home) { key in handleKey(key) }
+                }
+                .onDisappear { keyboard.unregister(.home) }
+                #endif
             }
         }
     }
+
+    /// A shelf's id in the page, for scrolling it into view.
+    private static func rowID(_ key: String) -> String { "home-row-\(key)" }
+
+    /// The card the keyboard has selected in the shelf `key`, if any.
+    private func keyboardSelection(in key: String) -> String? {
+        #if os(macOS)
+        guard keyboardArea == .shelves, !keyboard.inSidebar, let row = keyboardRows.indices.contains(cursor.row) ? keyboardRows[cursor.row] : nil,
+              row.key == key else { return nil }
+        return selectedItem?.id
+        #else
+        nil
+        #endif
+    }
+
+    /// The hero page the Mac keyboard asks for; nil elsewhere.
+    private var heroKeyboardPage: Int? {
+        #if os(macOS)
+        heroPage
+        #else
+        nil
+        #endif
+    }
+
+    #if os(macOS)
+    /// The shelves that are showing, which the keyboard moves between.
+    private var keyboardRows: [(key: String, items: [BaseItem])] {
+        shelfRows.filter { !$0.items.isEmpty }
+    }
+
+    private var selectedItem: BaseItem? {
+        guard keyboardRows.indices.contains(cursor.row) else { return nil }
+        let items = keyboardRows[cursor.row].items
+        return items[min(cursor.column, items.count - 1)]
+    }
+
+    /// Down from the hero: the first card of the first shelf.
+    private func enterShelves() {
+        guard !keyboardRows.isEmpty else { return }
+        cursor = ShelfCursor()
+        keyboardArea = .shelves
+        scrollToCursorRow()
+    }
+
+    private func handleKey(_ key: KeyboardNavigation.Key) -> KeyPress.Result {
+        if key == .exit { return .ignored }
+        if key == .select {
+            let item = keyboardArea == .hero
+                ? (model.featured.indices.contains(heroPage) ? model.featured[heroPage] : nil)
+                : selectedItem
+            guard let item else { return .ignored }
+            openItem?(item)
+            return .handled
+        }
+        let (rows, columns) = switch key {
+        case .up: (-1, 0)
+        case .down: (1, 0)
+        case .left: (0, -1)
+        case .right: (0, 1)
+        case .select, .exit: (0, 0)
+        }
+        guard keyboardArea == .hero else { return moveCursor(rows: rows, columns: columns) }
+        if rows > 0 {
+            enterShelves()
+        } else if rows < 0 {
+            // Up from the hero is the sidebar's.
+            return .ignored
+        } else if columns != 0, !model.featured.isEmpty {
+            // Left on the first page is the sidebar's.
+            if columns < 0, heroPage == 0 { return .ignored }
+            heroPage = min(max(heroPage + columns, 0), model.featured.count - 1)
+        }
+        return .handled
+    }
+
+    private func moveCursor(rows: Int, columns: Int) -> KeyPress.Result {
+        let rowsShown = keyboardRows
+        guard !rowsShown.isEmpty, rowsShown.indices.contains(cursor.row) else { return .ignored }
+        // Left on a shelf's first card is the sidebar's.
+        if columns < 0, min(cursor.column, rowsShown[cursor.row].items.count - 1) == 0 { return .ignored }
+        if rows < 0, cursor.row == 0 {
+            // Back up to the hero.
+            keyboardArea = .hero
+            withAnimation(.easeInOut(duration: 0.4)) {
+                scrollPosition.scrollTo(edge: .top)
+            }
+            return .handled
+        }
+        let row = min(max(cursor.row + rows, 0), rowsShown.count - 1)
+        // A row keeps the card under the selection, as far as it reaches.
+        let column = min(max(min(cursor.column, rowsShown[cursor.row].items.count - 1) + columns, 0), rowsShown[row].items.count - 1)
+        cursor = ShelfCursor(row: row, column: column)
+        if rows != 0 { scrollToCursorRow() }
+        return .handled
+    }
+
+    private func scrollToCursorRow() {
+        guard keyboardRows.indices.contains(cursor.row) else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            scrollPosition.scrollTo(id: Self.rowID(keyboardRows[cursor.row].key), anchor: .center)
+        }
+    }
+    #endif
 
     private func reload() async {
         guard let client = session.client else { return }
@@ -225,11 +391,20 @@ struct HeroCarousel: View {
     var moveDown: () -> Void
     /// Reports when the banner gains or loses focus.
     var focusChanged: (Bool) -> Void = { _ in }
+    /// Mac: the page Home's keyboard asks for (Home owns the keyboard, as
+    /// nested focusable views don't route keys reliably there), and the
+    /// page shown, reported back as it changes, including by a swipe.
+    var keyboardPage: Int?
+    var pageChanged: (Int) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
     @Environment(\.displayScale) private var displayScale
     @State private var index = 0
     @State private var scrollID: String?
+    #if os(macOS)
+    /// How far a mouse drag has pulled the banner from its page.
+    @State private var dragOffset: CGFloat = 0
+    #endif
     @FocusState private var isFocused: Bool
     @FocusState private var guardFocused: Bool
     /// When the banner last gained focus. The press that brings focus here from
@@ -324,10 +499,19 @@ struct HeroCarousel: View {
                         }
                     }
                     .scrollTargetLayout()
+                    #if os(macOS)
+                    .offset(x: dragOffset)
+                    #endif
                 }
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $scrollID)
                 .scrollIndicators(.hidden)
+                #if os(macOS)
+                // A mouse can't swipe: click, hold and drag pages it instead.
+                // High priority, so letting go after a drag doesn't also open
+                // the title; a click without moving still does.
+                .highPriorityGesture(heroDrag(pageWidth: proxy.size.width))
+                #endif
                 // The page changes only when a swipe comes to rest. A rotation
                 // keeps the old offset in points, which lands between pages
                 // at the new width, so it must not count as a page change.
@@ -375,6 +559,40 @@ struct HeroCarousel: View {
             index = currentID.flatMap { id in newItems.firstIndex { $0.id == id } } ?? 0
             scrollID = newItems.indices.contains(index) ? newItems[index].id : newItems.first?.id
         }
+        #if os(macOS)
+        .onChange(of: keyboardPage) { _, page in
+            if let page { show(page) }
+        }
+        .onChange(of: index) { _, page in pageChanged(page) }
+        #endif
+    }
+    #endif
+
+    #if os(macOS)
+    /// Follows the pointer while dragging, then pages on when the drag went
+    /// a quarter of the way (or was flung that far), else springs back. Past
+    /// the first or last page it gives a little, like a scroll view's edge.
+    private func heroDrag(pageWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                let distance = value.translation.width
+                let pastEdge = (index == 0 && distance > 0) || (index == items.count - 1 && distance < 0)
+                dragOffset = pastEdge ? distance / 3 : distance
+            }
+            .onEnded { value in
+                let threshold = pageWidth / 4
+                let flung = value.predictedEndTranslation.width
+                var target = index
+                if value.translation.width < -threshold || flung < -pageWidth / 2 {
+                    target = min(index + 1, items.count - 1)
+                } else if value.translation.width > threshold || flung > pageWidth / 2 {
+                    target = max(index - 1, 0)
+                }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    dragOffset = 0
+                }
+                show(target)
+            }
     }
     #endif
 
@@ -572,6 +790,7 @@ struct HeroCard: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, screenPixels: screenPixels, client: session.client), systemImage: "film")
+                .extendsUnderSidebar()
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.45), endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: .center)
 

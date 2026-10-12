@@ -46,25 +46,18 @@ struct LiveMiniPlayer: View {
 }
 
 /// Shows an AVPlayer's picture with no controls.
-private struct PlayerLayerView: UIViewRepresentable {
+private struct PlayerLayerView: View {
     let player: AVPlayer
 
-    final class LayerView: UIView {
-        override class var layerClass: AnyClass { AVPlayerLayer.self }
-        var playerLayer: AVPlayerLayer? { layer as? AVPlayerLayer }
+    var body: some View {
+        VideoLayerView(player: player, gravity: .resizeAspect) { view in
+            #if os(iOS)
+            Self.restorePicture(in: view, from: player)
+            #endif
+        }
     }
 
-    func makeUIView(context: Context) -> LayerView {
-        let view = LayerView()
-        view.playerLayer?.videoGravity = .resizeAspect
-        view.playerLayer?.player = player
-        #if !os(tvOS)
-        Self.restorePicture(in: view, from: player)
-        #endif
-        return view
-    }
-
-    #if !os(tvOS)
+    #if os(iOS)
     /// After the full-screen player closes, iOS leaves the player's video
     /// bound to the view that went away: this layer is attached and the sound
     /// plays, but no frame arrives. Re-attaching the layer or toggling the
@@ -72,11 +65,11 @@ private struct PlayerLayerView: UIViewRepresentable {
     /// does, since it flushes playback and draws to the layers attached now.
     /// Waits a moment first so a hand-over that works on its own isn't
     /// interrupted, and tries again once if the first seek isn't enough.
-    private static func restorePicture(in view: LayerView, from player: AVPlayer) {
+    private static func restorePicture(in view: PlayerLayerHostView, from player: AVPlayer) {
         Task { @MainActor [weak view, player] in
             for _ in 1...3 {
                 try? await Task.sleep(for: .milliseconds(700))
-                guard let view, let layer = view.playerLayer, !layer.isReadyForDisplay else { return }
+                guard let view, !view.playerLayer.isReadyForDisplay else { return }
                 // Still loading a channel: nothing to show yet, so wait.
                 guard player.timeControlStatus == .playing else { continue }
                 await player.seek(to: player.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -84,10 +77,4 @@ private struct PlayerLayerView: UIViewRepresentable {
         }
     }
     #endif
-
-    func updateUIView(_ view: LayerView, context: Context) {
-        if view.playerLayer?.player !== player {
-            view.playerLayer?.player = player
-        }
-    }
 }

@@ -70,9 +70,13 @@ final class AppSession {
         case .anime: !animeLibraries.isEmpty
         case .music: hasMusic
         case .liveTV: hasLiveTV
-        #if os(tvOS)
-        // Apple TV has no storage to download to.
+        #if !os(iOS)
+        // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false
+        #endif
+        #if os(macOS)
+        // The Mac has a Settings window (⌘,) instead.
+        case .settings: false
         #endif
         default: true
         }

@@ -8,6 +8,9 @@
 
 import AVKit
 import SwiftUI
+#if DEBUG && os(macOS)
+import os
+#endif
 
 struct PlayerView: View {
     private let request: PlaybackRequest?
@@ -19,14 +22,17 @@ struct PlayerView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator: PlaybackCoordinator?
+    #if canImport(UIKit)
     /// The info panel's Audio and Subtitles tabs, made once per playback.
     @State private var audioTab: UIViewController?
     @State private var subtitlesTab: UIViewController?
+    #endif
     /// The last item that started playing. Artwork covers the player until
     /// each new item does, but not when the same one reloads mid-play.
     @State private var startedItemId: String?
     /// iOS: when the video was last tapped, which brings up the system
-    /// controls; the tracks button shows alongside them for a while.
+    /// controls; the tracks button shows alongside them for a while. On a
+    /// Mac, when the pointer last moved over the video.
     @State private var controlsShownAt: Date?
     @State private var trackMenuOpen = false
 
@@ -48,16 +54,7 @@ struct PlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let coordinator {
-                SystemPlayer(
-                    player: coordinator.player,
-                    contextualActions: contextualActions(for: coordinator),
-                    showsPlaybackControls: !coordinator.endCardVisible,
-                    infoTabs: [
-                        coordinator.audioTracks.count > 1 ? audioTab : nil,
-                        coordinator.subtitleTracks.isEmpty ? nil : subtitlesTab,
-                    ].compactMap { $0 },
-                    onTap: { controlsShownAt = Date() }
-                )
+                systemPlayer(for: coordinator)
                 .ignoresSafeArea()
                 .onChange(of: coordinator.isFinished) { _, finished in
                     if finished {
@@ -92,11 +89,31 @@ struct PlayerView: View {
                 #if !os(tvOS)
                 .overlay(alignment: .bottomTrailing) {
                     // The tvOS player shows these as contextual actions; iOS
-                    // has no such thing, so they're buttons over the video.
+                    // and the Mac have no such thing, so they're buttons over
+                    // the video.
                     if !coordinator.endCardVisible {
                         TouchPlayerActions(coordinator: coordinator)
                     }
                 }
+                #endif
+                #if os(macOS)
+                .overlay {
+                    MacPlayerButtons(
+                        coordinator: coordinator,
+                        shown: !coordinator.endCardVisible && (controlsShownAt != nil || coordinator.isPaused),
+                        close: onFinished
+                    )
+                }
+                .onContinuousHover { phase in
+                    // AVPlayerView shows its controls as the pointer moves;
+                    // these buttons follow along.
+                    guard case .active = phase else { return }
+                    if controlsShownAt.map({ Date().timeIntervalSince($0) > 0.5 }) ?? true {
+                        controlsShownAt = Date()
+                    }
+                }
+                #endif
+                #if os(iOS)
                 .overlay {
                     // Sideways, the system player has its own subtitles button
                     // (beside the speed control, lower right), which only knows
@@ -126,6 +143,8 @@ struct PlayerView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: controlsShownAt != nil || coordinator.isPaused || trackMenuOpen)
+                #endif
+                #if !os(tvOS)
                 .task(id: controlsShownAt) {
                     // Hides with the system controls, a few seconds after the tap.
                     guard controlsShownAt != nil else { return }
@@ -168,8 +187,10 @@ struct PlayerView: View {
                 coordinator = sharedCoordinator
                 // Already playing (the Live TV mini player): no artwork.
                 if sharedCoordinator.hasStarted { startedItemId = sharedCoordinator.currentItem?.id }
+                #if canImport(UIKit)
                 audioTab = TracksTab.makeController(.audio, for: sharedCoordinator)
                 subtitlesTab = TracksTab.makeController(.subtitles, for: sharedCoordinator)
+                #endif
                 return
             }
             guard let request, let client = session.client else { return }
@@ -181,8 +202,10 @@ struct PlayerView: View {
                 preferences: session.playbackPreferences
             )
             coordinator = created
+            #if canImport(UIKit)
             audioTab = TracksTab.makeController(.audio, for: created)
             subtitlesTab = TracksTab.makeController(.subtitles, for: created)
+            #endif
             created.start()
         }
         .onDisappear {
@@ -191,6 +214,26 @@ struct PlayerView: View {
         }
     }
 
+    /// The system player, with what each platform's version takes.
+    @ViewBuilder
+    private func systemPlayer(for coordinator: PlaybackCoordinator) -> some View {
+        #if os(macOS)
+        SystemPlayer(player: coordinator.player, showsPlaybackControls: !coordinator.endCardVisible)
+        #else
+        SystemPlayer(
+            player: coordinator.player,
+            contextualActions: contextualActions(for: coordinator),
+            showsPlaybackControls: !coordinator.endCardVisible,
+            infoTabs: [
+                coordinator.audioTracks.count > 1 ? audioTab : nil,
+                coordinator.subtitleTracks.isEmpty ? nil : subtitlesTab,
+            ].compactMap { $0 },
+            onTap: { controlsShownAt = Date() }
+        )
+        #endif
+    }
+
+    #if canImport(UIKit)
     /// The buttons the system player shows in its lower trailing corner.
     private func contextualActions(for coordinator: PlaybackCoordinator) -> [UIAction] {
         var actions: [UIAction] = []
@@ -206,9 +249,10 @@ struct PlayerView: View {
         }
         return actions
     }
+    #endif
 }
 
-#if !os(tvOS)
+#if os(iOS)
 /// The player's Audio & Subtitles menu on iOS, where the tvOS info tabs
 /// don't exist: the server's tracks by their own titles, as in those tabs.
 /// The signature changes whenever the menu would, so the button is only
@@ -332,7 +376,97 @@ private struct TrackMenuButton: UIViewRepresentable {
         }
     }
 }
+#endif
 
+#if os(macOS)
+/// The Mac player's own buttons, shown while the pointer moves over the
+/// video, as AVPlayerView's controls are: a close button (Esc works too),
+/// and the server's audio and subtitle tracks by their own titles.
+private struct MacPlayerButtons: View {
+    let coordinator: PlaybackCoordinator
+    var shown: Bool
+    var close: () -> Void
+
+    private var hasTracks: Bool {
+        coordinator.audioTracks.count > 1 || !coordinator.subtitleTracks.isEmpty
+    }
+
+    var body: some View {
+        HStack(alignment: .top) {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonBorderShape(.circle)
+            .help("Close")
+            .accessibilityLabel("Close")
+            Spacer()
+            if hasTracks {
+                Menu {
+                    if coordinator.audioTracks.count > 1 {
+                        Picker("Audio", selection: Binding(
+                            get: { coordinator.selectedAudioIndex ?? -1 },
+                            set: { coordinator.selectAudio($0) }
+                        )) {
+                            ForEach(coordinator.audioTracks, id: \.index) { stream in
+                                if let index = stream.index {
+                                    trackLabel(stream.title ?? stream.trackTitle, detail: TracksTab.detail(for: stream)).tag(index)
+                                }
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+                    if !coordinator.subtitleTracks.isEmpty {
+                        Picker("Subtitles", selection: Binding(
+                            get: { coordinator.selectedSubtitleIndex },
+                            set: { coordinator.selectSubtitle($0) }
+                        )) {
+                            Text("Off").tag(-1)
+                            ForEach(coordinator.subtitleTracks, id: \.index) { stream in
+                                if let index = stream.index {
+                                    // The server can take a while to extract a track the first time.
+                                    let loading = coordinator.selectedSubtitleIndex == index && coordinator.isLoadingSubtitles
+                                    let detail = TracksTab.detail(for: stream)
+                                    trackLabel(stream.title ?? stream.trackTitle, detail: loading ? [detail, "Loading…"].compactMap { $0 }.joined(separator: " · ") : detail).tag(index)
+                                }
+                            }
+                        }
+                        .pickerStyle(.inline)
+                    }
+                } label: {
+                    Image(systemName: "captions.bubble")
+                        .font(.headline)
+                }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Audio and Subtitles")
+                .accessibilityLabel("Audio and Subtitles")
+            }
+        }
+        .controlSize(.large)
+        .buttonStyle(.bordered)
+        .tint(.white)
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(shown ? 1 : 0)
+        .allowsHitTesting(shown)
+        .animation(.easeInOut(duration: 0.2), value: shown)
+    }
+
+    /// A track's name with its details as the menu item's second line.
+    private func trackLabel(_ title: String, detail: String?) -> some View {
+        VStack(alignment: .leading) {
+            Text(title)
+            if let detail {
+                Text(detail)
+            }
+        }
+    }
+}
+#endif
+
+#if !os(tvOS)
 /// Skip Intro / Skip Credits and Play Next Episode on a touch screen: pills in
 /// the lower right, above the system player's controls, shown only while they
 /// apply. The same actions the tvOS player offers as contextual actions.
@@ -475,11 +609,14 @@ struct URLPlayerView: View {
             }
             .onAppear {
                 let item = AVPlayerItem(url: playback.url)
+                #if !os(macOS)
                 item.externalMetadata = Self.metadata(for: playback)
+                #endif
                 player.replaceCurrentItem(with: item)
                 // Full volume, unlike the quiet theme behind title pages.
                 player.volume = 1
                 player.play()
+                #if !os(macOS)
                 // The artwork arrives a moment later; the player picks it up.
                 if let artwork = playback.artwork, let client = session.client {
                     Task {
@@ -492,6 +629,7 @@ struct URLPlayerView: View {
                         item.externalMetadata += [image]
                     }
                 }
+                #endif
             }
             .onDisappear {
                 player.pause()
@@ -507,6 +645,7 @@ struct URLPlayerView: View {
             }
     }
 
+    #if !os(macOS)
     private static func metadata(for playback: URLPlayback) -> [AVMetadataItem] {
         var items: [AVMetadataItem] = []
         let title = AVMutableMetadataItem()
@@ -523,8 +662,62 @@ struct URLPlayerView: View {
         }
         return items
     }
+    #endif
 }
 
+#if os(macOS)
+/// AVPlayerView hosted in SwiftUI: the Mac's own floating controls, which
+/// show as the pointer moves, with chapters and a full-screen button.
+struct SystemPlayer: NSViewRepresentable {
+    let player: AVPlayer
+    var showsPlaybackControls = true
+
+    /// Hands the player over again once the view is in its window. Given it
+    /// while still unsized and off-window, the view sometimes showed only
+    /// black though the video played underneath.
+    final class WindowedPlayerView: AVPlayerView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, let current = player else { return }
+            player = nil
+            player = current
+        }
+    }
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = WindowedPlayerView()
+        view.player = player
+        view.allowsPictureInPicturePlayback = false
+        view.showsFullScreenToggleButton = true
+        view.controlsStyle = showsPlaybackControls ? .floating : .none
+        return view
+    }
+
+    /// Lets go of the player as this view goes away, as on the other platforms.
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player = nil
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        #if DEBUG
+        let frame = view.frame
+        let hidden = view.isHidden
+        let window = view.window != nil
+        Task { @MainActor [player] in
+            try? await Task.sleep(for: .seconds(3))
+            sidebarDebugLog.notice("player view frame=\(String(describing: frame), privacy: .public) hidden=\(hidden) inWindow=\(window) status=\(player.currentItem?.status.rawValue ?? -1) rate=\(player.rate) size=\(String(describing: player.currentItem?.presentationSize), privacy: .public) superviews=\(view.superview.map { String(describing: type(of: $0)) } ?? "nil", privacy: .public)")
+        }
+        #endif
+        if view.player !== player {
+            view.player = player
+        }
+        let style: AVPlayerViewControlsStyle = showsPlaybackControls ? .floating : .none
+        if view.controlsStyle != style {
+            view.controlsStyle = style
+        }
+    }
+}
+#else
 /// AVPlayerViewController hosted in SwiftUI. The system UI supplies native
 /// transport controls, info panel, chapters, audio options, and subtitles.
 struct SystemPlayer: UIViewControllerRepresentable {
@@ -604,6 +797,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
         #endif
     }
 }
+#endif
 
 /// An "Audio" or "Subtitles" tab in the player's swipe-down info panel,
 /// listing the server's tracks by their own titles. The system menus name
@@ -620,6 +814,7 @@ struct TracksTab: View {
     let kind: Kind
     let coordinator: PlaybackCoordinator
 
+    #if canImport(UIKit)
     /// Hosts the tab for `AVPlayerViewController.customInfoViewControllers`.
     static func makeController(_ kind: Kind, for coordinator: PlaybackCoordinator) -> UIViewController {
         let host = UIHostingController(rootView: TracksTab(kind: kind, coordinator: coordinator))
@@ -628,6 +823,7 @@ struct TracksTab: View {
         host.view.backgroundColor = .clear
         return host
     }
+    #endif
 
     private var tracks: [MediaStream] {
         kind == .audio ? coordinator.audioTracks : coordinator.subtitleTracks

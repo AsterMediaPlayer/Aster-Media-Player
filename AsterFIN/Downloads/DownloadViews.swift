@@ -6,7 +6,7 @@
 //  quality choices they share with Settings › Downloads (iPhone and iPad).
 //
 
-#if !os(tvOS)
+#if os(iOS)
 import SwiftUI
 import UIKit
 
@@ -305,7 +305,7 @@ struct DownloadsView: View {
         } message: {
             Text("This frees \(DownloadStore.format(store.usedBytes)) and stops any downloads in progress.")
         }
-        .fullScreenCover(item: $playback) { request in
+        .appCover(item: $playback) { request in
             PlayerView(request: request) { playback = nil }
         }
         .alert("Couldn't Download", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

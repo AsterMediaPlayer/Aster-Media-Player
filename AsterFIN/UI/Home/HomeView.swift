@@ -273,6 +273,15 @@ struct HeroCarousel: View {
             isFocused = true
         }
         .tvFocusSection()
+        .task(id: "\(index)|\(items.map(\.id))|\(displayScale)") {
+            // The page shown and those either side, at the TV's resolution,
+            // so a slide to either finds its backdrop already loaded.
+            guard !items.isEmpty else { return }
+            let client = session.client
+            let nearby = (index - 1 ... index + 1).compactMap { items.indices.contains($0) ? items[$0] : nil }
+            let urls = nearby.compactMap { HeroCard.imageURL(for: $0, portrait: false, screenPixels: tvScreenPixels, client: client) }
+            ImageStore.shared.prefetch(urls, client: client)
+        }
         #else
         touchBanner
         #endif
@@ -369,14 +378,32 @@ struct HeroCarousel: View {
     }
     #endif
 
+    #if os(tvOS)
+    /// The TV's pixels: tvOS lays out 1920 by 1080 points at a scale of 2 on
+    /// a 4K set and 1 on a 1080p one, so the backdrop is asked for at the
+    /// resolution actually shown.
+    private var tvScreenPixels: CGSize {
+        CGSize(width: 1920 * displayScale, height: 1080 * displayScale)
+    }
+    #endif
+
     private var banner: some View {
         NavigationLink(value: current) {
             ScrollView(.horizontal) {
-                HStack(spacing: 0) {
+                // Lazy: a decoded 4K backdrop is about 33 MB, too much to hold
+                // for every page at once. The pages beside the one shown are
+                // prefetched below, so sliding to them doesn't wait.
+                LazyHStack(spacing: 0) {
                     ForEach(items) { item in
+                        #if os(tvOS)
+                        HeroCard(item: item, isFocused: isFocused, screenPixels: tvScreenPixels)
+                            .containerRelativeFrame([.horizontal, .vertical])
+                            .id(item.id)
+                        #else
                         HeroCard(item: item, isFocused: isFocused)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(item.id)
+                        #endif
                     }
                 }
                 .scrollTargetLayout()
@@ -482,12 +509,12 @@ struct HeroCard: View {
     /// of the backdrop. Shared with the carousel's prefetch so both cache
     /// the same URLs.
     ///
-    /// `screenPixels` is the banner's size in pixels; on touch screens the
-    /// picture is asked for at just the size that fills it without being
-    /// enlarged. tvOS keeps its fixed 1920-wide backdrop.
+    /// `screenPixels` is the banner's size in pixels; the picture is asked
+    /// for at just the size that fills it without being enlarged: on tvOS
+    /// 3840 wide on a 4K TV and 1920 on a 1080p one.
     static func imageURL(for item: BaseItem, portrait: Bool, screenPixels: CGSize = .zero, client: JellyfinClient?) -> URL? {
         #if os(tvOS)
-        return client?.backdropURL(for: item, width: 1920)
+        return client?.backdropURL(for: item, width: screenPixels.width > 0 ? Int(screenPixels.width) : Lockup.fullScreenImageWidth(displayScale: 1))
         #else
         guard let client else { return nil }
         if portrait {

@@ -83,6 +83,19 @@ enum Lockup {
     #endif
 }
 
+extension Lockup {
+    /// The width in pixels to ask for a picture that fills the screen. tvOS
+    /// lays out 1920 points across at the TV's scale, so that's 3840 on a 4K
+    /// set and 1920 on a 1080p one; iOS keeps 1920.
+    static func fullScreenImageWidth(displayScale: CGFloat) -> Int {
+        #if os(tvOS)
+        Int(1920 * displayScale)
+        #else
+        1920
+        #endif
+    }
+}
+
 // MARK: - Shelf
 
 /// A titled horizontal row of lockups.

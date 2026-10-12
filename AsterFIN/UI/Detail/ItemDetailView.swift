@@ -221,6 +221,7 @@ struct ItemDetailView: View {
     let item: BaseItem
 
     @Environment(AppSession.self) private var session
+    @Environment(\.displayScale) private var displayScale
     @AppStorage(AppSettings.preferDiscMenuKey) private var preferDiscMenu = false
     @AppStorage(AppSettings.themeMusicKey) private var themeMusic = false
     @AppStorage(AppSettings.themeVideosKey) private var themeVideos = false
@@ -255,7 +256,7 @@ struct ItemDetailView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Backdrop(url: session.client?.backdropURL(for: detail, width: 1920), video: themeVideo, showsShade: !watchingOpening)
+            Backdrop(url: session.client?.backdropURL(for: detail, width: Lockup.fullScreenImageWidth(displayScale: displayScale)), video: themeVideo, showsShade: !watchingOpening)
 
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 36) {

@@ -346,6 +346,7 @@ private struct PlaybackLoadingView: View {
     let item: BaseItem?
 
     @Environment(AppSession.self) private var session
+    @Environment(\.displayScale) private var displayScale
     @State private var artwork: URL?
 
     var body: some View {
@@ -388,19 +389,19 @@ private struct PlaybackLoadingView: View {
         .animation(.easeIn(duration: 0.4), value: artwork)
         .task(id: item?.id) {
             guard let item, let client = session.client else { return }
-            artwork = await Self.artwork(for: item, client: client)
+            artwork = await Self.artwork(for: item, client: client, width: Lockup.fullScreenImageWidth(displayScale: displayScale))
         }
     }
 
     /// An episode's season backdrop when it has its own, else the series'
     /// (episodes inherit that one); anything else uses its own backdrop.
-    private static func artwork(for item: BaseItem, client: JellyfinClient) async -> URL? {
+    private static func artwork(for item: BaseItem, client: JellyfinClient, width: Int) async -> URL? {
         if item.kind == .episode, let seasonId = item.seasonId,
            let season = try? await client.item(seasonId),
            let tag = season.backdropImageTags?.first {
-            return client.imageURL(itemId: season.id, kind: .backdrop, tag: tag, index: 0, maxWidth: 1920)
+            return client.imageURL(itemId: season.id, kind: .backdrop, tag: tag, index: 0, maxWidth: width)
         }
-        return client.backdropURL(for: item, width: 1920)
+        return client.backdropURL(for: item, width: width)
     }
 }
 

@@ -103,14 +103,18 @@ struct PlayerView: View {
                     // Hidden by fading, never removed: the menu animates back
                     // into the button as it closes, and UIKit stops the app if
                     // the button has gone by then.
+                    // iPad shows the subtitles button in either orientation, in
+                    // the pill above the timeline; the iPad app on a Mac puts it
+                    // at the far right of the bottom bar. Each gets the invisible
+                    // button over its own, measured from the system layout.
                     GeometryReader { proxy in
-                        let landscape = proxy.size.width > proxy.size.height
+                        let placement = TrackButtonPlacement(landscape: proxy.size.width > proxy.size.height)
                         let hasTracks = coordinator.audioTracks.count > 1 || !coordinator.subtitleTracks.isEmpty
                         let shown = hasTracks && !coordinator.endCardVisible && (controlsShownAt != nil || coordinator.isPaused || trackMenuOpen)
-                        TrackMenuButton(menu: TrackMenu(coordinator: coordinator), invisible: landscape) { trackMenuOpen = $0 }
+                        TrackMenuButton(menu: TrackMenu(coordinator: coordinator), invisible: placement.overSystemButton) { trackMenuOpen = $0 }
                             .frame(width: 44, height: 44)
-                            .padding(.trailing, landscape ? 3 : 77)
-                            .padding(.bottom, landscape ? 59 : 56)
+                            .padding(.trailing, placement.trailing)
+                            .padding(.bottom, placement.bottom)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                             .opacity(shown ? 1 : 0)
                             .allowsHitTesting(shown)
@@ -247,6 +251,27 @@ private struct TrackMenu {
             String(coordinator.selectedSubtitleIndex),
             String(coordinator.isLoadingSubtitles),
         ].joined(separator: "|")
+    }
+}
+
+/// Where the track menu's button goes, from the bottom-trailing corner of
+/// the safe area, per device: over the system's own subtitles button
+/// (invisible), or, on an upright iPhone, which has none, beside its More.
+private struct TrackButtonPlacement {
+    var overSystemButton: Bool
+    var trailing: CGFloat
+    var bottom: CGFloat
+
+    init(landscape: Bool) {
+        if ProcessInfo.processInfo.isiOSAppOnMac {
+            (overSystemButton, trailing, bottom) = (true, 7, 4)
+        } else if UIDevice.current.userInterfaceIdiom == .pad {
+            (overSystemButton, trailing, bottom) = (true, 13, 56)
+        } else if landscape {
+            (overSystemButton, trailing, bottom) = (true, 3, 59)
+        } else {
+            (overSystemButton, trailing, bottom) = (false, 77, 56)
+        }
     }
 }
 
@@ -510,7 +535,15 @@ struct SystemPlayer: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onTap: (() -> Void)?
 
-        @objc func tapped() { onTap?() }
+        private var lastReport = Date.distantPast
+
+        /// A tap, or the pointer moving over the video; hover fires
+        /// constantly, so this passes on at most a couple a second.
+        @objc func tapped() {
+            guard Date().timeIntervalSince(lastReport) > 0.5 else { return }
+            lastReport = Date()
+            onTap?()
+        }
 
         /// Watches taps without taking them from the system player.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
@@ -531,6 +564,10 @@ struct SystemPlayer: UIViewControllerRepresentable {
         tap.cancelsTouchesInView = false
         tap.delegate = context.coordinator
         controller.view.addGestureRecognizer(tap)
+        // With a pointer (iPad trackpad, Mac), the controls show on hover.
+        let hover = UIHoverGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        hover.delegate = context.coordinator
+        controller.view.addGestureRecognizer(hover)
         #endif
         return controller
     }

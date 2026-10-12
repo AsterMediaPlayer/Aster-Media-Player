@@ -266,7 +266,7 @@ struct ItemDetailView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Backdrop(url: session.client?.backdropURL(for: detail, width: Lockup.fullScreenImageWidth(displayScale: displayScale)), video: themeVideo, showsShade: !watchingOpening)
+            Backdrop(url: session.client?.backdropURL(for: detail, width: Lockup.fullScreenImageWidth(displayScale: displayScale)), video: themeVideo, showsShade: !watchingOpening, watching: watchingOpening)
 
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 36) {
@@ -339,6 +339,33 @@ struct ItemDetailView: View {
             }
         }
         .ignoresSafeArea()
+        #if !os(tvOS)
+        // No remote Back here: this ends the opening, back to the page. An
+        // overlay keeps to the safe area, clear of the camera.
+        .overlay(alignment: .topLeading) {
+            if watchingOpening {
+                Button {
+                    stopWatchingOpening()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .tint(.white)
+                .accessibilityLabel("Stop watching")
+                .padding(.leading, Lockup.screenPadding)
+                .padding(.top, 8)
+                .transition(.opacity)
+            }
+        }
+        // Watching an opening takes the whole screen: the page's own back
+        // button would leave the page rather than end the opening.
+        .toolbar(watchingOpening ? .hidden : .automatic, for: .navigationBar)
+        .toolbar(watchingOpening ? .hidden : .automatic, for: .tabBar)
+        .statusBarHidden(watchingOpening)
+        #endif
         .onChange(of: watchingOpening) { _, watching in
             if watching {
                 watchingFocused = true
@@ -1044,14 +1071,21 @@ private struct Backdrop: View {
     var video: DiscTrailerPlayer?
     /// The darkening behind the page's text; off while an opening is watched.
     var showsShade = true
+    /// An opening is being watched: the whole picture shows, letterboxed on
+    /// black, rather than filling the screen and losing its sides.
+    var watching = false
 
     var body: some View {
         ZStack {
             RemoteImage(url: url) { Color(white: 0.08) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
+                .opacity(watching && video != nil ? 0 : 1)
+            if watching, video != nil {
+                Color.black
+            }
             if let video {
-                DiscTrailerLayer(player: video.player)
+                DiscTrailerLayer(player: video.player, fits: watching)
                     .opacity(video.isPlaying ? 1 : 0)
                     .animation(.easeIn(duration: 0.8), value: video.isPlaying)
             }

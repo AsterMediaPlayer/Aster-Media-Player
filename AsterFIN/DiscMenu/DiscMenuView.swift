@@ -432,9 +432,11 @@ struct DiscBackgroundView: View {
     }
 }
 
-/// An AVPlayerLayer that cover-fits the canvas.
+/// An AVPlayerLayer that cover-fits the canvas, or with `fits` shows the
+/// whole picture, letterboxed.
 struct DiscTrailerLayer: UIViewRepresentable {
     let player: AVPlayer
+    var fits = false
 
     final class PlayerLayerView: UIView {
         override static var layerClass: AnyClass { AVPlayerLayer.self }
@@ -443,7 +445,7 @@ struct DiscTrailerLayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PlayerLayerView {
         let view = PlayerLayerView()
-        view.playerLayer.videoGravity = .resizeAspectFill
+        view.playerLayer.videoGravity = fits ? .resizeAspect : .resizeAspectFill
         view.playerLayer.player = player
         view.isUserInteractionEnabled = false
         return view
@@ -452,6 +454,10 @@ struct DiscTrailerLayer: UIViewRepresentable {
     func updateUIView(_ view: PlayerLayerView, context: Context) {
         if view.playerLayer.player !== player {
             view.playerLayer.player = player
+        }
+        let gravity: AVLayerVideoGravity = fits ? .resizeAspect : .resizeAspectFill
+        if view.playerLayer.videoGravity != gravity {
+            view.playerLayer.videoGravity = gravity
         }
     }
 }

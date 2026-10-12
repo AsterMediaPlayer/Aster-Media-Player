@@ -54,6 +54,26 @@ final class AppSession {
     /// ordinary library stays where it was put.
     private(set) var animeItemIds: Set<String> = []
 
+    /// Whether the server has a music or Live TV library, which their tabs
+    /// need. Set when the main screen loads.
+    private(set) var hasMusic = false
+    private(set) var hasLiveTV = false
+
+    func noteLibraries(_ views: [BaseItem]) {
+        hasMusic = views.contains { $0.collectionType == "music" }
+        hasLiveTV = views.contains { $0.collectionType == "livetv" }
+    }
+
+    /// The tabs this server has something for.
+    func hasContent(for tab: AppTab) -> Bool {
+        switch tab {
+        case .anime: !animeLibraries.isEmpty
+        case .music: hasMusic
+        case .liveTV: hasLiveTV
+        default: true
+        }
+    }
+
     func detectAnimeLibraries(among views: [BaseItem]) async {
         guard let client else { return }
         let libraries = await client.animeLibraries(among: views)
@@ -187,6 +207,10 @@ enum AppSettings {
     static let themeVideosKey = "AsterFIN.themeVideos"
     /// Whether an anime opening used as the theme video plays its sound.
     static let openingSoundKey = "AsterFIN.openingSound"
+    /// iPhone and iPad: the tabs in the order chosen, and those hidden (see
+    /// `TabLayout`).
+    static let tabOrderKey = "AsterFIN.tabOrder"
+    static let hiddenTabsKey = "AsterFIN.hiddenTabs"
 
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)

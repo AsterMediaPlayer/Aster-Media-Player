@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, account, about
+    case playback, audioSubtitles, discMenus, titlePages, tabBar, account, about
 }
 
 /// The Settings root: one row per category, each opening its own page.
@@ -32,6 +32,11 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
+                #if !os(tvOS)
+                NavigationLink(value: SettingsDestination.tabBar) {
+                    Label("Tab Bar", systemImage: "rectangle.bottomhalf.inset.filled")
+                }
+                #endif
             }
             Section {
                 NavigationLink(value: SettingsDestination.account) {
@@ -52,6 +57,12 @@ struct SettingsView: View {
             case .audioSubtitles: AudioSubtitleSettingsView()
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
+            case .tabBar:
+                #if os(tvOS)
+                EmptyView()
+                #else
+                TabBarSettingsView()
+                #endif
             case .account: AccountSettingsView()
             case .about: AboutSettingsView()
             }
@@ -313,6 +324,69 @@ private struct TitlePageSettingsView: View {
         }
     }
 }
+
+// MARK: - Tab Bar
+
+#if !os(tvOS)
+/// Which tabs show on iPhone and iPad, and in what order. The list is
+/// always in edit mode, so each row can be dragged; the switch hides it.
+private struct TabBarSettingsView: View {
+    @Environment(AppSession.self) private var session
+    @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
+    @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
+
+    /// Every tab in its chosen order, less those this server has nothing for.
+    private var tabs: [AppTab] {
+        TabLayout.order(from: tabOrder).filter { session.hasContent(for: $0) }
+    }
+
+    var body: some View {
+        let hidden = TabLayout.hidden(from: hiddenTabs)
+        SettingsPage(title: "Tab Bar") {
+            Section {
+                ForEach(tabs, id: \.self) { tab in
+                    Toggle(isOn: Binding(
+                        get: { !hidden.contains(tab) },
+                        set: { shown in
+                            var updated = hidden
+                            if shown { updated.remove(tab) } else { updated.insert(tab) }
+                            hiddenTabs = TabLayout.encode(AppTab.allCases.filter(updated.contains))
+                        }
+                    )) {
+                        Label(tab.title, systemImage: tab.systemImage)
+                    }
+                    .disabled(TabLayout.alwaysShown.contains(tab))
+                }
+                .onMove(perform: move)
+            } footer: {
+                SettingsNote(UIDevice.current.userInterfaceIdiom == .pad
+                    ? "Drag to change the order, and switch tabs off to hide them. Home and Settings always show."
+                    : "Drag to change the order, and switch tabs off to hide them. The tab bar holds four tabs; the rest are under More. Home and Settings always show.")
+            }
+            Section {
+                Button("Reset to Default") {
+                    tabOrder = ""
+                    hiddenTabs = ""
+                }
+                .disabled(tabOrder.isEmpty && hiddenTabs.isEmpty)
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+    }
+
+    /// Moves a tab within the list shown, keeping the place of any tab the
+    /// server has nothing for (and so isn't listed) in the full order.
+    private func move(from source: IndexSet, to destination: Int) {
+        var shown = tabs
+        shown.move(fromOffsets: source, toOffset: destination)
+        var remaining = shown.makeIterator()
+        let full = TabLayout.order(from: tabOrder).map { tab in
+            session.hasContent(for: tab) ? (remaining.next() ?? tab) : tab
+        }
+        tabOrder = TabLayout.encode(full)
+    }
+}
+#endif
 
 // MARK: - Account
 

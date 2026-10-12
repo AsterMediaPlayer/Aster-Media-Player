@@ -8,56 +8,96 @@
 
 import SwiftUI
 
-enum AppTab: Hashable {
+enum AppTab: String, CaseIterable, Hashable {
     case home, movies, shows, anime, music, liveTV, library, settings, search
+
+    var title: String {
+        switch self {
+        case .home: "Home"
+        case .movies: "Movies"
+        case .shows: "TV Shows"
+        case .anime: "Anime"
+        case .music: "Music"
+        case .liveTV: "Live TV"
+        case .library: "Library"
+        case .settings: "Settings"
+        case .search: "Search"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .home: "house.fill"
+        case .movies: "film.fill"
+        case .shows: "tv.fill"
+        case .anime: "sparkles"
+        case .music: "music.note"
+        case .liveTV: "antenna.radiowaves.left.and.right"
+        case .library: "square.stack.fill"
+        case .settings: "gearshape.fill"
+        case .search: "magnifyingglass"
+        }
+    }
+}
+
+/// The tab order and hidden tabs chosen in Settings › Tab Bar on iPhone and
+/// iPad, stored as comma-separated tab names. Tabs missing from a stored
+/// order (new ones, say) follow in their usual place.
+enum TabLayout {
+    /// Home is where the app opens, and Settings is where a hidden tab is
+    /// brought back, so neither can be hidden.
+    static let alwaysShown: Set<AppTab> = [.home, .settings]
+
+    static func order(from stored: String) -> [AppTab] {
+        let saved = stored.split(separator: ",").compactMap { AppTab(rawValue: String($0)) }
+        var seen = Set<AppTab>()
+        return (saved + AppTab.allCases).filter { seen.insert($0).inserted }
+    }
+
+    static func hidden(from stored: String) -> Set<AppTab> {
+        Set(stored.split(separator: ",").compactMap { AppTab(rawValue: String($0)) }).subtracting(alwaysShown)
+    }
+
+    static func encode(_ tabs: some Sequence<AppTab>) -> String {
+        tabs.map(\.rawValue).joined(separator: ",")
+    }
 }
 
 struct MainTabView: View {
     @Environment(AppSession.self) private var session
-    @State private var hasLiveTV = false
-    @State private var hasMusic = false
+    @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
+    @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var linkedPlayback: PlaybackRequest?
 
+    /// The tabs to show, in order: tvOS's fixed sidebar, or on iPhone and
+    /// iPad the viewer's choice. Tabs the server has nothing for are left out.
+    private var shownTabs: [AppTab] {
+        #if os(tvOS)
+        let order = AppTab.allCases
+        let hidden: Set<AppTab> = []
+        #else
+        let order = TabLayout.order(from: tabOrder)
+        let hidden = TabLayout.hidden(from: hiddenTabs)
+        #endif
+        return order.filter { !hidden.contains($0) && session.hasContent(for: $0) }
+    }
+
     var body: some View {
         @Bindable var player = session.music
         TabView(selection: $tab) {
-            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                BrowseStack(path: $homePath) { HomeView() }
-            }
-            Tab("Movies", systemImage: "film.fill", value: AppTab.movies) {
-                BrowseStack { TypeGridView(kind: .movie) }
-            }
-            Tab("TV Shows", systemImage: "tv.fill", value: AppTab.shows) {
-                BrowseStack { TypeGridView(kind: .series) }
-            }
-            if !session.animeLibraries.isEmpty {
-                Tab("Anime", systemImage: "sparkles", value: AppTab.anime) {
-                    BrowseStack { AnimeView() }
+            ForEach(shownTabs, id: \.self) { item in
+                Tab(item.title, systemImage: item.systemImage, value: item, role: item == .search ? .search : nil) {
+                    content(for: item)
                 }
-            }
-            if hasMusic {
-                Tab("Music", systemImage: "music.note", value: AppTab.music) {
-                    BrowseStack { MusicView() }
-                }
-            }
-            if hasLiveTV {
-                Tab("Live TV", systemImage: "antenna.radiowaves.left.and.right", value: AppTab.liveTV) {
-                    BrowseStack { LiveTVView() }
-                }
-            }
-            Tab("Library", systemImage: "square.stack.fill", value: AppTab.library) {
-                BrowseStack { LibraryView() }
-            }
-            Tab("Settings", systemImage: "gearshape.fill", value: AppTab.settings) {
-                BrowseStack { SettingsView() }
-            }
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                BrowseStack { SearchView() }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        // A tab hidden while showing hands over to Home.
+        .onChange(of: shownTabs) { _, tabs in
+            if !tabs.contains(tab) { tab = .home }
+        }
         // Music can start from any tab (Search, Library), so the player is
         // presented from here rather than from the Music screen.
         .fullScreenCover(isPresented: $player.isNowPlayingPresented) {
@@ -77,8 +117,7 @@ struct MainTabView: View {
             guard let client = session.client else { return }
             await session.refreshUserConfiguration()
             let views = (try? await client.userViews()) ?? []
-            hasLiveTV = views.contains { $0.collectionType == "livetv" }
-            hasMusic = views.contains { $0.collectionType == "music" }
+            session.noteLibraries(views)
             await session.detectAnimeLibraries(among: views)
             await followPendingLinks()
         }
@@ -92,6 +131,21 @@ struct MainTabView: View {
             if let request = session.router.takePlayback() {
                 linkedPlayback = request
             }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for tab: AppTab) -> some View {
+        switch tab {
+        case .home: BrowseStack(path: $homePath) { HomeView() }
+        case .movies: BrowseStack { TypeGridView(kind: .movie) }
+        case .shows: BrowseStack { TypeGridView(kind: .series) }
+        case .anime: BrowseStack { AnimeView() }
+        case .music: BrowseStack { MusicView() }
+        case .liveTV: BrowseStack { LiveTVView() }
+        case .library: BrowseStack { LibraryView() }
+        case .settings: BrowseStack { SettingsView() }
+        case .search: BrowseStack { SearchView() }
         }
     }
 

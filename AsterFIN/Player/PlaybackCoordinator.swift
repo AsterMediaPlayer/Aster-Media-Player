@@ -281,16 +281,22 @@ final class PlaybackCoordinator {
             // tracks: pulling ASS tracks out of an MKV can take the server
             // longer than the player waits, and a song doesn't need them.
             let isClip = entry.endTicks != nil
+            // The audio track: an explicit choice, else the first in the
+            // preferred language. Left to the server, an account set to play
+            // default tracks gets the file's default (often Japanese) whatever
+            // the language preference says.
+            let itemStreams = item.mediaSources?.first?.mediaStreams ?? item.mediaStreams ?? []
+            let audioChoice = isClip ? nil : entry.audioStreamIndex ?? Self.preferredAudioTrack(in: itemStreams, language: preferences.audioLanguage)
             // Track choices only take effect when the request names the file
             // they belong to; without one the server uses its own defaults.
-            let choosesTracks = entry.audioStreamIndex != nil || entry.subtitleStreamIndex != nil
+            let choosesTracks = audioChoice != nil || entry.subtitleStreamIndex != nil
             let sourceId = entry.mediaSourceId ?? (choosesTracks ? item.mediaSources?.first?.id : nil)
             var info = try await client.playbackInfo(
                 itemId: entry.itemId,
                 mediaSourceId: sourceId,
                 startTicks: entry.startTicks,
                 maxBitrate: AppSettings.maxBitrate,
-                audioStreamIndex: entry.audioStreamIndex,
+                audioStreamIndex: audioChoice,
                 subtitleStreamIndex: isClip ? -1 : entry.subtitleStreamIndex,
                 allowDirect: entry.fallback == .none,
                 mostCompatible: entry.fallback == .mostCompatible
@@ -307,8 +313,8 @@ final class PlaybackCoordinator {
             let streams = isLive || isClip ? [] : (source.mediaStreams ?? [])
             audioTracks = streams.filter { $0.type == "Audio" }
             subtitleTracks = streams.filter { $0.type == "Subtitle" }
-            selectedAudioIndex = entry.audioStreamIndex ?? source.defaultAudioStreamIndex ?? audioTracks.first?.index
-            preferredAudioLanguage = audioTracks.first { $0.index == entry.audioStreamIndex }?.language ?? preferences.audioLanguage
+            selectedAudioIndex = audioChoice ?? source.defaultAudioStreamIndex ?? audioTracks.first?.index
+            preferredAudioLanguage = audioTracks.first { $0.index == audioChoice }?.language ?? preferences.audioLanguage
 
             // The subtitle track to show: an explicit choice, else the user's
             // preferences applied to this title's tracks, else the server's
@@ -323,7 +329,7 @@ final class PlaybackCoordinator {
                     mediaSourceId: source.id,
                     startTicks: entry.startTicks,
                     maxBitrate: AppSettings.maxBitrate,
-                    audioStreamIndex: entry.audioStreamIndex,
+                    audioStreamIndex: audioChoice,
                     subtitleStreamIndex: wantBurnedIn ?? -1,
                     allowDirect: entry.fallback == .none,
                     mostCompatible: entry.fallback == .mostCompatible
@@ -543,6 +549,14 @@ final class PlaybackCoordinator {
 
     /// Text tracks are fetched and drawn by the app; the rest (PGS, VobSub)
     /// are pictures the server has to burn into the video.
+    /// The first audio track in `language`, preferring one the file marks
+    /// as default; nil with no preference or no such track.
+    static func preferredAudioTrack(in streams: [MediaStream], language: String?) -> Int? {
+        guard let language, !language.isEmpty else { return nil }
+        let matching = streams.filter { $0.type == "Audio" && LanguageTag.sameLanguage($0.language, language) }
+        return (matching.first { $0.isDefault == true } ?? matching.first)?.index
+    }
+
     static func isTextTrack(_ track: MediaStream) -> Bool {
         track.isTextSubtitleStream ?? (track.deliveryMethod != "Encode")
     }

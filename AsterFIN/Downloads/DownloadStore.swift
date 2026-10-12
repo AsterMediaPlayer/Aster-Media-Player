@@ -356,7 +356,10 @@ final class DownloadStore: NSObject {
         // A picture-based track can only come burned into the video; text
         // tracks are saved alongside it instead.
         let itemSource = item.mediaSources?.first
-        let itemSubtitles = (itemSource?.mediaStreams ?? item.mediaStreams ?? []).filter { $0.type == "Subtitle" }
+        let itemStreams = itemSource?.mediaStreams ?? item.mediaStreams ?? []
+        let itemSubtitles = itemStreams.filter { $0.type == "Subtitle" }
+        // Unchosen, the preferred language, as playback picks it.
+        let audioStreamIndex = audioStreamIndex ?? PlaybackCoordinator.preferredAudioTrack(in: itemStreams, language: preferences.audioLanguage)
         let burnIn = subtitleChoice.flatMap { choice in
             itemSubtitles.first { $0.index == choice && !PlaybackCoordinator.isTextTrack($0) }?.index
         }

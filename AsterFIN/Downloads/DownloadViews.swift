@@ -206,7 +206,8 @@ struct DownloadTracksView: View {
     /// What playback would choose: the server's default audio (which follows
     /// the account's language setting) and the preferred subtitles.
     private func chooseDefaults() {
-        audio = source?.defaultAudioStreamIndex ?? audioTracks.first?.index
+        audio = PlaybackCoordinator.preferredAudioTrack(in: streams, language: session.playbackPreferences.audioLanguage)
+            ?? source?.defaultAudioStreamIndex ?? audioTracks.first?.index
         if let source, DownloadSettings.includeSubtitles {
             subtitle = PlaybackCoordinator.resolveSubtitle(for: PlaybackQueueItem(itemId: item.id), source: source, among: subtitleTracks, preferences: session.playbackPreferences)
         }

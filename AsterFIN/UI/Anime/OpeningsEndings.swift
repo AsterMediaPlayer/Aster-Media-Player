@@ -207,33 +207,62 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
 struct ThemeInfoCard: View {
     let info: ThemeInfo
 
+    /// The card at TV size, or scaled down for a phone or tablet.
+    private enum Metrics {
+        #if os(tvOS)
+        static let barGap: CGFloat = 22
+        static let barWidth: CGFloat = 5
+        static let lineSpacing: CGFloat = 8
+        static let titleSize: CGFloat = 50
+        static let artistsFont: Font = .title3.weight(.medium)
+        static let seriesFont: Font = .headline
+        static let detailFont: Font = .callout
+        static let maxWidth: CGFloat = 900
+        static let leading: CGFloat = 90
+        static let bottom: CGFloat = 120
+        static let shade = CGSize(width: 1100, height: 500)
+        #else
+        static let barGap: CGFloat = 12
+        static let barWidth: CGFloat = 3
+        static let lineSpacing: CGFloat = 4
+        static let titleSize: CGFloat = 24
+        static let artistsFont: Font = .subheadline.weight(.medium)
+        static let seriesFont: Font = .footnote.weight(.semibold)
+        static let detailFont: Font = .caption
+        static let maxWidth: CGFloat = 420
+        static let leading: CGFloat = 24
+        static let bottom: CGFloat = 40
+        static let shade = CGSize(width: 520, height: 240)
+        #endif
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 22) {
+        HStack(alignment: .top, spacing: Metrics.barGap) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(.white)
-                .frame(width: 5)
-            VStack(alignment: .leading, spacing: 8) {
+                .frame(width: Metrics.barWidth)
+            VStack(alignment: .leading, spacing: Metrics.lineSpacing) {
                 Text(info.kicker.uppercased())
                     .font(.caption.weight(.semibold))
                     .tracking(2.5)
                     .foregroundStyle(.white.opacity(0.75))
                 Text(info.title)
-                    .font(.system(size: 50, weight: .bold))
+                    .font(.system(size: Metrics.titleSize, weight: .bold))
                     .lineLimit(2)
                 if let artists = info.artists {
                     Text(artists)
-                        .font(.title3.weight(.medium))
+                        .font(Metrics.artistsFont)
                         .lineLimit(1)
                 }
                 if let series = info.series {
                     Text(series)
-                        .font(.headline)
+                        .font(Metrics.seriesFont)
                         .foregroundStyle(.white.opacity(0.9))
                         .lineLimit(1)
                 }
                 if let detail = info.detail {
                     Text(detail)
-                        .font(.callout)
+                        .font(Metrics.detailFont)
                         .foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1)
                 }
@@ -242,9 +271,9 @@ struct ThemeInfoCard: View {
         .fixedSize(horizontal: false, vertical: true)
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
-        .frame(maxWidth: 900, alignment: .leading)
-        .padding(.leading, 90)
-        .padding(.bottom, 120)
+        .frame(maxWidth: Metrics.maxWidth, alignment: .leading)
+        .padding(.leading, Metrics.leading)
+        .padding(.bottom, Metrics.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .background(alignment: .bottomLeading) {
             // A soft shade behind the text so it reads over bright frames.
@@ -260,7 +289,7 @@ struct ThemeInfoCard: View {
                 startRadiusFraction: 0,
                 endRadiusFraction: 1
             )
-            .frame(width: 1100, height: 500)
+            .frame(width: Metrics.shade.width, height: Metrics.shade.height)
         }
     }
 }

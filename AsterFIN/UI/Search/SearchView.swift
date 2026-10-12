@@ -16,10 +16,10 @@ struct SearchView: View {
             LazyVStack(alignment: .leading, spacing: 20) {
                 if query.isEmpty {
                     MessageView(systemImage: "magnifyingglass", title: "Search", detail: "Find movies, TV shows, episodes and music in your library.")
-                        .frame(height: 500)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else if results.isEmpty, !isSearching {
                     MessageView(systemImage: "questionmark.circle", title: "No Results", detail: "Nothing matched \"\(query)\".")
-                        .frame(height: 500)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else {
                     let shows = results.filter { $0.kind == .movie || $0.kind == .series }
                     let episodes = results.filter { $0.kind == .episode }
@@ -30,7 +30,7 @@ struct SearchView: View {
                         Text("Movies & TV Shows")
                             .font(.title3.weight(.semibold))
                             .padding(.horizontal, Lockup.screenPadding)
-                            .padding(.top, 30)
+                            .padding(.top, Lockup.sectionSpacing)
                         ItemGrid(items: shows)
                     }
                     Shelf(title: "Episodes", items: episodes) { item in
@@ -51,7 +51,7 @@ struct SearchView: View {
                     }
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .searchable(text: $query, prompt: "Movies, shows, episodes, music")

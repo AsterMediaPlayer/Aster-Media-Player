@@ -40,6 +40,18 @@ enum Lockup {
     /// out as tall as the text ones.
     static let iconButtonSize: CGFloat = 44
     static let iconButtonFont: Font = .title3
+    /// Above a page's title, and below its last row.
+    static let pageTopPadding: CGFloat = 40
+    static let pageBottomPadding: CGFloat = 80
+    /// Between a page's sections and shelves.
+    static let sectionSpacing: CGFloat = 30
+    /// Between a page's action buttons.
+    static let buttonSpacing: CGFloat = 20
+    /// The height given to a page's "nothing here" message.
+    static let emptyStateHeight: CGFloat = 500
+    /// A library's tile on the Library and Anime pages.
+    static let libraryTileWidth: CGFloat = 440
+    static let libraryTileHeight: CGFloat = 248
     #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
@@ -60,6 +72,14 @@ enum Lockup {
     /// The height of a headline label, so icon and text buttons match.
     static let iconButtonSize: CGFloat = 22
     static let iconButtonFont: Font = .headline
+    static let pageTopPadding: CGFloat = 8
+    static let pageBottomPadding: CGFloat = 24
+    static let sectionSpacing: CGFloat = 16
+    static let buttonSpacing: CGFloat = 12
+    static let emptyStateHeight: CGFloat = 320
+    /// The size of the landscape cards in the shelves beside them.
+    static let libraryTileWidth: CGFloat = landscapeWidth
+    static let libraryTileHeight: CGFloat = landscapeHeight
     #endif
 }
 
@@ -401,10 +421,15 @@ struct LibraryTile: View {
                 RemoteImage(url: session.client?.landscapeURL(for: library, width: 800), systemImage: icon)
                 LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
                 Text(library.displayTitle)
+                    #if os(tvOS)
                     .font(.title3.weight(.semibold))
                     .padding(20)
+                    #else
+                    .font(.headline)
+                    .padding(10)
+                    #endif
             }
-            .frame(width: 440, height: 248)
+            .frame(width: Lockup.libraryTileWidth, height: Lockup.libraryTileHeight)
         }
         .cardButtonStyle()
         .accessibilityLabel(library.displayTitle)
@@ -533,7 +558,11 @@ struct MessageView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: systemImage)
+                #if os(tvOS)
                 .font(.system(size: 64, weight: .light))
+                #else
+                .font(.system(size: 44, weight: .light))
+                #endif
                 .foregroundStyle(.secondary)
             Text(title)
                 .font(.title2.weight(.semibold))

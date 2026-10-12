@@ -21,7 +21,7 @@ struct VideoPlaylistView: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 30) {
+            LazyVStack(alignment: .leading, spacing: Lockup.sectionSpacing) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(playlist.displayTitle)
                         .font(.largeTitle.weight(.bold))
@@ -31,9 +31,9 @@ struct VideoPlaylistView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, 40)
+                .padding(.top, Lockup.pageTopPadding)
 
-                HStack(spacing: 20) {
+                HStack(spacing: Lockup.buttonSpacing) {
                     ActionButton(title: "Play All", systemImage: "play.fill", prominent: true) {
                         playback = PlaybackRequest(itemIds: items.map(\.id))
                     }
@@ -54,7 +54,7 @@ struct VideoPlaylistView: View {
 
                 if items.isEmpty, !isLoading {
                     MessageView(systemImage: "list.and.film", title: "This playlist is empty", detail: "Use Add to Playlist on a movie or episode to fill it.")
-                        .frame(height: 400)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
                         ForEach(Array(items.enumerated()), id: \.element.playlistRowID) { position, item in
@@ -70,10 +70,10 @@ struct VideoPlaylistView: View {
                         }
                     }
                     .padding(.horizontal, Lockup.screenPadding)
-                    .padding(.vertical, 40)
+                    .padding(.vertical, Lockup.shelfVerticalPadding)
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .task(id: playlist.id) { await load() }

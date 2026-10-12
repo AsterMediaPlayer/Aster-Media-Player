@@ -105,12 +105,12 @@ struct AnimeView: View {
                 Text("Anime")
                     .font(.largeTitle.weight(.bold))
                     .padding(.horizontal, Lockup.screenPadding)
-                    .padding(.top, 40)
+                    .padding(.top, Lockup.pageTopPadding)
 
                 if model.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
-                        .padding(80)
+                        .padding(Lockup.pageBottomPadding)
                 }
                 Shelf(title: "Continue Watching", items: model.continueWatching) { item in
                     LandscapeLockup(item: item)
@@ -131,7 +131,7 @@ struct AnimeView: View {
                     LibraryTile(library: library)
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .task(id: session.animeLibraries.map(\.id)) { await reload() }

@@ -19,21 +19,21 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 30) {
+            LazyVStack(alignment: .leading, spacing: Lockup.sectionSpacing) {
                 Text("Library")
                     .font(.largeTitle.weight(.bold))
                     .padding(.horizontal, Lockup.screenPadding)
-                    .padding(.top, 40)
+                    .padding(.top, Lockup.pageTopPadding)
 
                 if !libraries.isEmpty {
                     ScrollView(.horizontal) {
-                        LazyHStack(spacing: 36) {
+                        LazyHStack(spacing: Lockup.shelfSpacing) {
                             ForEach(libraries) { library in
                                 LibraryTile(library: library)
                             }
                         }
                         .padding(.horizontal, Lockup.screenPadding)
-                        .padding(.vertical, 30)
+                        .padding(.vertical, Lockup.shelfVerticalPadding)
                     }
                     .scrollClipDisabled()
                     .tvFocusSection()
@@ -55,7 +55,7 @@ struct LibraryView: View {
                     Text(errorMessage).foregroundStyle(.red).padding(.horizontal, Lockup.screenPadding)
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .task { await load() }
@@ -217,25 +217,25 @@ struct LibraryGridView: View {
                     .pickerStyle(.menu)
                 }
                 .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, 40)
+                .padding(.top, Lockup.pageTopPadding)
 
                 if model.items.isEmpty, let error = model.errorMessage {
                     MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
-                        .frame(height: 600)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else if model.items.isEmpty, !model.isLoading {
                     MessageView(systemImage: "tray", title: "Nothing here yet")
-                        .frame(height: 600)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else {
                     ItemGrid(items: model.items, landscape: landscape)
                     if model.hasMore {
                         ProgressView()
                             .frame(maxWidth: .infinity)
-                            .padding(40)
+                            .padding(Lockup.pageBottomPadding)
                             .task { await load() }
                     }
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .task(id: sort) { await load(reset: true) }
@@ -282,7 +282,7 @@ struct TypeGridView: View {
                     .pickerStyle(.menu)
                 }
                 .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, 40)
+                .padding(.top, Lockup.pageTopPadding)
 
                 Shelf(title: "Recently Added", items: recent) { item in
                     LandscapeLockup(item: item)
@@ -290,7 +290,7 @@ struct TypeGridView: View {
 
                 if model.items.isEmpty, let error = model.errorMessage {
                     MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
-                        .frame(height: 500)
+                        .frame(height: Lockup.emptyStateHeight)
                 } else {
                     Text("All \(title)")
                         .font(.title3.weight(.semibold))
@@ -300,12 +300,12 @@ struct TypeGridView: View {
                     if model.hasMore {
                         ProgressView()
                             .frame(maxWidth: .infinity)
-                            .padding(40)
+                            .padding(Lockup.pageBottomPadding)
                             .task { await load() }
                     }
                 }
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         // Reloads once anime detection finishes, so its titles drop out.
@@ -329,16 +329,22 @@ struct TypeGridView: View {
 struct PersonView: View {
     let person: PersonInfo
 
+    #if os(tvOS)
+    private static let photoSize: CGFloat = 260
+    #else
+    private static let photoSize: CGFloat = 110
+    #endif
+
     @Environment(AppSession.self) private var session
     @State private var items: [BaseItem] = []
     @State private var details: BaseItem?
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 30) {
-                HStack(alignment: .top, spacing: 40) {
+            LazyVStack(alignment: .leading, spacing: Lockup.sectionSpacing) {
+                HStack(alignment: .top, spacing: Lockup.sectionSpacing) {
                     RemoteImage(url: session.client?.personImageURL(person, width: 500), systemImage: "person.fill")
-                        .frame(width: 260, height: 260)
+                        .frame(width: Self.photoSize, height: Self.photoSize)
                         .clipShape(Circle())
                     VStack(alignment: .leading, spacing: 12) {
                         Text(person.name ?? "")
@@ -352,14 +358,14 @@ struct PersonView: View {
                     }
                 }
                 .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, 40)
+                .padding(.top, Lockup.pageTopPadding)
 
                 Text("Filmography")
                     .font(.title3.weight(.semibold))
                     .padding(.horizontal, Lockup.screenPadding)
                 ItemGrid(items: items)
             }
-            .padding(.bottom, 80)
+            .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
         .task {

@@ -434,10 +434,12 @@ nonisolated final class JellyfinClient: Sendable {
     /// server for picture-based tracks, which it burns in; -1 means none.
     /// `mostCompatible` asks for a fresh 8-bit H.264 + AAC encode, copying
     /// nothing from the file: the last resort when other streams won't play.
-    func playbackInfo(itemId: String, startTicks: Int64, maxBitrate: Int, audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, allowDirect: Bool = true, mostCompatible: Bool = false) async throws -> PlaybackInfoResponse {
+    func playbackInfo(itemId: String, mediaSourceId: String? = nil, startTicks: Int64, maxBitrate: Int, audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, allowDirect: Bool = true, mostCompatible: Bool = false) async throws -> PlaybackInfoResponse {
         let user = try requireUser()
         nonisolated struct Body: Encodable, Sendable {
             var DeviceProfile: DeviceProfile
+            /// The server applies the track indexes only when this names the file.
+            var MediaSourceId: String?
             var StartTimeTicks: Int64
             var MaxStreamingBitrate: Int
             var AudioStreamIndex: Int?
@@ -452,6 +454,7 @@ nonisolated final class JellyfinClient: Sendable {
         let direct = allowDirect && !mostCompatible
         let body = Body(
             DeviceProfile: mostCompatible ? .appleTVMostCompatible(maxBitrate: maxBitrate) : .appleTV(maxBitrate: maxBitrate),
+            MediaSourceId: mediaSourceId,
             StartTimeTicks: startTicks,
             MaxStreamingBitrate: maxBitrate,
             AudioStreamIndex: audioStreamIndex,

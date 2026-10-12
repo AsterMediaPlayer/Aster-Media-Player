@@ -20,6 +20,8 @@ nonisolated struct PlaybackQueueItem: Hashable, Sendable {
     var startTicks: Int64 = 0
     var audioStreamIndex: Int?
     var subtitleStreamIndex: Int?
+    /// The file version the track indexes belong to, once one has played.
+    var mediaSourceId: String?
     /// How far this entry has stepped back after failing to play.
     var fallback: StreamFallback = .none
     /// Reloads in a row after the stream stalled mid-playback.
@@ -248,8 +250,13 @@ final class PlaybackCoordinator {
             // tracks: pulling ASS tracks out of an MKV can take the server
             // longer than the player waits, and a song doesn't need them.
             let isClip = entry.endTicks != nil
+            // Track choices only take effect when the request names the file
+            // they belong to; without one the server uses its own defaults.
+            let choosesTracks = entry.audioStreamIndex != nil || entry.subtitleStreamIndex != nil
+            let sourceId = entry.mediaSourceId ?? (choosesTracks ? item.mediaSources?.first?.id : nil)
             var info = try await client.playbackInfo(
                 itemId: entry.itemId,
+                mediaSourceId: sourceId,
                 startTicks: entry.startTicks,
                 maxBitrate: AppSettings.maxBitrate,
                 audioStreamIndex: entry.audioStreamIndex,
@@ -282,6 +289,7 @@ final class PlaybackCoordinator {
             if wantBurnedIn != Self.burnedInSubtitle(in: source) {
                 let corrected = try await client.playbackInfo(
                     itemId: entry.itemId,
+                    mediaSourceId: source.id,
                     startTicks: entry.startTicks,
                     maxBitrate: AppSettings.maxBitrate,
                     audioStreamIndex: entry.audioStreamIndex,
@@ -349,6 +357,12 @@ final class PlaybackCoordinator {
             playerItem.navigationMarkerGroups = Self.chapterMarkers(for: item)
             #endif
             player.appliesMediaSelectionCriteriaAutomatically = true
+            if !isLive, entry.startTicks > 0 {
+                // Seek before the item loads, so a server stream's first
+                // request is for the resume point. Seeking once ready made
+                // the server prepare the opening, then start over there.
+                playerItem.seek(to: CMTime(value: entry.startTicks, timescale: 10_000_000), toleranceBefore: .zero, toleranceAfter: .positiveInfinity, completionHandler: nil)
+            }
             installObservers(for: playerItem, startTicks: isLive ? 0 : entry.startTicks)
             player.replaceCurrentItem(with: playerItem)
             player.play()
@@ -563,6 +577,7 @@ final class PlaybackCoordinator {
         guard index < queue.count else { return }
         queue[index].audioStreamIndex = audio
         queue[index].subtitleStreamIndex = subtitle
+        queue[index].mediaSourceId = mediaSourceId
         queue[index].startTicks = currentPositionTicks
         reportStoppedIfStarted()
         Task { await play(index: index) }
@@ -804,8 +819,9 @@ final class PlaybackCoordinator {
                 guard let self else { return }
                 switch observed.status {
                 case .readyToPlay:
-                    if startTicks > 0, !self.hasStarted {
-                        let time = CMTime(value: startTicks, timescale: 10_000_000)
+                    // The early seek normally lands; seek again only if it didn't.
+                    let time = CMTime(value: startTicks, timescale: 10_000_000)
+                    if startTicks > 0, !self.hasStarted, abs(observed.currentTime().seconds - time.seconds) > 2 {
                         await self.player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
                     }
                     if !self.hasStarted {

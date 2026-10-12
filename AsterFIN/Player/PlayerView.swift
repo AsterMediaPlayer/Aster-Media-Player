@@ -72,6 +72,15 @@ struct PlayerView: View {
                         ThemeInfoOverlay(player: coordinator.player, range: coordinator.clipRange, info: info)
                     }
                 }
+                #if !os(tvOS)
+                .overlay(alignment: .bottomTrailing) {
+                    // The tvOS player shows these as contextual actions; iOS
+                    // has no such thing, so they're buttons over the video.
+                    if !coordinator.endCardVisible {
+                        TouchPlayerActions(coordinator: coordinator)
+                    }
+                }
+                #endif
                 .alert("Can't Play", isPresented: Binding(get: { coordinator.errorMessage != nil }, set: { _ in })) {
                     Button("OK") {
                         coordinator.stop()
@@ -146,6 +155,50 @@ struct PlayerView: View {
         return actions
     }
 }
+
+#if !os(tvOS)
+/// Skip Intro / Skip Credits and Play Next Episode on a touch screen: pills in
+/// the lower right, above the system player's controls, shown only while they
+/// apply. The same actions the tvOS player offers as contextual actions.
+private struct TouchPlayerActions: View {
+    let coordinator: PlaybackCoordinator
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            if let segment = coordinator.activeSegment {
+                pill(segment.skipTitle, systemImage: "forward.fill") {
+                    coordinator.skipActiveSegment()
+                }
+            }
+            if coordinator.showsUpNextAction {
+                pill("Play Next Episode", systemImage: "forward.end.fill") {
+                    coordinator.playUpNextNow()
+                }
+            }
+        }
+        // Clear of the transport bar along the bottom.
+        .padding(.trailing, 24)
+        .padding(.bottom, 96)
+        .animation(.easeInOut(duration: 0.25), value: coordinator.activeSegment != nil)
+        .animation(.easeInOut(duration: 0.25), value: coordinator.showsUpNextAction)
+    }
+
+    private func pill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .padding(.horizontal, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .tint(.white)
+        .foregroundStyle(.black)
+        .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+        .transition(.opacity.combined(with: .move(edge: .trailing)))
+    }
+}
+#endif
 
 /// Covers the player while an item loads: the season's backdrop (or the
 /// series' when the season has none) with the show's logo and a spinner.

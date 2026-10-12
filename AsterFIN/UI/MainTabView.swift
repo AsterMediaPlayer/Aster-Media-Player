@@ -89,13 +89,7 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var player = session.music
-        TabView(selection: $tab) {
-            ForEach(shownTabs, id: \.self) { item in
-                Tab(item.title, systemImage: item.systemImage, value: item, role: item == .search ? .search : nil) {
-                    content(for: item)
-                }
-            }
-        }
+        tabView
         .tabViewStyle(.sidebarAdaptable)
         // A tab hidden while showing hands over to Home.
         .onChange(of: shownTabs) { _, tabs in
@@ -137,10 +131,61 @@ struct MainTabView: View {
         }
     }
 
+    #if !os(tvOS)
+    /// What the More tab shows: downloads running or failed, when the
+    /// Downloads tab is one of those under More (past the bar's first four).
+    private var moreTabDownloadState: MoreTabDownloadIndicator.State {
+        let tabs = shownTabs
+        guard tabs.count > 5, let position = tabs.firstIndex(of: .downloads), position >= 4 else { return .idle }
+        let records = DownloadStore.shared.records
+        if records.contains(where: { $0.state == .failed }) { return .failed }
+        if records.contains(where: { $0.state == .downloading }) { return .downloading }
+        return .idle
+    }
+    #endif
+
+    /// The tabs themselves, apart from the modifiers below so the compiler
+    /// can type-check the body in reasonable time.
+    private var tabView: some View {
+        TabView(selection: $tab) {
+            ForEach(shownTabs, id: \.self) { item in
+                tab(for: item)
+            }
+        }
+    }
+
+    private func tab(for item: AppTab) -> some TabContent<AppTab> {
+        let role: TabRole? = item == .search ? .search : nil
+        #if os(tvOS)
+        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
+            content(for: item)
+        }
+        #else
+        // Tab badges are iOS only.
+        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
+            content(for: item)
+        }
+        .badge(badgeCount(for: item))
+        #endif
+    }
+
+    /// Downloads in progress, on the Downloads tab (and so on More when it's
+    /// there). Zero shows no badge.
+    #if !os(tvOS)
+    private func badgeCount(for tab: AppTab) -> Int {
+        tab == .downloads ? DownloadStore.shared.records.filter { $0.state == .downloading }.count : 0
+    }
+    #endif
+
     @ViewBuilder
     private func content(for tab: AppTab) -> some View {
         switch tab {
-        case .home: BrowseStack(path: $homePath) { HomeView() }
+        case .home:
+            BrowseStack(path: $homePath) { HomeView() }
+                #if !os(tvOS)
+                // Home is always there, so it hosts the More tab's indicator.
+                .background(MoreTabDownloadIndicator(state: moreTabDownloadState))
+                #endif
         case .movies: BrowseStack { TypeGridView(kind: .movie) }
         case .shows: BrowseStack { TypeGridView(kind: .series) }
         case .anime: BrowseStack { AnimeView() }
@@ -222,6 +267,96 @@ private struct MoreBarHider: UIViewControllerRepresentable {
             more.setNavigationBarHidden(hidden, animated: false)
         }
         return true
+    }
+}
+#endif
+
+#if !os(tvOS)
+/// Pulses the iPhone's More tab while a download under it runs, in red once
+/// one has failed. Tab bar icons can't be animated, so the icon is swapped
+/// between full and faded copies on a timer; with Reduce Motion it stays
+/// steady. Goes through UIKit because the More tab belongs to it.
+private struct MoreTabDownloadIndicator: UIViewControllerRepresentable {
+    enum State: Equatable {
+        case idle, downloading, failed
+    }
+
+    var state: State
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    final class Coordinator {
+        var timer: Timer?
+        var original: (image: UIImage?, selected: UIImage?)?
+        var dimmed = false
+        var shownState: State = .idle
+
+        deinit { timer?.invalidate() }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()
+    }
+
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        let state = state
+        let reduceMotion = reduceMotion
+        let coordinator = context.coordinator
+        // The controller joins the hierarchy after the first update.
+        DispatchQueue.main.async { [weak controller] in
+            guard let tabs = controller?.tabBarController,
+                  tabs.traitCollection.horizontalSizeClass == .compact else { return }
+            Self.apply(state, reduceMotion: reduceMotion, to: tabs.moreNavigationController.tabBarItem, coordinator: coordinator)
+        }
+    }
+
+    static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
+        coordinator.timer?.invalidate()
+        if let tabs = controller.tabBarController, let original = coordinator.original {
+            tabs.moreNavigationController.tabBarItem.image = original.image
+            tabs.moreNavigationController.tabBarItem.selectedImage = original.selected
+        }
+    }
+
+    private static func apply(_ state: State, reduceMotion: Bool, to item: UITabBarItem, coordinator: Coordinator) {
+        guard state != coordinator.shownState else { return }
+        coordinator.shownState = state
+        coordinator.timer?.invalidate()
+        coordinator.timer = nil
+        if coordinator.original == nil {
+            coordinator.original = (item.image, item.selectedImage)
+        }
+        guard state != .idle, let base = coordinator.original?.image else {
+            item.image = coordinator.original?.image
+            item.selectedImage = coordinator.original?.selected
+            return
+        }
+        // Full and faded copies: the system's tint while downloading, red
+        // once a download has failed.
+        let full: UIImage
+        let faded: UIImage
+        if state == .failed {
+            full = base.withTintColor(.systemRed, renderingMode: .alwaysOriginal)
+            faded = base.withTintColor(.systemRed.withAlphaComponent(0.35), renderingMode: .alwaysOriginal)
+        } else {
+            full = base
+            faded = base.withTintColor(.secondaryLabel.withAlphaComponent(0.3), renderingMode: .alwaysOriginal)
+        }
+        let show: (Bool) -> Void = { dim in
+            item.image = dim ? faded : full
+            item.selectedImage = dim ? faded : full
+        }
+        coordinator.dimmed = false
+        show(false)
+        guard !reduceMotion else { return }
+        coordinator.timer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak coordinator] _ in
+            MainActor.assumeIsolated {
+                guard let coordinator else { return }
+                coordinator.dimmed.toggle()
+                show(coordinator.dimmed)
+            }
+        }
     }
 }
 #endif

@@ -115,8 +115,15 @@ nonisolated struct DownloadRecord: Codable, Identifiable, Sendable, Hashable {
     /// The size expected before it finishes, then the size on disk.
     var expectedBytes: Int64
     var bytesOnDisk: Int64 = 0
-    /// The subtitle track saved with it, if any.
+    /// The subtitle track saved with it as text, if any.
     var subtitleTrack: MediaStream?
+    /// The tracks chosen when it was asked for, kept for a retry: nil audio
+    /// is the server's default; nil subtitles follows the preferences, -1
+    /// is none.
+    var audioStreamIndex: Int?
+    var subtitleChoice: Int?
+    /// The audio track's name, to show with the download.
+    var audioTitle: String?
     var segments: [MediaSegment] = []
     /// Where viewing got to, kept here so offline resumes work.
     var positionTicks: Int64 = 0
@@ -165,10 +172,22 @@ final class DownloadStore: NSObject {
     /// Background relaunches waiting for the sessions to deliver their events.
     @ObservationIgnored private var backgroundWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var backgroundEventsDelivered = false
+    /// Automatic resumes after a failure, per download, this launch.
+    @ObservationIgnored private var autoResumes: [String: Int] = [:]
+    private static let maxAutoResumes = 3
 
     override private init() {
         super.init()
         records = Self.loadIndex()
+        remeasure()
+        // Deletions cut short when the app last quit.
+        let root = Self.root
+        Task.detached(priority: .utility) {
+            let leftovers = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            for url in leftovers where url.lastPathComponent.hasPrefix(".trash-") {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         wifiSession = makeSession(Self.wifiSessionID, cellular: false)
         cellularSession = makeSession(Self.cellularSessionID, cellular: true)
         Task { await reattach() }
@@ -178,6 +197,11 @@ final class DownloadStore: NSObject {
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
         configuration.allowsCellularAccess = cellular
         configuration.sessionSendsLaunchEvents = true
+        // One request at a time. Jellyfin prepares an HLS stream in a single
+        // pass, and a request for a later part restarts it there; fetched in
+        // parallel, out of order, it kept restarting until it answered a
+        // part it had abandoned with 404 and the download failed.
+        configuration.httpMaximumConnectionsPerHost = 1
         return AVAssetDownloadURLSession(configuration: configuration, assetDownloadDelegate: self, delegateQueue: .main)
     }
 
@@ -196,6 +220,26 @@ final class DownloadStore: NSObject {
             records[index].state = .failed
             records[index].errorMessage = "The download was interrupted."
             changed = true
+        }
+        if changed { saveIndex() }
+    }
+
+    /// Measures finished downloads again: a size taken at a wrong path (or
+    /// before the package settled) was 0, which hid it from the space used.
+    /// Also stores each location in its home-relative form.
+    private func remeasure() {
+        var changed = false
+        for index in records.indices {
+            if let path = records[index].assetPath, Self.homeRelative(path) != path {
+                records[index].assetPath = Self.homeRelative(path)
+                changed = true
+            }
+            guard records[index].state == .finished, let url = assetURL(for: records[index]) else { continue }
+            let size = Self.size(of: url)
+            if size > 0, size != records[index].bytesOnDisk {
+                records[index].bytesOnDisk = size
+                changed = true
+            }
         }
         if changed { saveIndex() }
     }
@@ -222,7 +266,7 @@ final class DownloadStore: NSObject {
     /// iOS gives the container as /private/var/... or /var/... (one is a link
     /// to the other), so an absolute path is cut at its Library folder, where
     /// AVFoundation keeps downloads, rather than at the home path.
-    private static func homeRelative(_ path: String) -> String {
+    nonisolated private static func homeRelative(_ path: String) -> String {
         guard path.hasPrefix("/") else { return path }
         for home in [NSHomeDirectory(), URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().path] {
             if path.hasPrefix(home + "/") { return String(path.dropFirst(home.count + 1)) }
@@ -251,12 +295,29 @@ final class DownloadStore: NSObject {
     /// coming, so a new one can't overrun the limit as they finish.
     var reservedBytes: Int64 {
         records.reduce(0) { total, record in
-            total + (record.state == .finished ? record.bytesOnDisk : record.state == .downloading ? record.expectedBytes : 0)
+            switch record.state {
+            case .finished: total + record.bytesOnDisk
+            // What's come so far, or the rest of the estimate if that's more.
+            case .downloading: total + max(record.expectedBytes, onDiskSoFar(record))
+            case .failed: total
+            }
         }
     }
 
+    /// What downloads take on the device now, finished or not.
     var usedBytes: Int64 {
-        records.filter { $0.state == .finished }.reduce(0) { $0 + $1.bytesOnDisk }
+        records.reduce(0) { total, record in
+            switch record.state {
+            case .finished: total + record.bytesOnDisk
+            case .downloading: total + onDiskSoFar(record)
+            case .failed: total
+            }
+        }
+    }
+
+    /// A download in progress, by how far it's got.
+    private func onDiskSoFar(_ record: DownloadRecord) -> Int64 {
+        Int64(Double(record.expectedBytes) * record.progress)
     }
 
     /// Free space on the device for things the person asked for.
@@ -283,18 +344,30 @@ final class DownloadStore: NSObject {
 
     /// Asks the server for the title at the chosen quality and starts saving
     /// it, with its skip markers, artwork and, if wanted, a subtitle track.
-    func start(_ item: BaseItem, client: JellyfinClient, preferences: PlaybackPreferences, canDownload: Bool) async throws {
+    /// `audioStreamIndex` nil takes the server's default track;
+    /// `subtitleChoice` nil follows the preferences, -1 saves none. A
+    /// picture-based subtitle (PGS, VobSub) is burned into the video.
+    func start(_ item: BaseItem, client: JellyfinClient, preferences: PlaybackPreferences, canDownload: Bool, audioStreamIndex: Int? = nil, subtitleChoice: Int? = nil) async throws {
         guard DownloadSettings.enabled else { throw DownloadError.disabled }
         guard canDownload else { throw DownloadError.notAllowed }
         if let existing = record(for: item.id), existing.state != .failed { return }
 
         let quality = DownloadSettings.quality
+        // A picture-based track can only come burned into the video; text
+        // tracks are saved alongside it instead.
+        let itemSource = item.mediaSources?.first
+        let itemSubtitles = (itemSource?.mediaStreams ?? item.mediaStreams ?? []).filter { $0.type == "Subtitle" }
+        let burnIn = subtitleChoice.flatMap { choice in
+            itemSubtitles.first { $0.index == choice && !PlaybackCoordinator.isTextTrack($0) }?.index
+        }
         let info = try await client.playbackInfo(
             itemId: item.id,
+            // Track choices apply only when the request names the file.
+            mediaSourceId: audioStreamIndex != nil || burnIn != nil ? itemSource?.id : nil,
             startTicks: 0,
             maxBitrate: quality.maxBitrate,
-            // Subtitles come separately; never burn one into the file.
-            subtitleStreamIndex: -1,
+            audioStreamIndex: audioStreamIndex,
+            subtitleStreamIndex: burnIn ?? -1,
             allowDirect: false,
             profile: .download(maxBitrate: quality.maxBitrate, maxWidth: quality.maxWidth, allowHEVC: DownloadSettings.allowHEVC)
         )
@@ -313,11 +386,13 @@ final class DownloadStore: NSObject {
         try checkRoom(for: expected)
 
         var subtitle: MediaStream?
-        if DownloadSettings.includeSubtitles {
+        if burnIn == nil, subtitleChoice != nil || DownloadSettings.includeSubtitles {
             let tracks = (source.mediaStreams ?? []).filter { $0.type == "Subtitle" }
-            let chosen = PlaybackCoordinator.resolveSubtitle(for: PlaybackQueueItem(itemId: item.id), source: source, among: tracks, preferences: preferences)
+            let chosen = subtitleChoice ?? PlaybackCoordinator.resolveSubtitle(for: PlaybackQueueItem(itemId: item.id), source: source, among: tracks, preferences: preferences)
             subtitle = tracks.first { $0.index == chosen && PlaybackCoordinator.isTextTrack($0) }
         }
+        let audioIndex = audioStreamIndex ?? source.defaultAudioStreamIndex
+        let audioTrack = (source.mediaStreams ?? []).first { $0.type == "Audio" && $0.index == audioIndex }
 
         let folder = Self.folder(for: item.id)
         try? FileManager.default.removeItem(at: folder)
@@ -331,6 +406,9 @@ final class DownloadStore: NSObject {
             state: .downloading,
             expectedBytes: expected,
             subtitleTrack: subtitle,
+            audioStreamIndex: audioStreamIndex,
+            subtitleChoice: subtitleChoice,
+            audioTitle: audioTrack.map { $0.title ?? $0.trackTitle },
             added: Date()
         ), at: 0)
         saveIndex()
@@ -360,27 +438,74 @@ final class DownloadStore: NSObject {
         }
     }
 
-    /// Starts a failed download again from the beginning.
+    /// Carries on with a failed download: from the part already saved when
+    /// there is one, else from the beginning with the same tracks.
     func retry(_ itemId: String, client: JellyfinClient, preferences: PlaybackPreferences, canDownload: Bool) async throws {
         guard let record = record(for: itemId) else { return }
+        if resume(record) { return }
         remove(itemId)
-        try await start(record.item, client: client, preferences: preferences, canDownload: canDownload)
+        try await start(record.item, client: client, preferences: preferences, canDownload: canDownload, audioStreamIndex: record.audioStreamIndex, subtitleChoice: record.subtitleChoice)
+    }
+
+    /// Picks a download up where it stopped. A partly saved stream remembers
+    /// where it came from, and a new task on it fetches only what's missing;
+    /// the server prepares those parts again as they're asked for. False
+    /// when nothing usable was saved.
+    private func resume(_ record: DownloadRecord) -> Bool {
+        guard record.state == .failed, let url = assetURL(for: record),
+              FileManager.default.fileExists(atPath: url.path),
+              let session = DownloadSettings.useCellular ? cellularSession : wifiSession else { return false }
+        let configuration = AVAssetDownloadConfiguration(asset: AVURLAsset(url: url), title: record.item.displayTitle)
+        if let artwork = artworkURL(for: record.id), let data = try? Data(contentsOf: artwork) {
+            configuration.artworkData = data
+        }
+        let task = session.makeAssetDownloadTask(downloadConfiguration: configuration)
+        task.taskDescription = record.id
+        tasks[record.id] = task
+        update(record.id) {
+            $0.state = .downloading
+            $0.errorMessage = nil
+        }
+        task.resume()
+        return true
     }
 
     /// Stops a download, or deletes a finished one, and its files.
     func remove(_ itemId: String) {
-        tasks[itemId]?.cancel()
-        tasks[itemId] = nil
-        if let record = record(for: itemId), let url = assetURL(for: record) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        try? FileManager.default.removeItem(at: Self.folder(for: itemId))
-        records.removeAll { $0.id == itemId }
-        saveIndex()
+        remove([itemId])
     }
 
     func removeAll() {
-        for id in records.map(\.id) { remove(id) }
+        remove(Set(records.map(\.id)))
+    }
+
+    /// Takes downloads off the list at once, then deletes their files in the
+    /// background: each is hundreds of segment files, and deleting them on
+    /// the main thread froze the list until all were gone.
+    func remove(_ itemIds: Set<String>) {
+        guard !itemIds.isEmpty else { return }
+        var doomed: [URL] = []
+        for id in itemIds {
+            tasks[id]?.cancel()
+            tasks[id] = nil
+            autoResumes[id] = nil
+            if let record = record(for: id), let url = assetURL(for: record) {
+                doomed.append(url)
+            }
+            doomed.append(Self.folder(for: id))
+        }
+        records.removeAll { itemIds.contains($0.id) }
+        saveIndex()
+        // Moved aside first (a quick rename), so a download of the same title
+        // started straight away can't lose its new files to this deletion.
+        let trash = Self.root.appending(path: ".trash-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        for (index, url) in doomed.enumerated() {
+            try? FileManager.default.moveItem(at: url, to: trash.appending(path: "\(index)"))
+        }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: trash)
+        }
     }
 
     /// Remembers where viewing got to, for resuming offline.
@@ -405,8 +530,24 @@ final class DownloadStore: NSObject {
                 $0.state = .failed
                 $0.errorMessage = error.localizedDescription
             }
+            // A server or network hiccup: carry on from the saved part after
+            // a moment, a few times, before leaving it to the viewer.
+            let attempts = autoResumes[itemId, default: 0]
+            if Self.isWorthResuming(error), attempts < Self.maxAutoResumes {
+                autoResumes[itemId] = attempts + 1
+                #if DEBUG
+                print("DEBUG downloads: \(itemId) failed (\(error.localizedDescription)); resuming, attempt \(attempts + 1)")
+                #endif
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    if let record = self.record(for: itemId), record.state == .failed {
+                        _ = self.resume(record)
+                    }
+                }
+            }
             return
         }
+        autoResumes[itemId] = nil
         var size: Int64 = 0
         if let url = assetURL(for: record) {
             size = Self.size(of: url)
@@ -414,9 +555,25 @@ final class DownloadStore: NSObject {
         update(itemId) {
             $0.state = .finished
             $0.progress = 1
-            $0.bytesOnDisk = size
+            // The estimate until the package can be measured.
+            $0.bytesOnDisk = size > 0 ? size : $0.expectedBytes
             $0.errorMessage = nil
         }
+        if size == 0 {
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                remeasure()
+            }
+        }
+    }
+
+    /// Failures a later attempt can get past: an HTTP error from the
+    /// server (CoreMedia reports those) or a dropped or slow connection.
+    private static func isWorthResuming(_ error: any Error) -> Bool {
+        let error = error as NSError
+        if error.domain == "CoreMediaErrorDomain" { return true }
+        let transient: Set<Int> = [NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost]
+        return error.domain == NSURLErrorDomain && transient.contains(error.code)
     }
 
     private func noteLocation(_ location: URL, for itemId: String) {
@@ -460,13 +617,19 @@ final class DownloadStore: NSObject {
         }
     }
 
-    /// A saved stream is a package of many files.
+    /// A saved stream is a package of many files: the space they take, or
+    /// their length where the allocated size isn't reported.
     private static func size(of url: URL) -> Int64 {
-        guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { return 0 }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey]
+        guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys)) else { return 0 }
         var total: Int64 = 0
         for case let file as URL in files {
-            total += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+            guard let values = try? file.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
+            total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
         }
+        #if DEBUG
+        print("DEBUG downloads: measured \(format(total)) at \(url.lastPathComponent)")
+        #endif
         return total
     }
 }

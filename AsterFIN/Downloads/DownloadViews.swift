@@ -119,6 +119,100 @@ struct DownloadSetupView: View {
     }
 }
 
+// MARK: - Track choice
+
+/// Before a download of a title with a choice of tracks: which audio and
+/// subtitles to save, starting from what playback would pick. A download
+/// holds one audio track, so this is the language it plays in offline.
+struct DownloadTracksView: View {
+    let item: BaseItem
+    /// Called with the audio track (nil for the server's default) and the
+    /// subtitles (-1 for none), or nil when cancelled.
+    var onFinish: ((audio: Int?, subtitle: Int)?) -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var audio: Int?
+    @State private var subtitle = -1
+
+    private var source: MediaSourceInfo? { item.mediaSources?.first }
+    private var streams: [MediaStream] { source?.mediaStreams ?? item.mediaStreams ?? [] }
+    private var audioTracks: [MediaStream] { streams.filter { $0.type == "Audio" && $0.index != nil } }
+    private var subtitleTracks: [MediaStream] { streams.filter { $0.type == "Subtitle" && $0.index != nil } }
+
+    /// Whether a title has anything to choose.
+    static func hasChoice(for item: BaseItem) -> Bool {
+        let streams = item.mediaSources?.first?.mediaStreams ?? item.mediaStreams ?? []
+        return streams.filter { $0.type == "Audio" }.count > 1 || streams.contains { $0.type == "Subtitle" }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if audioTracks.count > 1 {
+                    Section {
+                        Picker("Audio", selection: $audio) {
+                            ForEach(audioTracks, id: \.index) { track in
+                                row(track).tag(track.index)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } header: {
+                        Text("Audio")
+                    } footer: {
+                        Text("A download keeps one audio track, the one it plays in offline.")
+                    }
+                }
+                if !subtitleTracks.isEmpty {
+                    Section {
+                        Picker("Subtitles", selection: $subtitle) {
+                            Text("None").tag(-1)
+                            ForEach(subtitleTracks, id: \.index) { track in
+                                row(track, burnedIn: !PlaybackCoordinator.isTextTrack(track)).tag(track.index ?? -1)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } header: {
+                        Text("Subtitles")
+                    } footer: {
+                        Text("Text subtitles are saved alongside the video and can be turned off while watching. Picture-based ones are burned into the video and always show.")
+                    }
+                }
+            }
+            .navigationTitle(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onFinish(nil) }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Download") { onFinish((audio, subtitle)) }
+                }
+            }
+        }
+        .onAppear(perform: chooseDefaults)
+    }
+
+    private func row(_ track: MediaStream, burnedIn: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(track.title ?? track.trackTitle)
+            Text([TracksTab.detail(for: track), burnedIn ? "Burned in" : nil].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// What playback would choose: the server's default audio (which follows
+    /// the account's language setting) and the preferred subtitles.
+    private func chooseDefaults() {
+        audio = source?.defaultAudioStreamIndex ?? audioTracks.first?.index
+        if let source, DownloadSettings.includeSubtitles {
+            subtitle = PlaybackCoordinator.resolveSubtitle(for: PlaybackQueueItem(itemId: item.id), source: source, among: subtitleTracks, preferences: session.playbackPreferences)
+        }
+    }
+}
+
 // MARK: - Downloads tab
 
 /// Everything downloaded or downloading, newest first. Finished titles play
@@ -127,43 +221,47 @@ struct DownloadsView: View {
     @Environment(AppSession.self) private var session
     @State private var playback: PlaybackRequest?
     @State private var errorMessage: String?
+    /// Choosing downloads to delete, and those chosen.
+    @State private var isSelecting = false
+    @State private var selection = Set<String>()
+    @State private var confirmDeleteSelected = false
+    @State private var confirmDeleteAll = false
 
     private let store = DownloadStore.shared
 
     var body: some View {
-        List {
+        List(selection: $selection) {
             Section {
-                Text("Downloads")
-                    .font(.largeTitle.weight(.bold))
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: Lockup.screenPadding, bottom: 0, trailing: Lockup.screenPadding))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Downloads")
+                        .font(.largeTitle.weight(.bold))
+                    Spacer()
+                    // Here rather than in a navigation bar, which under the
+                    // More tab would stack a second bar under More's.
+                    if !store.records.isEmpty {
+                        Button(isSelecting ? "Done" : "Select") {
+                            withAnimation {
+                                isSelecting.toggle()
+                                selection = []
+                            }
+                        }
+                        .font(.headline)
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: Lockup.screenPadding, bottom: 0, trailing: Lockup.screenPadding))
+                .selectionDisabled()
             }
             if store.records.isEmpty {
                 MessageView(systemImage: "arrow.down.circle", title: "No Downloads", detail: "Download a movie or episode from the ⋯ button on its page to watch it without a connection.")
                     .frame(height: Lockup.emptyStateHeight)
                     .listRowBackground(Color.clear)
+                    .selectionDisabled()
             } else {
                 Section {
                     ForEach(store.records) { record in
-                        Button {
-                            open(record)
-                        } label: {
-                            DownloadRow(record: record)
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions {
-                            Button(record.state == .downloading ? "Cancel" : "Remove", role: .destructive) {
-                                store.remove(record.id)
-                            }
-                        }
-                        .contextMenu {
-                            if record.state == .failed {
-                                Button("Try Again", systemImage: "arrow.clockwise") { retry(record) }
-                            }
-                            Button(record.state == .downloading ? "Cancel Download" : "Remove Download", systemImage: "trash", role: .destructive) {
-                                store.remove(record.id)
-                            }
-                        }
+                        row(for: record)
+                            .tag(record.id)
                     }
                 } footer: {
                     Text(storageSummary)
@@ -171,6 +269,41 @@ struct DownloadsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.editMode, .constant(isSelecting ? .active : .inactive))
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onChange(of: store.records.isEmpty) { _, empty in
+            if empty {
+                isSelecting = false
+                selection = []
+            }
+        }
+        .confirmationDialog(selectedTitle, isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                withAnimation {
+                    store.remove(selection)
+                    selection = []
+                    isSelecting = false
+                }
+            }
+        } message: {
+            Text("This frees \(DownloadStore.format(bytes(of: selection))). Any of them still downloading stop.")
+        }
+        .confirmationDialog("Delete all downloads?", isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+            Button("Delete All", role: .destructive) {
+                withAnimation {
+                    store.removeAll()
+                    selection = []
+                    isSelecting = false
+                }
+            }
+        } message: {
+            Text("This frees \(DownloadStore.format(store.usedBytes)) and stops any downloads in progress.")
+        }
         .fullScreenCover(item: $playback) { request in
             PlayerView(request: request) { playback = nil }
         }
@@ -178,6 +311,62 @@ struct DownloadsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    /// A download's row: tapped to play or resume, or, while choosing, to
+    /// tick it.
+    @ViewBuilder
+    private func row(for record: DownloadRecord) -> some View {
+        if isSelecting {
+            DownloadRow(record: record)
+        } else {
+            Button {
+                open(record)
+            } label: {
+                DownloadRow(record: record)
+            }
+            .buttonStyle(.plain)
+            .swipeActions {
+                Button(record.state == .downloading ? "Cancel" : "Remove", role: .destructive) {
+                    withAnimation { store.remove(record.id) }
+                }
+            }
+            .contextMenu {
+                if record.state == .failed {
+                    Button("Resume Download", systemImage: "arrow.clockwise") { retry(record) }
+                }
+                Button(record.state == .downloading ? "Cancel Download" : "Remove Download", systemImage: "trash", role: .destructive) {
+                    store.remove(record.id)
+                }
+            }
+        }
+    }
+
+    /// Delete All and Delete (n), along the bottom while choosing.
+    private var selectionBar: some View {
+        HStack {
+            Button("Delete All", role: .destructive) { confirmDeleteAll = true }
+            Spacer()
+            Button(selection.isEmpty ? "Delete" : "Delete (\(selection.count))", role: .destructive) {
+                confirmDeleteSelected = true
+            }
+            .disabled(selection.isEmpty)
+            .fontWeight(.semibold)
+        }
+        .padding(.horizontal, Lockup.screenPadding)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private var selectedTitle: String {
+        selection.count == 1 ? "Delete this download?" : "Delete \(selection.count) downloads?"
+    }
+
+    /// The space the chosen downloads take, or will once finished.
+    private func bytes(of ids: Set<String>) -> Int64 {
+        store.records.filter { ids.contains($0.id) }.reduce(0) { total, record in
+            total + (record.state == .finished ? record.bytesOnDisk : Int64(Double(record.expectedBytes) * record.progress))
         }
     }
 
@@ -279,11 +468,11 @@ private struct DownloadRow: View {
                     .foregroundStyle(.secondary)
             }
         case .finished:
-            Text([DownloadStore.format(record.bytesOnDisk), DownloadQuality(rawValue: record.quality)?.title].compactMap { $0 }.joined(separator: " · "))
+            Text([DownloadStore.format(record.bytesOnDisk), DownloadQuality(rawValue: record.quality)?.title, record.audioTitle].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed:
-            Text("\(record.errorMessage ?? "Download failed.") Tap to try again.")
+            Text("\(record.errorMessage ?? "Download failed.") Tap to resume.")
                 .font(.caption)
                 .foregroundStyle(.red)
                 .lineLimit(2)

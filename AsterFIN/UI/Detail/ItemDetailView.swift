@@ -232,6 +232,10 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     /// A title waiting on the first-download setup sheet.
     @State private var downloadSetupItem: BaseItem?
+    /// Set up, waiting for the setup sheet to finish closing.
+    @State private var downloadAfterSetup: BaseItem?
+    /// A title waiting on its audio and subtitle choice.
+    @State private var downloadTracksItem: BaseItem?
     @State private var downloadError: String?
     #endif
     /// An OP/ED plugin theme playing, which isn't a Jellyfin item.
@@ -423,10 +427,22 @@ struct ItemDetailView: View {
             }
         }
         #if !os(tvOS)
-        .sheet(item: $downloadSetupItem) { item in
+        .sheet(item: $downloadSetupItem, onDismiss: {
+            // One sheet at a time: the track choice opens once setup has gone.
+            if let item = downloadAfterSetup {
+                downloadAfterSetup = nil
+                requestDownload(item)
+            }
+        }) { item in
             DownloadSetupView { proceed in
+                if proceed { downloadAfterSetup = item }
                 downloadSetupItem = nil
-                if proceed { beginDownload(item) }
+            }
+        }
+        .sheet(item: $downloadTracksItem) { item in
+            DownloadTracksView(item: item) { choice in
+                downloadTracksItem = nil
+                if let choice { beginDownload(item, audio: choice.audio, subtitle: choice.subtitle) }
             }
         }
         .alert("Couldn't Download", isPresented: Binding(get: { downloadError != nil }, set: { if !$0 { downloadError = nil } })) {
@@ -656,11 +672,85 @@ struct ItemDetailView: View {
             Image(systemName: "ellipsis")
                 .font(Lockup.iconButtonFont)
                 .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
+                #if !os(tvOS)
+                // Pulses while this title downloads, and when its download failed.
+                .symbolEffect(.pulse, options: .repeating, isActive: downloadRecord.map { $0.state != .finished } ?? false)
+                #endif
         }
         .actionButtonStyle()
+        #if !os(tvOS)
+        .overlay {
+            if downloadRecord?.state == .failed {
+                DownloadFailedGlow()
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.6), value: downloadRecord?.state)
+        .overlay { downloadProgressRing }
+        .overlay(alignment: .topTrailing) { downloadedBadge }
+        #endif
         .accessibilityLabel("More")
         .focused($focusedAction, equals: "more")
     }
+
+    #if !os(tvOS)
+    private var downloadRecord: DownloadRecord? {
+        DownloadStore.shared.record(for: detail.id)
+    }
+
+    /// Around the ⋯ button while this title downloads, filling as it goes.
+    @ViewBuilder
+    private var downloadProgressRing: some View {
+        if let record = downloadRecord, record.state == .downloading {
+            ZStack {
+                Capsule().stroke(.white.opacity(0.25), lineWidth: 3)
+                Capsule()
+                    .trim(from: 0, to: max(record.progress, 0.02))
+                    .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .animation(.linear(duration: 0.3), value: record.progress)
+            }
+            .padding(-3)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    /// Red over the ⋯ button, pulsing, when this title's download failed.
+    private struct DownloadFailedGlow: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @State private var bright = false
+
+        var body: some View {
+            Capsule()
+                .fill(Color.red.opacity(bright ? 0.65 : 0.3))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .onAppear {
+                    guard !reduceMotion else {
+                        bright = true
+                        return
+                    }
+                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                        bright = true
+                    }
+                }
+        }
+    }
+
+    /// On the ⋯ button's corner once this title is downloaded.
+    @ViewBuilder
+    private var downloadedBadge: some View {
+        if downloadRecord?.state == .finished {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.caption)
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.black, .white)
+                .offset(x: 4, y: -4)
+                .allowsHitTesting(false)
+                .accessibilityLabel("Downloaded")
+        }
+    }
+    #endif
 
 
 
@@ -686,13 +776,20 @@ struct ItemDetailView: View {
                 } label: {
                     Label("Remove Download", systemImage: "trash")
                 }
-            case .failed, nil:
+            case .failed:
                 Button {
-                    if DownloadSettings.isSetUp {
-                        beginDownload(detail)
-                    } else {
-                        downloadSetupItem = detail
-                    }
+                    resumeDownload(detail)
+                } label: {
+                    Label("Resume Download", systemImage: "arrow.clockwise.circle")
+                }
+                Button(role: .destructive) {
+                    store.remove(detail.id)
+                } label: {
+                    Label("Remove Download", systemImage: "trash")
+                }
+            case nil:
+                Button {
+                    requestDownload(detail)
                 } label: {
                     Label("Download", systemImage: "arrow.down.circle")
                 }
@@ -700,16 +797,40 @@ struct ItemDetailView: View {
         }
     }
 
-    private func beginDownload(_ item: BaseItem) {
+    /// Setup the first time, then the track choice when there is one, then
+    /// the download.
+    private func requestDownload(_ item: BaseItem) {
+        if !DownloadSettings.isSetUp {
+            downloadSetupItem = item
+        } else if DownloadTracksView.hasChoice(for: item) {
+            downloadTracksItem = item
+        } else {
+            beginDownload(item)
+        }
+    }
+
+    /// Carries on with a failed download from where it stopped.
+    private func resumeDownload(_ item: BaseItem) {
+        guard let client = session.client else { return }
+        Task {
+            do {
+                try await DownloadStore.shared.retry(item.id, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
+            } catch {
+                downloadError = error.localizedDescription
+            }
+        }
+    }
+
+    private func beginDownload(_ item: BaseItem, audio: Int? = nil, subtitle: Int? = nil) {
         guard let client = session.client else { return }
         Task {
             do {
                 let store = DownloadStore.shared
+                // A failed attempt is replaced by this one.
                 if store.record(for: item.id)?.state == .failed {
-                    try await store.retry(item.id, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
-                } else {
-                    try await store.start(item, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
+                    store.remove(item.id)
                 }
+                try await store.start(item, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload, audioStreamIndex: audio, subtitleChoice: subtitle)
             } catch {
                 downloadError = error.localizedDescription
             }

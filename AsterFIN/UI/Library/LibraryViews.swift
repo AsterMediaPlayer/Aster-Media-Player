@@ -109,32 +109,60 @@ final class GridModel {
     /// How far into the server's results loading has got, counting items
     /// left out by `excluding`, so pages carry on from the right place.
     private var fetched = 0
+    /// Bumped on every reset, so a page still loading from before it is
+    /// dropped instead of landing in the new results.
+    private var generation = 0
 
     /// Loads the next page. Items whose ids are in `excluding` are skipped,
     /// e.g. anime, which has its own tab.
     func load(client: JellyfinClient, query: [String: String?], excluding: Set<String> = [], reset: Bool = false) async {
-        let key = query.description + "|\(excluding.count)"
+        // Sorted: a dictionary's order can differ between two equal ones, and
+        // a key that changed with it reset the grid (and its scrolling) as
+        // each new page was asked for.
+        let key = query
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value ?? "")" }
+            .joined(separator: "&") + "|\(excluding.count)"
         if reset || loadedWith != key {
             items = []
             fetched = 0
+            totalCount = 0
             loadedWith = key
+            generation += 1
+            // Any load in flight belongs to the old results; let this one run.
+            isLoading = false
         }
         guard !isLoading else { return }
+        let started = generation
         isLoading = true
         errorMessage = nil
         var merged = query
         merged["startIndex"] = String(fetched)
         merged["limit"] = "100"
         do {
-            let result = try await client.items(merged)
+            // The request runs on its own, not in the caller's task: the
+            // loading row that asks for a page leaves the screen (and its
+            // task is cancelled) on a fast scroll, or as a reset empties the
+            // grid, and the page must still arrive.
+            let request = Task { try await client.items(merged) }
+            let result = try await request.value
+            guard started == generation else { return }
             fetched += result.items.count
             let kept = result.items.filter { new in !excluding.contains(new.id) && !items.contains { $0.id == new.id } }
             items.append(contentsOf: kept)
             totalCount = result.totalRecordCount ?? fetched
         } catch {
-            errorMessage = error.localizedDescription
+            guard started == generation else { return }
+            // A cancelled request isn't a failure to report.
+            if !Self.isCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
         }
         isLoading = false
+    }
+
+    private static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     var hasMore: Bool { fetched < totalCount }

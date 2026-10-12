@@ -91,25 +91,47 @@ struct SubtitleOverlayView: View {
     let text: String?
 
     var body: some View {
+        #if os(tvOS)
+        caption(size: 42, sidePadding: 160, bottomPadding: 110)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+        #else
+        // A phone or tablet shows the video at many sizes, upright as a band
+        // across the middle: size and place the line by the picture, taken
+        // as 16:9 fitted to the screen, near its bottom edge.
+        GeometryReader { proxy in
+            let screen = proxy.size
+            let videoHeight = min(screen.height, screen.width * 9 / 16)
+            let videoBottom = (screen.height + videoHeight) / 2
+            caption(
+                size: min(max(videoHeight * 0.05, 14), 30),
+                sidePadding: max(screen.width * 0.06, 16),
+                bottomPadding: screen.height - videoBottom + videoHeight * 0.04
+            )
+        }
+        .ignoresSafeArea()
+        #endif
+    }
+
+    private func caption(size: CGFloat, sidePadding: CGFloat, bottomPadding: CGFloat) -> some View {
         VStack {
             Spacer()
             if let text {
                 Text(text)
-                    .font(.system(size: 42 * Self.textScale, weight: .medium))
+                    .font(.system(size: size * Self.textScale, weight: .medium))
                     .foregroundStyle(Self.foreground)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 10)
-                    .background(Self.background, in: RoundedRectangle(cornerRadius: 10))
+                    .lineSpacing(size * 0.1)
+                    .padding(.horizontal, size * 0.5)
+                    .padding(.vertical, size * 0.24)
+                    .background(Self.background, in: RoundedRectangle(cornerRadius: size * 0.24))
                     .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
-                    .padding(.horizontal, 160)
-                    .padding(.bottom, 110)
+                    .padding(.horizontal, sidePadding)
+                    .padding(.bottom, bottomPadding)
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .animation(.linear(duration: 0.08), value: text)

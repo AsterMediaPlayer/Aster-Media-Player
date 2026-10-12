@@ -180,6 +180,9 @@ final class PlaybackCoordinator {
         Task { await play(index: 0) }
     }
 
+    /// Whether playback is paused right now.
+    var isPaused: Bool { pausedSince != nil }
+
     /// Whether the viewer had paused before the full-screen player began to
     /// close. AVKit can pause on its own while the player closes, so a pause
     /// in the last moment doesn't count: only one that had already lasted a

@@ -25,6 +25,10 @@ struct PlayerView: View {
     /// The last item that started playing. Artwork covers the player until
     /// each new item does, but not when the same one reloads mid-play.
     @State private var startedItemId: String?
+    /// iOS: when the video was last tapped, which brings up the system
+    /// controls; the tracks button shows alongside them for a while.
+    @State private var controlsShownAt: Date?
+    @State private var trackMenuOpen = false
 
     /// Plays `request`, and stops when the view goes away.
     init(request: PlaybackRequest, onFinished: @escaping () -> Void) {
@@ -51,7 +55,8 @@ struct PlayerView: View {
                     infoTabs: [
                         coordinator.audioTracks.count > 1 ? audioTab : nil,
                         coordinator.subtitleTracks.isEmpty ? nil : subtitlesTab,
-                    ].compactMap { $0 }
+                    ].compactMap { $0 },
+                    onTap: { controlsShownAt = Date() }
                 )
                 .ignoresSafeArea()
                 .onChange(of: coordinator.isFinished) { _, finished in
@@ -79,6 +84,37 @@ struct PlayerView: View {
                     if !coordinator.endCardVisible {
                         TouchPlayerActions(coordinator: coordinator)
                     }
+                }
+                .overlay {
+                    // Sideways, the system player has its own subtitles button
+                    // (beside the speed control, lower right), which only knows
+                    // the stream's tracks: an invisible button sits over it so
+                    // a tap opens this menu instead. Upright it has none, so a
+                    // glass button sits beside its ⋯ button. Offsets are from
+                    // the safe area, matching the system layout.
+                    // Hidden by fading, never removed: the menu animates back
+                    // into the button as it closes, and UIKit stops the app if
+                    // the button has gone by then.
+                    GeometryReader { proxy in
+                        let landscape = proxy.size.width > proxy.size.height
+                        let hasTracks = coordinator.audioTracks.count > 1 || !coordinator.subtitleTracks.isEmpty
+                        let shown = hasTracks && !coordinator.endCardVisible && (controlsShownAt != nil || coordinator.isPaused || trackMenuOpen)
+                        TrackMenuButton(menu: TrackMenu(coordinator: coordinator), invisible: landscape) { trackMenuOpen = $0 }
+                            .frame(width: 44, height: 44)
+                            .padding(.trailing, landscape ? 3 : 77)
+                            .padding(.bottom, landscape ? 59 : 56)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .opacity(shown ? 1 : 0)
+                            .allowsHitTesting(shown)
+                            .accessibilityHidden(!shown)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: controlsShownAt != nil || coordinator.isPaused || trackMenuOpen)
+                .task(id: controlsShownAt) {
+                    // Hides with the system controls, a few seconds after the tap.
+                    guard controlsShownAt != nil else { return }
+                    try? await Task.sleep(for: .seconds(4))
+                    if !Task.isCancelled { controlsShownAt = nil }
                 }
                 #endif
                 .alert("Can't Play", isPresented: Binding(get: { coordinator.errorMessage != nil }, set: { _ in })) {
@@ -157,6 +193,109 @@ struct PlayerView: View {
 }
 
 #if !os(tvOS)
+/// The player's Audio & Subtitles menu on iOS, where the tvOS info tabs
+/// don't exist: the server's tracks by their own titles, as in those tabs.
+/// The signature changes whenever the menu would, so the button is only
+/// handed a new one then.
+private struct TrackMenu {
+    var menu: UIMenu?
+    var signature = ""
+
+    init(coordinator: PlaybackCoordinator) {
+        var sections: [UIMenuElement] = []
+        if coordinator.audioTracks.count > 1 {
+            let actions = coordinator.audioTracks.compactMap { stream -> UIAction? in
+                guard let index = stream.index else { return nil }
+                return UIAction(
+                    title: stream.title ?? stream.trackTitle,
+                    subtitle: TracksTab.detail(for: stream),
+                    state: coordinator.selectedAudioIndex == index ? .on : .off
+                ) { _ in coordinator.selectAudio(index) }
+            }
+            sections.append(UIMenu(title: "Audio", options: [.displayInline, .singleSelection], children: actions))
+        }
+        if !coordinator.subtitleTracks.isEmpty {
+            let selected = coordinator.selectedSubtitleIndex
+            var actions = [UIAction(title: "Off", state: selected == -1 ? .on : .off) { _ in coordinator.selectSubtitle(-1) }]
+            actions += coordinator.subtitleTracks.compactMap { stream -> UIAction? in
+                guard let index = stream.index else { return nil }
+                // The server can take a while to extract a track the first time.
+                let loading = selected == index && coordinator.isLoadingSubtitles
+                let detail = TracksTab.detail(for: stream)
+                return UIAction(
+                    title: stream.title ?? stream.trackTitle,
+                    subtitle: loading ? [detail, "Loading…"].compactMap { $0 }.joined(separator: " · ") : detail,
+                    state: selected == index ? .on : .off
+                ) { _ in coordinator.selectSubtitle(index) }
+            }
+            sections.append(UIMenu(title: "Subtitles", options: [.displayInline, .singleSelection], children: actions))
+        }
+        guard !sections.isEmpty else { return }
+        menu = UIMenu(title: "Audio & Subtitles", children: sections)
+        signature = [
+            coordinator.audioTracks.compactMap(\.index).map(String.init).joined(separator: ","),
+            String(coordinator.selectedAudioIndex ?? -1),
+            coordinator.subtitleTracks.compactMap(\.index).map(String.init).joined(separator: ","),
+            String(coordinator.selectedSubtitleIndex),
+            String(coordinator.isLoadingSubtitles),
+        ].joined(separator: "|")
+    }
+}
+
+/// A round button that opens the track menu, reporting while it's open so
+/// the button stays up. UIKit, since a UIMenu keeps each track's details
+/// as a subtitle under its name. `invisible` draws nothing but still takes
+/// taps, for sitting over the system's own button.
+private struct TrackMenuButton: UIViewRepresentable {
+    let menu: TrackMenu
+    var invisible = false
+    var onOpenChange: (Bool) -> Void
+
+    final class MenuButton: UIButton {
+        var signature: String?
+        var isInvisible: Bool?
+        var onOpenChange: ((Bool) -> Void)?
+
+        override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: (any UIContextMenuInteractionAnimating)?) {
+            super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+            onOpenChange?(true)
+        }
+
+        override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: (any UIContextMenuInteractionAnimating)?) {
+            super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+            onOpenChange?(false)
+        }
+    }
+
+    func makeUIView(context: Context) -> MenuButton {
+        let button = MenuButton(configuration: .plain())
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = "Audio and Subtitles"
+        return button
+    }
+
+    func updateUIView(_ button: MenuButton, context: Context) {
+        button.onOpenChange = onOpenChange
+        if button.isInvisible != invisible {
+            button.isInvisible = invisible
+            if invisible {
+                button.configuration = .plain()
+            } else {
+                // Matches the system player's own round glass buttons.
+                var configuration = UIButton.Configuration.glass()
+                configuration.image = UIImage(systemName: "captions.bubble", withConfiguration: UIImage.SymbolConfiguration(textStyle: .headline))
+                configuration.baseForegroundColor = .white
+                configuration.cornerStyle = .capsule
+                button.configuration = configuration
+            }
+        }
+        if button.signature != menu.signature {
+            button.signature = menu.signature
+            button.menu = menu.menu
+        }
+    }
+}
+
 /// Skip Intro / Skip Credits and Play Next Episode on a touch screen: pills in
 /// the lower right, above the system player's controls, shown only while they
 /// apply. The same actions the tvOS player offers as contextual actions.
@@ -356,6 +495,21 @@ struct SystemPlayer: UIViewControllerRepresentable {
     var showsPlaybackControls = true
     /// Extra tabs for the swipe-down info panel.
     var infoTabs: [UIViewController] = []
+    /// A tap on the video, which shows or hides the system controls (iOS).
+    var onTap: (() -> Void)?
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onTap: (() -> Void)?
+
+        @objc func tapped() { onTap?() }
+
+        /// Watches taps without taking them from the system player.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -363,6 +517,11 @@ struct SystemPlayer: UIViewControllerRepresentable {
         controller.allowsPictureInPicturePlayback = false
         #if os(tvOS)
         controller.appliesPreferredDisplayCriteriaAutomatically = true
+        #else
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        controller.view.addGestureRecognizer(tap)
         #endif
         return controller
     }
@@ -370,7 +529,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
     /// Lets go of the player as this view goes away, so playback that carries
     /// on elsewhere (the Live TV mini player) isn't still tied to a closed
     /// full-screen controller.
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
         controller.player = nil
     }
 
@@ -390,6 +549,8 @@ struct SystemPlayer: UIViewControllerRepresentable {
         if controller.customInfoViewControllers.map(ObjectIdentifier.init) != infoTabs.map(ObjectIdentifier.init) {
             controller.customInfoViewControllers = infoTabs
         }
+        #else
+        context.coordinator.onTap = onTap
         #endif
     }
 }
@@ -434,7 +595,7 @@ struct TracksTab: View {
                 }
                 ForEach(tracks, id: \.index) { stream in
                     if let index = stream.index {
-                        trackButton(title: stream.title ?? stream.trackTitle, detail: detail(for: stream), index: index)
+                        trackButton(title: stream.title ?? stream.trackTitle, detail: Self.detail(for: stream), index: index)
                     }
                 }
             }
@@ -477,7 +638,7 @@ struct TracksTab: View {
 
     /// Language, then Forced, the format and the channel layout, e.g.
     /// "English · Forced · ASS" or "Japanese · EAC3 · 5.1".
-    private func detail(for stream: MediaStream) -> String? {
+    static func detail(for stream: MediaStream) -> String? {
         let language = stream.language.flatMap { code in
             Locale.current.localizedString(forLanguageCode: LanguageTag.bcp47(from: code))
         }

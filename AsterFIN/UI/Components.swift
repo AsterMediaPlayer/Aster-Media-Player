@@ -563,19 +563,51 @@ struct ActionButton: View {
 
     var body: some View {
         Button(action: action) {
+            #if os(tvOS)
+            FocusRevealingLabel(title: title, systemImage: systemImage)
+            #else
             Label(title, systemImage: systemImage)
                 .font(.headline)
                 // Never wrap: a squeezed row would stack the title letter by letter.
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
+            #endif
         }
-        .buttonStyle(.borderedProminent)
-        .tint(prominent ? .white : Color(white: 0.3))
-        .foregroundStyle(prominent ? .black : .white)
+        .actionButtonStyle(prominent: prominent)
+        .accessibilityLabel(title)
         .optionallyFocused(focus, equals: focusID)
     }
 }
+
+#if os(tvOS)
+/// A button's icon alone, matching the icon-only buttons beside it, with the
+/// title sliding out beside it while the button has focus. Keeps a row of
+/// actions compact from the sofa while still saying what each one does.
+private struct FocusRevealingLabel: View {
+    let title: String
+    let systemImage: String
+    /// True while the enclosing button is focused.
+    @Environment(\.isFocused) private var isFocused
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(Lockup.iconButtonFont)
+            if isFocused {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+        }
+        .frame(minWidth: Lockup.iconButtonSize, minHeight: Lockup.iconButtonSize)
+        .padding(.horizontal, isFocused ? 10 : 0)
+        .animation(.easeInOut(duration: 0.2), value: isFocused)
+    }
+}
+#endif
 
 struct IconButton: View {
     let systemImage: String
@@ -591,13 +623,57 @@ struct IconButton: View {
                 .font(Lockup.iconButtonFont)
                 .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Color(white: 0.3))
-        .foregroundStyle(.white)
+        .actionButtonStyle()
         .accessibilityLabel(accessibilityLabel)
         .optionallyFocused(focus, equals: focusID)
     }
 }
+
+extension View {
+    /// The look of a page's action buttons. Grey with white content, or
+    /// white with black for the main action. On tvOS a focused button turns
+    /// white with black content too, and lifts, so it reads clearly from the
+    /// sofa; the system style's off-white focus washed out white labels.
+    func actionButtonStyle(prominent: Bool = false) -> some View {
+        #if os(tvOS)
+        buttonStyle(TVActionButtonStyle(prominent: prominent))
+            .menuStyle(.button)
+        #else
+        buttonStyle(.borderedProminent)
+            .tint(prominent ? .white : Color(white: 0.3))
+            .foregroundStyle(prominent ? .black : .white)
+        #endif
+    }
+}
+
+#if os(tvOS)
+private struct TVActionButtonStyle: ButtonStyle {
+    var prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, prominent: prominent)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let prominent: Bool
+        /// True while the button is focused.
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            let lit = isFocused || prominent
+            configuration.label
+                .foregroundStyle(lit ? Color.black : Color.white)
+                .padding(16)
+                .background(Capsule().fill(lit ? Color.white : Color(white: 0.3)))
+                .scaleEffect(isFocused && !configuration.isPressed ? 1.1 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0), radius: 14, y: 8)
+                .animation(.easeOut(duration: 0.15), value: isFocused)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+#endif
 
 /// A page's action buttons: on one row, except on a phone held upright, where
 /// one row is too narrow and they split across two. Each row scrolls sideways

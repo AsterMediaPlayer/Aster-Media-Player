@@ -634,9 +634,7 @@ struct ItemDetailView: View {
                 .font(Lockup.iconButtonFont)
                 .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Color(white: 0.3))
-        .foregroundStyle(.white)
+        .actionButtonStyle()
         .accessibilityLabel("More")
         .focused($focusedAction, equals: "more")
     }

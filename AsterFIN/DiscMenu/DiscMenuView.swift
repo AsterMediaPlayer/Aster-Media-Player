@@ -27,6 +27,7 @@ struct DiscMenuView: View {
             ZStack {
                 Color.black
                 if let controller {
+                    #if os(tvOS)
                     Button {
                         controller.select()
                     } label: {
@@ -35,17 +36,44 @@ struct DiscMenuView: View {
                     .buttonStyle(DiscCanvasButtonStyle())
                     .focusEffectDisabled()
                     .focused($canvasFocused)
-                    #if os(tvOS)
                     .onMoveCommand { controller.move($0) }
-                    #endif
                     .tvExitCommand { controller.hardwareBack() }
                     .tvPlayPauseCommand { controller.playPause() }
                     .frame(width: canvas.width, height: canvas.height)
                     .position(x: canvas.midX, y: canvas.midY)
+                    #else
+                    // Touch: the entry under the finger is the one chosen.
+                    // The canvas's own space is the one entry frames use.
+                    DiscCanvasContent(controller: controller, canvas: canvas, reduceMotion: reduceMotion)
+                        .contentShape(Rectangle())
+                        .onTapGesture(coordinateSpace: .local) { controller.tap(at: $0) }
+                        .frame(width: canvas.width, height: canvas.height)
+                        .position(x: canvas.midX, y: canvas.midY)
+                    #endif
                 }
             }
         }
         .ignoresSafeArea()
+        #if !os(tvOS)
+        // There's no remote Back button: this steps back a page or screen,
+        // then closes the menu.
+        .overlay(alignment: .topLeading) {
+            if let controller {
+                Button {
+                    controller.hardwareBack()
+                } label: {
+                    Image(systemName: controller.canGoBack ? "chevron.left" : "xmark")
+                        .font(.headline)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .tint(.white)
+                .accessibilityLabel(controller.canGoBack ? "Back" : "Close")
+                .padding(16)
+            }
+        }
+        #endif
         .onAppear {
             if controller == nil, let client = session.client {
                 let created = DiscMenuController(document: document, itemId: itemId, client: client, soundsEnabled: soundsEnabled)

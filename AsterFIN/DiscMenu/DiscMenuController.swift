@@ -167,6 +167,19 @@ final class DiscMenuController {
         activate(screen.entries[focusIndex])
     }
 
+    /// A touch at a point on the canvas: highlights and activates the entry
+    /// under it, if any. The point is in the same space as the reported frames.
+    func tap(at point: CGPoint) {
+        guard let rects = currentFrames,
+              let hit = rects.indices.last(where: { rects[$0].contains(point) }) else { return }
+        focusIndex = hit
+        focusMemory[screen.ref] = hit
+        activate(screen.entries[hit])
+    }
+
+    /// Whether Back steps to an earlier page or screen rather than closing.
+    var canGoBack: Bool { screen.page > 0 || stack.count > 1 }
+
     /// The remote's Back/Menu button: a page back, then a screen back, then close.
     func hardwareBack() {
         audio.play(.back)

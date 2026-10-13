@@ -262,6 +262,19 @@ nonisolated final class JellyfinClient: Sendable {
         ]).items
     }
 
+    /// Episodes of shows in the library that air soon, soonest first; most
+    /// are placeholders from the show's schedule rather than files.
+    func upcoming(limit: Int = 100) async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await get(ItemsResult.self, "/Shows/Upcoming", query: [
+            "userId": user,
+            "limit": String(limit),
+            "fields": Self.listFields,
+            "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
+            "imageTypeLimit": "1",
+        ]).items
+    }
+
     /// The TV and movie libraries that hold anime. Reading a library's
     /// metadata settings needs an admin account, so instead a few titles in
     /// each are sampled: when at least half were matched by Shoko/AniDB, the

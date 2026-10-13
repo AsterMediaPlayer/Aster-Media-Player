@@ -59,6 +59,17 @@ final class AppSession {
     private(set) var hasMusic = false
     private(set) var hasLiveTV = false
 
+    /// Whether shows in the library have episodes airing soon, which the
+    /// Upcoming tab needs. Checked when the main screen loads.
+    private(set) var hasUpcoming = false
+
+    func refreshUpcoming() async {
+        guard let client else { return }
+        if let soonest = try? await client.upcoming(limit: 1) {
+            hasUpcoming = !soonest.isEmpty
+        }
+    }
+
     func noteLibraries(_ views: [BaseItem]) {
         hasMusic = views.contains { $0.collectionType == "music" }
         hasLiveTV = views.contains { $0.collectionType == "livetv" }
@@ -70,6 +81,7 @@ final class AppSession {
         case .anime: !animeLibraries.isEmpty
         case .music: hasMusic
         case .liveTV: hasLiveTV
+        case .upcoming: hasUpcoming
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false

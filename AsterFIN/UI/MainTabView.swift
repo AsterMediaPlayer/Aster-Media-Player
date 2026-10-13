@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, liveTV, library, downloads, settings, search
+    case home, movies, shows, anime, music, upcoming, liveTV, library, downloads, settings, search
 
     var title: String {
         switch self {
@@ -24,6 +24,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .movies: "Movies"
         case .shows: "TV Shows"
         case .anime: "Anime"
+        case .upcoming: "Upcoming"
         case .music: "Music"
         case .liveTV: "Live TV"
         case .library: "Library"
@@ -39,6 +40,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .movies: "film.fill"
         case .shows: "tv.fill"
         case .anime: "sparkles"
+        case .upcoming: "calendar"
         case .music: "music.note"
         case .liveTV: "antenna.radiowaves.left.and.right"
         case .library: "square.stack.fill"
@@ -150,6 +152,7 @@ struct MainTabView: View {
             await session.refreshUserConfiguration()
             let views = (try? await client.userViews()) ?? []
             session.noteLibraries(views)
+            await session.refreshUpcoming()
             await session.detectAnimeLibraries(among: views)
             await followPendingLinks()
         }
@@ -424,6 +427,7 @@ struct MainTabView: View {
         case .movies: BrowseStack { TypeGridView(kind: .movie) }
         case .shows: BrowseStack { TypeGridView(kind: .series) }
         case .anime: BrowseStack { AnimeView() }
+        case .upcoming: BrowseStack { UpcomingView() }
         case .music: BrowseStack { MusicView() }
         case .liveTV: BrowseStack { LiveTVView() }
         case .library: BrowseStack { LibraryView() }

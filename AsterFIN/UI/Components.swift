@@ -272,11 +272,6 @@ struct PosterLockup: View {
                             .padding(.horizontal, 12)
                             .padding(.bottom, 10)
                     }
-                    if item.kind == .series, let unplayed = shown.userData?.unplayedItemCount, unplayed > 0 {
-                        CountBadge(count: unplayed)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                            .padding(10)
-                    }
                 }
                 .frame(width: width, height: width * 1.5)
             }
@@ -468,6 +463,8 @@ struct PersonLockup: View {
 /// A library (user view) as a wide tile.
 struct LibraryTile: View {
     let library: BaseItem
+    /// Lets a page move focus here (by library id), e.g. down from a hero.
+    var focus: FocusState<String?>.Binding? = nil
 
     @Environment(AppSession.self) private var session
 
@@ -488,6 +485,7 @@ struct LibraryTile: View {
             .frame(width: Lockup.libraryTileWidth, height: Lockup.libraryTileHeight)
         }
         .cardButtonStyle()
+        .optionallyFocused(focus, equals: library.id)
         .keyboardTarget(opening: library)
         .accessibilityLabel(library.displayTitle)
     }
@@ -528,18 +526,6 @@ struct UnplayedBadge: View {
     }
 }
 
-struct CountBadge: View {
-    let count: Int
-
-    var body: some View {
-        Text("\(count)")
-            .font(.caption.weight(.bold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color.accentColor, in: Capsule())
-    }
-}
-
 /// A rounded metadata chip such as "4K" or "PG-13".
 struct Badge: View {
     let text: String
@@ -556,10 +542,20 @@ struct Badge: View {
 /// "2019 · PG-13 · 2 hr 9 min · Action, Adventure" with quality badges.
 struct MetadataLine: View {
     let item: BaseItem
+    /// A show's page: how many episodes are left to watch, after the years.
+    var showsUnwatched = false
+
+    private var parts: [String] {
+        var parts = item.metadataLine
+        if showsUnwatched, item.kind == .series, let unplayed = item.userData?.unplayedItemCount, unplayed > 0 {
+            parts.insert("\(unplayed) unwatched", at: item.yearText == nil ? 0 : 1)
+        }
+        return parts
+    }
 
     var body: some View {
         HStack(spacing: 14) {
-            Text(item.metadataLine.joined(separator: "  ·  "))
+            Text(parts.joined(separator: "  ·  "))
             if item.is4K {
                 Badge(text: "4K")
             } else if item.isHD {
@@ -684,15 +680,19 @@ private struct FocusRevealingLabel: View {
             Image(systemName: systemImage)
                 .font(Lockup.iconButtonFont)
             if isFocused {
+                // Fades in and out where it sits as the button widens and
+                // narrows; sliding in from the side, it was seen flying past.
                 Text(title)
                     .font(.headline)
                     .lineLimit(1)
                     .fixedSize()
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                    .transition(.opacity)
             }
         }
         .frame(minWidth: Lockup.iconButtonSize, minHeight: Lockup.iconButtonSize)
         .padding(.horizontal, isFocused ? 10 : 0)
+        // Nothing shows past the button's edge while it narrows.
+        .clipped()
         .animation(.easeInOut(duration: 0.2), value: isFocused)
     }
 }

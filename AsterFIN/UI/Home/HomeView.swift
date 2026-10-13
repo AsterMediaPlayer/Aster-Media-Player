@@ -396,6 +396,12 @@ struct HeroCarousel: View {
     /// page shown, reported back as it changes, including by a swipe.
     var keyboardPage: Int?
     var pageChanged: (Int) -> Void = { _ in }
+    /// A short label over a page's title, e.g. Upcoming's countdown.
+    var tag: (BaseItem) -> String? = { _ in nil }
+    /// The page's button, in place of Play / Resume.
+    var action: (BaseItem) -> HeroCard.Action? = { _ in nil }
+    /// What selecting a page opens; the page's own title unless given.
+    var destination: (BaseItem) -> BaseItem = { $0 }
 
     @Environment(AppSession.self) private var session
     @Environment(\.displayScale) private var displayScale
@@ -415,6 +421,12 @@ struct HeroCarousel: View {
     /// down that lands right next to a left or right is treated as that swipe.
     @State private var lastHorizontalMoveAt = Date.distantPast
     @State private var pendingMoveDown: Task<Void, Never>?
+    #if os(tvOS)
+    /// Every page's backdrop, decoded and held here (8 at 1080p is about
+    /// 64 MB). The shared image cache could let one go under memory
+    /// pressure, and that page slid in grey.
+    @State private var backdrops: [String: PlatformImage] = [:]
+    #endif
 
     private var current: BaseItem { items[min(index, items.count - 1)] }
 
@@ -448,14 +460,20 @@ struct HeroCarousel: View {
             isFocused = true
         }
         .tvFocusSection()
-        .task(id: "\(index)|\(items.map(\.id))|\(displayScale)") {
-            // The page shown and those either side, at the TV's resolution,
-            // so a slide to either finds its backdrop already loaded.
-            guard !items.isEmpty else { return }
+        .task(id: items.map(\.id)) {
+            // Every page's backdrop, the one shown first, held for as long
+            // as the hero is; pages no longer featured are let go.
             let client = session.client
-            let nearby = (index - 1 ... index + 1).compactMap { items.indices.contains($0) ? items[$0] : nil }
-            let urls = nearby.compactMap { HeroCard.imageURL(for: $0, portrait: false, screenPixels: tvScreenPixels, client: client) }
-            ImageStore.shared.prefetch(urls, client: client)
+            var held = backdrops.filter { id, _ in items.contains { $0.id == id } }
+            let order = items.indices.sorted { abs($0 - index) < abs($1 - index) }.map { items[$0] }
+            for item in order where held[item.id] == nil {
+                guard let url = HeroCard.imageURL(for: item, portrait: false, screenPixels: tvScreenPixels, client: client),
+                      let image = await ImageStore.shared.image(for: url, client: client) else { continue }
+                guard !Task.isCancelled else { return }
+                held[item.id] = image
+                backdrops[item.id] = image
+            }
+            backdrops = held
         }
         #else
         touchBanner
@@ -485,12 +503,14 @@ struct HeroCarousel: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 0) {
                         ForEach(items) { item in
-                            NavigationLink(value: item) {
+                            NavigationLink(value: destination(item)) {
                                 HeroCard(
                                     item: item,
                                     isFocused: false,
                                     isPortrait: proxy.size.height > proxy.size.width,
-                                    screenPixels: pixels(proxy.size)
+                                    screenPixels: pixels(proxy.size),
+                                    tag: tag(item),
+                                    action: action(item)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -597,28 +617,36 @@ struct HeroCarousel: View {
     #endif
 
     #if os(tvOS)
-    /// The TV's pixels: tvOS lays out 1920 by 1080 points at a scale of 2 on
-    /// a 4K set and 1 on a 1080p one, so the backdrop is asked for at the
-    /// resolution actually shown.
+    /// An Apple TV screen in points, always. The hero's height is set from
+    /// it: sized from the page, Home's and Upcoming's heroes were first laid
+    /// out before the page went full-screen (1080 less the 60-point margins
+    /// top and bottom), and their cards kept that height, leaving bars
+    /// above and below. The width still follows the page: a fixed 1920
+    /// beside the 2-point focus guard made the row wider than the screen.
+    static let tvScreen = CGSize(width: 1920, height: 1080)
+
+    /// The hero's backdrops are asked for at 1080p, even on a 4K set: a 4K
+    /// backdrop is about 33 MB decoded and slow to fetch, and under the
+    /// hero's gradients 1080p looks the same.
     private var tvScreenPixels: CGSize {
-        CGSize(width: 1920 * displayScale, height: 1080 * displayScale)
+        CGSize(width: 1920, height: 1080)
     }
     #endif
 
     private var banner: some View {
-        NavigationLink(value: current) {
+        NavigationLink(value: destination(current)) {
             ScrollView(.horizontal) {
-                // Lazy: a decoded 4K backdrop is about 33 MB, too much to hold
-                // for every page at once. The pages beside the one shown are
-                // prefetched below, so sliding to them doesn't wait.
-                LazyHStack(spacing: 0) {
+                // Every page made up front, each with its held backdrop, so
+                // none is still being made (or fetching) as it slides in.
+                HStack(spacing: 0) {
                     ForEach(items) { item in
                         #if os(tvOS)
-                        HeroCard(item: item, isFocused: isFocused, screenPixels: tvScreenPixels)
-                            .containerRelativeFrame([.horizontal, .vertical])
+                        HeroCard(item: item, isFocused: isFocused, screenPixels: tvScreenPixels, backdrop: backdrops[item.id], tag: tag(item), action: action(item))
+                            .containerRelativeFrame(.horizontal)
+                            .frame(height: Self.tvScreen.height)
                             .id(item.id)
                         #else
-                        HeroCard(item: item, isFocused: isFocused)
+                        HeroCard(item: item, isFocused: isFocused, tag: tag(item), action: action(item))
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(item.id)
                         #endif
@@ -631,7 +659,11 @@ struct HeroCarousel: View {
             .scrollDisabled(true)
             .scrollIndicators(.hidden)
             // Fill the whole screen; the shelves start below the fold.
+            #if os(tvOS)
+            .frame(height: Self.tvScreen.height)
+            #else
             .containerRelativeFrame(.vertical)
+            #endif
             .overlay(alignment: .bottomTrailing) {
                 if items.count > 1 {
                     PageDots(count: items.count, index: index)
@@ -658,6 +690,10 @@ struct HeroCarousel: View {
                 // Ignore a down that follows a sideways move, and hold one briefly
                 // so a sideways move arriving just after it can cancel it.
                 guard Date().timeIntervalSince(lastHorizontalMoveAt) > 0.5 else { return }
+                // Likewise just after the banner gains focus: the right click
+                // that brings focus in from the sidebar goes to the sidebar,
+                // not here, but its stray down swipe arrives here.
+                guard Date().timeIntervalSince(focusGainedAt) > 0.5 else { return }
                 pendingMoveDown?.cancel()
                 pendingMoveDown = Task {
                     try? await Task.sleep(for: .milliseconds(250))
@@ -675,7 +711,9 @@ struct HeroCarousel: View {
         }
         .accessibilityLabel(current.kind == .episode ? [current.seriesName, current.episodeCode, current.name].compactMap { $0 }.joined(separator: ", ") : current.displayTitle)
         .accessibilityHint(items.count > 1 ? "Swipe left or right for more" : "")
-        .onAppear { scrollID = items.first?.id }
+        .onAppear {
+            scrollID = items.first?.id
+        }
         .onChange(of: items) { oldItems, newItems in
             // Keep the page the viewer was on if that title is still featured.
             let currentID = oldItems.indices.contains(index) ? oldItems[index].id : nil
@@ -719,6 +757,18 @@ struct HeroCard: View {
     var isPortrait = false
     /// The banner's size in pixels, which sets the size of picture to fetch.
     var screenPixels: CGSize = .zero
+    /// The picture already decoded (Apple TV's hero holds its own), drawn
+    /// as is rather than looked up.
+    var backdrop: PlatformImage? = nil
+    /// A short label over the title (Upcoming's countdown).
+    var tag: String? = nil
+    /// The button's wording and symbol, in place of Play / Resume.
+    var action: Action? = nil
+
+    struct Action {
+        var title: String
+        var systemImage: String
+    }
 
     @Environment(AppSession.self) private var session
 
@@ -789,12 +839,34 @@ struct HeroCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, screenPixels: screenPixels, client: session.client), systemImage: "film")
-                .extendsUnderSidebar()
+            Group {
+                if let backdrop {
+                    Color.clear
+                        .overlay {
+                            Image(platformImage: backdrop)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                        .clipped()
+                } else {
+                    RemoteImage(url: Self.imageURL(for: item, portrait: isPortrait, screenPixels: screenPixels, client: session.client), systemImage: "film")
+                }
+            }
+            .extendsUnderSidebar()
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.45), endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: .center)
 
             VStack(alignment: .leading, spacing: 18) {
+                if let tag {
+                    // White with black text, readable over any backdrop.
+                    Text(tag.uppercased())
+                        .font(.headline.weight(.bold))
+                        .tracking(1.5)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(.white, in: Capsule())
+                }
                 if let logo = session.client?.logoURL(for: item) {
                     RemoteImage(url: logo, contentMode: .fit) { EmptyView() }
                         .frame(maxWidth: Self.logoSize.width, maxHeight: Self.logoSize.height, alignment: .leading)
@@ -816,10 +888,15 @@ struct HeroCard: View {
                         .frame(maxWidth: Self.overviewWidth, alignment: .leading)
                 }
                 HStack(spacing: 14) {
-                    Image(systemName: "play.fill")
-                    Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
-                    if let remaining = item.remainingText {
-                        Text("·  \(remaining)").foregroundStyle(.secondary)
+                    if let action {
+                        Image(systemName: action.systemImage)
+                        Text(action.title)
+                    } else {
+                        Image(systemName: "play.fill")
+                        Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
+                        if let remaining = item.remainingText {
+                            Text("·  \(remaining)").foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .font(.headline)

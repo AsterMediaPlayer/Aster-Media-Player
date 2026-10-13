@@ -14,6 +14,10 @@ final class DetailModel {
     private(set) var seasons: [BaseItem] = []
     private(set) var selectedSeasonId: String?
     private(set) var episodes: [BaseItem] = []
+    /// An episode's page: the episodes of its season, for the bar under
+    /// the header. Kept apart from `episodes`, which follows the season
+    /// picked on a show's page.
+    private(set) var seasonEpisodes: [BaseItem] = []
     private(set) var extras: [BaseItem] = []
     private(set) var cast: [PersonInfo] = []
     private(set) var similar: [BaseItem] = []
@@ -138,6 +142,10 @@ final class DetailModel {
                     seasons = (try? await client.seasons(seriesId: seriesId)) ?? []
                     await selectSeason(full.id, client: client)
                 }
+            case .episode:
+                if let seriesId = full.seriesId, let seasonId = full.seasonId {
+                    seasonEpisodes = (try? await client.episodes(seriesId: seriesId, seasonId: seasonId)) ?? []
+                }
             default:
                 break
             }
@@ -166,6 +174,9 @@ final class DetailModel {
         }
         if current.kind == .series {
             nextEpisode = try? await client.nextUp(limit: 1, seriesId: current.id).first
+        }
+        if current.kind == .episode, let seriesId = current.seriesId, let seasonId = current.seasonId {
+            seasonEpisodes = (try? await client.episodes(seriesId: seriesId, seasonId: seasonId)) ?? seasonEpisodes
         }
         discMenu = (try? await client.discMenu(for: current.id)) ?? discMenu
     }
@@ -228,6 +239,9 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @State private var model = DetailModel()
     @State private var playback: PlaybackRequest?
+    /// Where the Play button's middle is across the screen, which the
+    /// episode bar centers the next episode under.
+    @State private var playButtonMidX: CGFloat?
     /// The episode the player moved on to by itself (autoplay), which the
     /// page follows once the player closes.
     @State private var playedOnTo: BaseItem?
@@ -284,6 +298,10 @@ struct ItemDetailView: View {
                         episodesSection
                     }
 
+                    if detail.kind == .episode {
+                        EpisodeStrip(season: model.seasonEpisodes, currentId: detail.id, centerX: playButtonMidX)
+                    }
+
                     Shelf(title: "Openings & Endings", items: model.openingsEndings) { entry in
                         switch entry {
                         case .theme(let theme):
@@ -313,12 +331,12 @@ struct ItemDetailView: View {
                         }
                     }
 
-                    Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
-                        PersonLockup(person: person)
-                    }
-
                     Shelf(title: "Related", items: model.similar) { related in
                         LandscapeLockup(item: related)
+                    }
+
+                    Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
+                        PersonLockup(person: person)
                     }
 
                     InformationSection(item: detail)
@@ -560,7 +578,7 @@ struct ItemDetailView: View {
                 Text(code).font(.headline).foregroundStyle(.secondary)
             }
 
-            MetadataLine(item: detail)
+            MetadataLine(item: detail, showsUnwatched: true)
 
             if let tagline = detail.taglines?.first {
                 Text(tagline)
@@ -635,6 +653,8 @@ struct ItemDetailView: View {
             ActionButton(title: playTitle(resumable: resumable), systemImage: "play.fill", prominent: true, focus: $focusedAction, focusID: "play") {
                 play(fromBeginning: false)
             }
+            // For the episode bar, which lines the next episode up under it.
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { playButtonMidX = $0 }
             if resumable {
                 ActionButton(title: "From Beginning", systemImage: "arrow.counterclockwise", focus: $focusedAction, focusID: "beginning") {
                     play(fromBeginning: true)
@@ -1123,6 +1143,84 @@ struct ItemDetailView: View {
 }
 
 // MARK: - Pieces
+
+/// An episode's page: the rest of its season in a row (not this episode),
+/// scrolled so the one after it sits centered under the Play button, earlier
+/// ones off to its left and later ones to its right. Pressing down from Play
+/// lands on it.
+private struct EpisodeStrip: View {
+    let season: [BaseItem]
+    let currentId: String
+    /// The Play button's middle, across the screen.
+    let centerX: CGFloat?
+
+    /// The scroll view's left edge across the screen, and its width.
+    @State private var frame: CGRect = .zero
+    /// The episode the row was last lined up for.
+    @State private var linedUpFor: String?
+    /// This row's own scroll position. Scrolling to a card with a scroll
+    /// reader also moves the views around the row when the row itself
+    /// can't scroll far enough (the next episode first in the row), and that
+    /// shifted the whole page sideways, leaving a bar down the left.
+    @State private var position = ScrollPosition()
+
+    private var episodes: [BaseItem] { season.filter { $0.id != currentId } }
+
+    /// The card under Play: the next episode, or the one before on the
+    /// season's last.
+    private var targetId: String? {
+        guard let index = season.firstIndex(where: { $0.id == currentId }) else { return nil }
+        if index + 1 < season.count { return season[index + 1].id }
+        return index > 0 ? season[index - 1].id : nil
+    }
+
+    var body: some View {
+        if !episodes.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Episodes")
+                    .font(.title3.weight(.semibold))
+                    .padding(.horizontal, Lockup.screenPadding)
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: Lockup.shelfSpacing) {
+                        ForEach(episodes) { episode in
+                            LandscapeLockup(item: episode, showSeriesTitle: false)
+                                .id(episode.id)
+                        }
+                    }
+                    .padding(.horizontal, Lockup.screenPadding)
+                    .padding(.vertical, Lockup.shelfVerticalPadding)
+                }
+                .scrollPosition($position)
+                .scrollClipDisabled()
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+                .onAppear { lineUp(animated: false) }
+                .onChange(of: frame.width) { _, _ in lineUp(animated: false) }
+                .onChange(of: centerX) { _, _ in lineUp(animated: false) }
+                .onChange(of: episodes.map(\.id)) { _, _ in lineUp(animated: false) }
+                .onChange(of: currentId) { _, _ in lineUp(animated: true) }
+            }
+            .tvFocusSection()
+        }
+    }
+
+    /// Scrolls this row (and only this row) so the next episode's card sits
+    /// centered under the Play button, as near as the row can scroll: the
+    /// card's place in the row, less where it should appear in the view.
+    private func lineUp(animated: Bool) {
+        guard let targetId, let centerX, frame.width > Lockup.landscapeWidth, linedUpFor != currentId,
+              let index = episodes.firstIndex(where: { $0.id == targetId }) else { return }
+        let card = Lockup.landscapeWidth
+        let cardStart = Lockup.screenPadding + CGFloat(index) * (card + Lockup.shelfSpacing)
+        let wanted = centerX - frame.minX - card / 2
+        let offset = max(cardStart - wanted, 0)
+        linedUpFor = currentId
+        if animated {
+            withAnimation(.easeInOut(duration: 0.4)) { position.scrollTo(x: offset) }
+        } else {
+            position.scrollTo(x: offset)
+        }
+    }
+}
 
 private struct Backdrop: View {
     let url: URL?

@@ -106,10 +106,27 @@ struct MainTabView: View {
         @Bindable var audiobooks = session.audiobooks
         tabView
         .tabViewStyle(.sidebarAdaptable)
+        #if os(iOS)
+        // The song or book playing, under the tab bar on every tab.
+        .tabViewBottomAccessory(isEnabled: session.isAudioLoaded) {
+            AudioAccessory()
+        }
+        #endif
+        #if os(tvOS)
+        // The remote's Play/Pause pauses music or a book from anywhere
+        // (the players and videos handle it themselves while showing).
+        .onPlayPauseCommand {
+            session.toggleAudio()
+        }
+        #endif
         #if os(macOS)
         // Settings lives in its own window on the Mac (⌘,); this opens it
-        // from the foot of the sidebar too.
+        // from the foot of the sidebar too, under the song or book playing.
         .tabViewSidebarBottomBar {
+            if session.isAudioLoaded {
+                AudioAccessory()
+                Divider()
+            }
             Button {
                 openSettings()
             } label: {
@@ -192,6 +209,12 @@ struct MainTabView: View {
         .onKeyPress(.rightArrow) { routeKey(.right) }
         .onKeyPress(.return) { routeKey(.select) }
         .onKeyPress(.escape) { routeKey(.exit) }
+        // Space pauses or resumes music or a book from any page.
+        .onKeyPress(.space) {
+            guard WindowCovers.shared.covers.isEmpty, session.isAudioLoaded else { return .ignored }
+            session.toggleAudio()
+            return .handled
+        }
         // The window's keyboard handling takes key presses before the menu
         // bar sees them, so Settings… (⌘,) is opened from here too.
         .onKeyPress(characters: [","]) { press in

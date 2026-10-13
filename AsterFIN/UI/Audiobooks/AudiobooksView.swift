@@ -43,10 +43,14 @@ struct AudiobooksView: View {
                     #endif
                     .tvFocusSection()
 
+                #if os(tvOS)
+                // Elsewhere the book playing shows on every tab (see
+                // `AudioAccessory`).
                 if session.audiobooks.book != nil {
                     AudiobookBar()
                         .padding(.horizontal, Lockup.screenPadding)
                 }
+                #endif
 
                 if model.books.isEmpty, let error = model.errorMessage {
                     MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error) {
@@ -637,6 +641,40 @@ struct AudiobookBar: View {
     }
 }
 
+/// The speed button and its menu. Its own view so it redraws only when the
+/// speed changes: inside the player, which redraws every half second as
+/// the time moves, the open menu was rebuilt each time and flickered.
+struct AudiobookSpeedMenu: View {
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        let player = session.audiobooks
+        Menu {
+            Picker("Speed", selection: Binding(get: { player.rate }, set: { player.setRate($0) })) {
+                ForEach(AudiobookRates.choices, id: \.self) { rate in
+                    Text(AudiobookRates.label(rate)).tag(rate)
+                }
+            }
+        } label: {
+            Text(AudiobookRates.label(player.rate))
+                .font(.callout.weight(.semibold))
+                .monospacedDigit()
+                #if os(tvOS)
+                .frame(minWidth: 76, minHeight: 76)
+                #else
+                .frame(minWidth: 46, minHeight: 46)
+                #endif
+        }
+        #if !os(tvOS)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .background(Capsule().fill(player.rate == 1 ? Color(white: 0.3) : Color.accentColor))
+        .foregroundStyle(.white)
+        #endif
+        .accessibilityLabel("Speed, \(AudiobookRates.label(player.rate))")
+    }
+}
+
 /// The full-screen audiobook player: cover, chapter progress, skips, speed
 /// and the chapter list.
 struct AudiobookNowPlayingView: View {
@@ -656,27 +694,26 @@ struct AudiobookNowPlayingView: View {
 
             if let book = player.book {
                 #if os(tvOS)
-                VStack(spacing: 36) {
-                    HStack(alignment: .center, spacing: 70) {
-                        artwork(book, size: showChapters ? 360 : 560)
-                        VStack(alignment: .leading, spacing: 24) {
-                            info(book, titleSize: 48)
-                            progress
-                            controls
-                            errorText
-                        }
-                        .frame(width: 900, alignment: .leading)
+                // The cover on top, everything else under it; the chapter
+                // list, when open, beside that column.
+                HStack(alignment: .center, spacing: 80) {
+                    VStack(spacing: 28) {
+                        artwork(book, size: 440)
+                        info(book, titleSize: 44, centered: true)
+                        progress
+                        controls
+                        errorText
                     }
-                    .padding(.horizontal, 120)
+                    .frame(width: 900)
                     .tvFocusSection()
 
                     if showChapters {
                         chapterList(book)
-                            .frame(height: 360)
-                            .padding(.horizontal, 120)
+                            .frame(width: 760, height: 820)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
-                .padding(.top, 60)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(.easeInOut(duration: 0.3), value: showChapters)
                 #else
                 phoneLayout(book)
@@ -714,11 +751,12 @@ struct AudiobookNowPlayingView: View {
             .shadow(color: .black.opacity(0.6), radius: size > 300 ? 40 : 20, y: size > 300 ? 16 : 8)
     }
 
-    private func info(_ book: Audiobook, titleSize: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func info(_ book: Audiobook, titleSize: CGFloat, centered: Bool = false) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 8) {
             Text(book.title)
                 .font(.system(size: titleSize, weight: .bold))
                 .lineLimit(2)
+                .multilineTextAlignment(centered ? .center : .leading)
             if let author = book.author {
                 Text(author)
                     .font(.title3.weight(.semibold))
@@ -805,7 +843,7 @@ struct AudiobookNowPlayingView: View {
 
     @ViewBuilder
     private var extras: some View {
-        speedMenu
+        AudiobookSpeedMenu()
             .focused($focusedControl, equals: "speed")
         if !(player.book?.chapters.isEmpty ?? true) {
             PlayerControl(systemImage: "list.bullet", label: "Chapters", active: showChapters) {
@@ -813,32 +851,6 @@ struct AudiobookNowPlayingView: View {
             }
             .focused($focusedControl, equals: "chapters")
         }
-    }
-
-    private var speedMenu: some View {
-        Menu {
-            Picker("Speed", selection: Binding(get: { player.rate }, set: { player.setRate($0) })) {
-                ForEach(AudiobookRates.choices, id: \.self) { rate in
-                    Text(AudiobookRates.label(rate)).tag(rate)
-                }
-            }
-        } label: {
-            Text(AudiobookRates.label(player.rate))
-                .font(.callout.weight(.semibold))
-                .monospacedDigit()
-                #if os(tvOS)
-                .frame(minWidth: 76, minHeight: 76)
-                #else
-                .frame(minWidth: 46, minHeight: 46)
-                #endif
-        }
-        #if !os(tvOS)
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .background(Capsule().fill(player.rate == 1 ? Color(white: 0.3) : Color.accentColor))
-        .foregroundStyle(.white)
-        #endif
-        .accessibilityLabel("Speed, \(AudiobookRates.label(player.rate))")
     }
 
     private func chapterList(_ book: Audiobook) -> some View {
@@ -868,31 +880,33 @@ struct AudiobookNowPlayingView: View {
     }
 
     #if !os(tvOS)
-    /// As the music player: the cover above everything when upright, beside
-    /// the controls on its side; the chapters below.
+    /// The cover on top with everything centered under it, unless there
+    /// isn't the height (a phone on its side): then the cover beside the
+    /// controls. The chapters go below.
     private func phoneLayout(_ book: Audiobook) -> some View {
         GeometryReader { proxy in
-            let upright = proxy.size.height > proxy.size.width
+            let stacked = proxy.size.height >= 560
+            // Clamped: the first layout pass can be zero-sized.
+            let coverSize = max(min(proxy.size.width - 48, proxy.size.height * 0.42, 420), 0)
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 20) {
-                    if upright {
-                        VStack(alignment: .leading, spacing: 20) {
+                VStack(spacing: 20) {
+                    if stacked {
+                        VStack(spacing: 20) {
                             if showChapters {
                                 HStack(spacing: 16) {
                                     artwork(book, size: 96)
                                     info(book, titleSize: 20)
+                                    Spacer(minLength: 0)
                                 }
                             } else {
-                                // Clamped: the first layout pass can be zero-sized.
-                                artwork(book, size: max(min(proxy.size.width - 48, 340), 0))
-                                    .frame(maxWidth: .infinity)
-                                info(book, titleSize: 24)
+                                artwork(book, size: coverSize)
+                                info(book, titleSize: 24, centered: true)
                             }
                             progress
                             controls
-                                .frame(maxWidth: .infinity)
                             errorText
                         }
+                        .frame(maxWidth: 560)
                         .padding(.horizontal, 24)
                     } else {
                         HStack(alignment: .center, spacing: 28) {
@@ -908,11 +922,12 @@ struct AudiobookNowPlayingView: View {
                     }
                     if showChapters {
                         chapterList(book)
-                            .frame(height: upright ? max(260, proxy.size.height - 330) : 260)
+                            .frame(height: stacked ? max(260, proxy.size.height - 330) : 260)
+                            .frame(maxWidth: 700)
                             .padding(.horizontal, 24)
                     }
                 }
-                .padding(.top, upright ? 68 : 20)
+                .padding(.top, stacked ? 68 : 20)
                 .padding(.bottom, 24)
                 .frame(width: proxy.size.width)
             }

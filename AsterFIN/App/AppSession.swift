@@ -26,6 +26,9 @@ final class AppSession {
 
     /// The one audio player, so music keeps going while the viewer browses.
     let music = MusicPlayer()
+    /// Audiobooks have their own player (resume, chapters, speed). Only one
+    /// of the two plays at a time.
+    let audiobooks = AudiobookPlayer()
     /// Theme music and videos for title pages.
     let theme = ThemePlayer()
     /// Links arriving from the Top Shelf.
@@ -58,10 +61,13 @@ final class AppSession {
     /// need. Set when the main screen loads.
     private(set) var hasMusic = false
     private(set) var hasLiveTV = false
+    /// The server's book libraries, which the Audiobooks tab browses.
+    private(set) var bookLibraries: [BaseItem] = []
 
     func noteLibraries(_ views: [BaseItem]) {
         hasMusic = views.contains { $0.collectionType == "music" }
         hasLiveTV = views.contains { $0.collectionType == "livetv" }
+        bookLibraries = views.filter { $0.collectionType == "books" }
     }
 
     /// The tabs this server has something for.
@@ -70,6 +76,7 @@ final class AppSession {
         case .anime: !animeLibraries.isEmpty
         case .music: hasMusic
         case .liveTV: hasLiveTV
+        case .audiobooks: !bookLibraries.isEmpty
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false
@@ -95,7 +102,14 @@ final class AppSession {
 
     init() {
         restore()
-        music.onStart = { [weak self] in self?.theme.hide(evenIfShowing: true) }
+        music.onStart = { [weak self] in
+            self?.theme.hide(evenIfShowing: true)
+            self?.audiobooks.stop()
+        }
+        audiobooks.onStart = { [weak self] in
+            self?.theme.hide(evenIfShowing: true)
+            self?.music.stop()
+        }
         UserDefaults(suiteName: Self.appGroup)?.set(JellyfinDevice.deviceId, forKey: "AsterFIN.deviceId")
     }
 
@@ -179,6 +193,7 @@ final class AppSession {
 
     func changeServer() {
         music.stop()
+        audiobooks.stop()
         Task { await client?.logout() }
         StoredSession.clear()
         client = nil
@@ -199,6 +214,7 @@ final class AppSession {
 
     func signOut() {
         music.stop()
+        audiobooks.stop()
         let old = client
         Task { await old?.logout() }
         StoredSession.clear()

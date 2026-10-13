@@ -29,7 +29,8 @@ final class ImageStore {
         if let task = inFlight[url] { return await task.value }
         let task = Task<PlatformImage?, Never> {
             let data: Data?
-            if url.scheme == "data" {
+            // Inline pictures, and covers saved with downloaded audiobooks.
+            if url.scheme == "data" || url.isFileURL {
                 data = try? Data(contentsOf: url)
             } else if let client {
                 data = try? await client.data(from: url)

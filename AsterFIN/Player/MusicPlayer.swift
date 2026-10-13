@@ -106,6 +106,7 @@ final class MusicPlayer {
         }
         isNowPlayingPresented = true
         installRemoteCommands()
+        RemoteCommandLayout.useForMusic()
         onStart?()
         load()
     }

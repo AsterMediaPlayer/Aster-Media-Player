@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, liveTV, library, downloads, settings, search
+    case home, movies, shows, anime, music, audiobooks, liveTV, library, downloads, settings, search
 
     var title: String {
         switch self {
@@ -25,6 +25,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .shows: "TV Shows"
         case .anime: "Anime"
         case .music: "Music"
+        case .audiobooks: "Audiobooks"
         case .liveTV: "Live TV"
         case .library: "Library"
         case .downloads: "Downloads"
@@ -40,6 +41,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .shows: "tv.fill"
         case .anime: "sparkles"
         case .music: "music.note"
+        case .audiobooks: "books.vertical.fill"
         case .liveTV: "antenna.radiowaves.left.and.right"
         case .library: "square.stack.fill"
         case .downloads: "arrow.down.circle.fill"
@@ -101,6 +103,7 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var player = session.music
+        @Bindable var audiobooks = session.audiobooks
         tabView
         .tabViewStyle(.sidebarAdaptable)
         #if os(macOS)
@@ -135,7 +138,13 @@ struct MainTabView: View {
         .appCover(isPresented: $player.isNowPlayingPresented) {
             NowPlayingView()
         }
-        // A second presentation needs its own host view.
+        // Each presentation needs its own host view.
+        .background {
+            Color.clear
+                .appCover(isPresented: $audiobooks.isNowPlayingPresented) {
+                    AudiobookNowPlayingView()
+                }
+        }
         .background {
             Color.clear
                 .appCover(item: $linkedPlayback, onDismiss: {
@@ -425,6 +434,7 @@ struct MainTabView: View {
         case .shows: BrowseStack { TypeGridView(kind: .series) }
         case .anime: BrowseStack { AnimeView() }
         case .music: BrowseStack { MusicView() }
+        case .audiobooks: BrowseStack { AudiobooksView() }
         case .liveTV: BrowseStack { LiveTVView() }
         case .library: BrowseStack { LibraryView() }
         case .downloads:
@@ -690,6 +700,12 @@ struct BrowseStack<Root: View>: View {
             .navigationDestination(for: PersonInfo.self) { person in
                 pushed(PersonView(person: person))
             }
+            .navigationDestination(for: Audiobook.self) { book in
+                pushed(AudiobookView(book: book))
+            }
+            .navigationDestination(for: AudiobookShelf.self) { shelf in
+                pushed(AudiobookShelfView(shelf: shelf))
+            }
     }
 
     /// A page pushed on the stack. Pushed pages don't inherit what's set on
@@ -717,6 +733,8 @@ struct BrowseStack<Root: View>: View {
                 LiveTVView()
             } else if item.collectionType == "music" {
                 MusicView(library: item)
+            } else if item.collectionType == "books" {
+                AudiobooksView(library: item)
             } else {
                 LibraryGridView(parent: item)
             }
@@ -730,6 +748,9 @@ struct BrowseStack<Root: View>: View {
             }
         case .musicArtist:
             ArtistView(artist: item)
+        case .audioBook:
+            // Found by Search: the file as a book of its own.
+            AudiobookView(book: Audiobook(item: item))
         case .audio:
             // A song opens its album, where it can be played in context.
             if let albumId = item.albumId {

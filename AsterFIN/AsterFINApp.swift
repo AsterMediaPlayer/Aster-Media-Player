@@ -43,6 +43,12 @@ struct AsterFINApp: App {
         .backgroundTask(.urlSession(DownloadStore.cellularSessionID)) {
             await DownloadStore.shared.waitForBackgroundEvents()
         }
+        .backgroundTask(.urlSession(AudiobookDownloads.wifiSessionID)) {
+            await AudiobookDownloads.shared.waitForBackgroundEvents()
+        }
+        .backgroundTask(.urlSession(AudiobookDownloads.cellularSessionID)) {
+            await AudiobookDownloads.shared.waitForBackgroundEvents()
+        }
         #endif
         #if os(macOS)
         // AsterFIN › Settings… (⌘,).

@@ -298,6 +298,8 @@ nonisolated struct MediaSourceInfo: Codable, Sendable, Hashable, Identifiable {
     var defaultSubtitleStreamIndex: Int?
     /// Files embedded in the container, such as the fonts an ASS track uses.
     var mediaAttachments: [MediaAttachment]?
+    /// The file's size in bytes.
+    var size: Int64?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -316,6 +318,7 @@ nonisolated struct MediaSourceInfo: Codable, Sendable, Hashable, Identifiable {
         case path = "Path"
         case isInfiniteStream = "IsInfiniteStream"
         case liveStreamId = "LiveStreamId"
+        case size = "Size"
         case requiresOpening = "RequiresOpening"
         case defaultAudioStreamIndex = "DefaultAudioStreamIndex"
         case defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
@@ -993,6 +996,9 @@ nonisolated enum ItemKind: String, Sendable {
     case audio = "Audio"
     case playlist = "Playlist"
     case musicGenre = "MusicGenre"
+    /// One audiobook file: a whole book (an .m4b), or one part of a book
+    /// kept as a folder of files.
+    case audioBook = "AudioBook"
     case other = ""
 
     /// Albums, artists, playlists and songs.

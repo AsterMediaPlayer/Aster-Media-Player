@@ -603,6 +603,11 @@ nonisolated final class JellyfinClient: Sendable {
         ])
     }
 
+    /// The original file, for saving; refused unless the account may download.
+    func downloadURL(itemId: String) -> URL {
+        tokenURL("/Items/\(itemId)/Download")
+    }
+
     func audioStreamURL(itemId: String) -> URL {
         tokenURL("/Audio/\(itemId)/stream", query: ["static": "true"])
     }

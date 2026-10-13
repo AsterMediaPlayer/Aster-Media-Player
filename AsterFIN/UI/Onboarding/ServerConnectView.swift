@@ -176,15 +176,14 @@ struct OnboardingLayout<Content: View>: View {
 
 extension View {
     /// iOS text fields have no outline of their own; give them a filled
-    /// rounded box. tvOS draws its own focused field.
+    /// rounded box. tvOS draws its own focused field. Use on a single text
+    /// or secure field.
     @ViewBuilder
     func onboardingField() -> some View {
         #if os(tvOS)
         self
         #else
-        padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        modifier(OnboardingFieldBox())
         #endif
     }
 
@@ -208,3 +207,22 @@ extension View {
         #endif
     }
 }
+
+#if !os(tvOS)
+/// The filled box around an onboarding field, all of it tappable. Only the
+/// field's line of text takes a tap by itself, so a tap in the box's padding
+/// did nothing and the field took a few tries to get into.
+private struct OnboardingFieldBox: ViewModifier {
+    @FocusState private var isFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($isFocused)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .onTapGesture { isFocused = true }
+    }
+}
+#endif

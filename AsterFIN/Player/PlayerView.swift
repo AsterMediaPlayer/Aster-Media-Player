@@ -18,6 +18,9 @@ struct PlayerView: View {
     /// shown here but not stopped when this view goes away.
     private let sharedCoordinator: PlaybackCoordinator?
     var onFinished: () -> Void
+    /// Told each time an item starts, so the page behind can follow when
+    /// the next episode plays on its own.
+    var onItemStarted: ((BaseItem) -> Void)?
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -37,10 +40,11 @@ struct PlayerView: View {
     @State private var trackMenuOpen = false
 
     /// Plays `request`, and stops when the view goes away.
-    init(request: PlaybackRequest, onFinished: @escaping () -> Void) {
+    init(request: PlaybackRequest, onItemStarted: ((BaseItem) -> Void)? = nil, onFinished: @escaping () -> Void) {
         self.request = request
         self.sharedCoordinator = nil
         self.onFinished = onFinished
+        self.onItemStarted = onItemStarted
     }
 
     /// Shows playback that keeps going after the view goes away.
@@ -179,7 +183,10 @@ struct PlayerView: View {
         .animation(.easeInOut(duration: 0.3), value: coordinator?.endCardVisible ?? false)
         .animation(.easeInOut(duration: 0.6), value: startedItemId)
         .onChange(of: coordinator?.hasStarted) { _, started in
-            if started == true { startedItemId = coordinator?.currentItem?.id }
+            if started == true {
+                startedItemId = coordinator?.currentItem?.id
+                if let item = coordinator?.currentItem { onItemStarted?(item) }
+            }
         }
         .onAppear {
             guard coordinator == nil else { return }

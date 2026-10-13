@@ -228,6 +228,9 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @State private var model = DetailModel()
     @State private var playback: PlaybackRequest?
+    /// The episode the player moved on to by itself (autoplay), which the
+    /// page follows once the player closes.
+    @State private var playedOnTo: BaseItem?
     #if os(iOS)
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     /// A title waiting on the first-download setup sheet.
@@ -417,9 +420,17 @@ struct ItemDetailView: View {
             }
         }
         .appCover(item: $playback, onDismiss: {
-            Task { if let client = session.client { await model.refresh(client: client) } }
+            let reached = playedOnTo
+            playedOnTo = nil
+            Task { await followPlayback(to: reached) }
         }) { request in
-            PlayerView(request: request) { playback = nil }
+            PlayerView(request: request, onItemStarted: { started in
+                // Only an episode after the one asked for: not the first
+                // item, and not an opening clip.
+                if started.kind == .episode, started.id != request.items.first?.itemId {
+                    playedOnTo = started
+                }
+            }) { playback = nil }
         }
         .appCover(item: $urlPlayback) { theme in
             URLPlayerView(playback: theme) { urlPlayback = nil }
@@ -1031,6 +1042,29 @@ struct ItemDetailView: View {
             artwork: client.landscapeURL(for: detail, width: 1920),
             info: info(for: theme)
         )
+    }
+
+    /// After the player closes: the page shows where viewing got to. When
+    /// later episodes played on their own, an episode's page becomes the
+    /// last one, and a show's page turns to its season; otherwise the page
+    /// just picks up the new watched state.
+    private func followPlayback(to reached: BaseItem?) async {
+        guard let client = session.client else { return }
+        if let reached, reached.id != detail.id, reached.seriesId != nil, reached.seriesId == (detail.kind == .series ? detail.id : detail.seriesId) {
+            switch detail.kind {
+            case .episode:
+                await model.load(reached, client: client)
+                await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
+                return
+            case .series, .season:
+                if let seasonId = reached.seasonId, seasonId != model.selectedSeasonId, detail.kind == .series {
+                    await model.selectSeason(seasonId, client: client)
+                }
+            default:
+                break
+            }
+        }
+        await model.refresh(client: client)
     }
 
     private func playTitle(resumable: Bool) -> String {

@@ -410,7 +410,7 @@ struct ItemDetailView: View {
         }
         .task(id: item.id) {
             guard let client = session.client else { return }
-            session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying)
+            session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
             await model.load(item, client: client)
             await showOpening(client: client)
             await model.updateWatchThemes(client: client, isAnime: isAnimeShow)

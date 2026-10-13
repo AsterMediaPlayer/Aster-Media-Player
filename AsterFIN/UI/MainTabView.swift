@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, upcoming, liveTV, library, downloads, settings, search
+    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, library, downloads, settings, search
 
     var title: String {
         switch self {
@@ -26,6 +26,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .anime: "Anime"
         case .upcoming: "Upcoming"
         case .music: "Music"
+        case .audiobooks: "Audiobooks"
         case .liveTV: "Live TV"
         case .library: "Library"
         case .downloads: "Downloads"
@@ -42,6 +43,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .anime: "sparkles"
         case .upcoming: "calendar"
         case .music: "music.note"
+        case .audiobooks: "books.vertical.fill"
         case .liveTV: "antenna.radiowaves.left.and.right"
         case .library: "square.stack.fill"
         case .downloads: "arrow.down.circle.fill"
@@ -103,12 +105,30 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var player = session.music
+        @Bindable var audiobooks = session.audiobooks
         tabView
         .tabViewStyle(.sidebarAdaptable)
+        #if os(iOS)
+        // The song or book playing, under the tab bar on every tab.
+        .tabViewBottomAccessory(isEnabled: session.isAudioLoaded) {
+            AudioAccessory()
+        }
+        #endif
+        #if os(tvOS)
+        // The remote's Play/Pause pauses music or a book from anywhere
+        // (the players and videos handle it themselves while showing).
+        .onPlayPauseCommand {
+            session.toggleAudio()
+        }
+        #endif
         #if os(macOS)
         // Settings lives in its own window on the Mac (⌘,); this opens it
-        // from the foot of the sidebar too.
+        // from the foot of the sidebar too, under the song or book playing.
         .tabViewSidebarBottomBar {
+            if session.isAudioLoaded {
+                AudioAccessory()
+                Divider()
+            }
             Button {
                 openSettings()
             } label: {
@@ -137,7 +157,13 @@ struct MainTabView: View {
         .appCover(isPresented: $player.isNowPlayingPresented) {
             NowPlayingView()
         }
-        // A second presentation needs its own host view.
+        // Each presentation needs its own host view.
+        .background {
+            Color.clear
+                .appCover(isPresented: $audiobooks.isNowPlayingPresented) {
+                    AudiobookNowPlayingView()
+                }
+        }
         .background {
             Color.clear
                 .appCover(item: $linkedPlayback, onDismiss: {
@@ -186,6 +212,12 @@ struct MainTabView: View {
         .onKeyPress(.rightArrow) { routeKey(.right) }
         .onKeyPress(.return) { routeKey(.select) }
         .onKeyPress(.escape) { routeKey(.exit) }
+        // Space pauses or resumes music or a book from any page.
+        .onKeyPress(.space) {
+            guard WindowCovers.shared.covers.isEmpty, session.isAudioLoaded else { return .ignored }
+            session.toggleAudio()
+            return .handled
+        }
         // The window's keyboard handling takes key presses before the menu
         // bar sees them, so Settings… (⌘,) is opened from here too.
         .onKeyPress(characters: [","]) { press in
@@ -429,6 +461,7 @@ struct MainTabView: View {
         case .anime: BrowseStack { AnimeView() }
         case .upcoming: BrowseStack { UpcomingView() }
         case .music: BrowseStack { MusicView() }
+        case .audiobooks: BrowseStack { AudiobooksView() }
         case .liveTV: BrowseStack { LiveTVView() }
         case .library: BrowseStack { LibraryView() }
         case .downloads:
@@ -694,6 +727,12 @@ struct BrowseStack<Root: View>: View {
             .navigationDestination(for: PersonInfo.self) { person in
                 pushed(PersonView(person: person))
             }
+            .navigationDestination(for: Audiobook.self) { book in
+                pushed(AudiobookView(book: book))
+            }
+            .navigationDestination(for: AudiobookShelf.self) { shelf in
+                pushed(AudiobookShelfView(shelf: shelf))
+            }
     }
 
     /// A page pushed on the stack. Pushed pages don't inherit what's set on
@@ -721,6 +760,8 @@ struct BrowseStack<Root: View>: View {
                 LiveTVView()
             } else if item.collectionType == "music" {
                 MusicView(library: item)
+            } else if item.collectionType == "books" {
+                AudiobooksView(library: item)
             } else {
                 LibraryGridView(parent: item)
             }
@@ -734,6 +775,9 @@ struct BrowseStack<Root: View>: View {
             }
         case .musicArtist:
             ArtistView(artist: item)
+        case .audioBook:
+            // Found by Search: the file as a book of its own.
+            AudiobookView(book: Audiobook(item: item))
         case .audio:
             // A song opens its album, where it can be played in context.
             if let albumId = item.albumId {

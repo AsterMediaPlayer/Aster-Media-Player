@@ -479,16 +479,19 @@ private struct DownloadSettingsView: View {
             if enabled {
                 DownloadOptionsSections()
             }
-            if !store.records.isEmpty {
+            if !store.records.isEmpty || !AudiobookDownloads.shared.records.isEmpty {
                 Section {
                     Button("Remove All Downloads", role: .destructive) { confirmRemoveAll = true }
                 }
             }
         }
         .confirmationDialog("Remove all downloads?", isPresented: $confirmRemoveAll, titleVisibility: .visible) {
-            Button("Remove All", role: .destructive) { store.removeAll() }
+            Button("Remove All", role: .destructive) {
+                store.removeAll()
+                AudiobookDownloads.shared.removeAll()
+            }
         } message: {
-            Text("This frees \(DownloadStore.format(store.usedBytes)) and stops any downloads in progress.")
+            Text("This frees \(DownloadStore.format(store.usedBytes + AudiobookDownloads.shared.usedBytes)) and stops any downloads in progress.")
         }
     }
 }

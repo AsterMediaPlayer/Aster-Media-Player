@@ -117,10 +117,14 @@ struct MusicView: View {
                     #endif
                     .tvFocusSection()
 
+                #if os(tvOS)
+                // Elsewhere the song playing shows on every tab (see
+                // `AudioAccessory`); Apple TV has no room for that.
                 if session.music.current != nil {
                     NowPlayingBar()
                         .padding(.horizontal, Lockup.screenPadding)
                 }
+                #endif
 
                 if section == .albums {
                     Shelf(title: "Recently Added", items: recentAlbums) { album in

@@ -28,7 +28,7 @@ struct DownloadOptionsSections: View {
 
     /// Limits that fit what the device could hold, plus the one chosen.
     private var limitOptions: [Int] {
-        let capacity = ((DownloadStore.freeBytes ?? 0) + store.usedBytes) / 1_000_000_000
+        let capacity = ((DownloadStore.freeBytes ?? 0) + store.usedBytes + AudiobookDownloads.shared.usedBytes) / 1_000_000_000
         let fitting = [5, 10, 25, 50, 100, 250].filter { Int64($0) <= capacity }
         return Array(Set(fitting + (limitGB > 0 ? [limitGB] : []))).sorted()
     }
@@ -36,7 +36,7 @@ struct DownloadOptionsSections: View {
     var body: some View {
         Section {
             LabeledContent("Free on this \(deviceName)", value: DownloadStore.freeBytes.map(DownloadStore.format) ?? "Unknown")
-            LabeledContent("Used by downloads", value: DownloadStore.format(store.usedBytes))
+            LabeledContent("Used by downloads", value: DownloadStore.format(store.usedBytes + AudiobookDownloads.shared.usedBytes))
             Picker("Space for downloads", selection: $limitGB) {
                 ForEach(limitOptions, id: \.self) { gigabytes in
                     Text("\(gigabytes) GB").tag(gigabytes)
@@ -229,6 +229,9 @@ struct DownloadsView: View {
     @State private var confirmDeleteAll = false
 
     private let store = DownloadStore.shared
+    private let books = AudiobookDownloads.shared
+
+    private var isEmpty: Bool { store.records.isEmpty && books.records.isEmpty }
 
     var body: some View {
         List(selection: $selection) {
@@ -239,7 +242,7 @@ struct DownloadsView: View {
                     Spacer()
                     // Here rather than in a navigation bar, which under the
                     // More tab would stack a second bar under More's.
-                    if !store.records.isEmpty {
+                    if !isEmpty {
                         Button(isSelecting ? "Done" : "Select") {
                             withAnimation {
                                 isSelecting.toggle()
@@ -253,19 +256,35 @@ struct DownloadsView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: Lockup.screenPadding, bottom: 0, trailing: Lockup.screenPadding))
                 .selectionDisabled()
             }
-            if store.records.isEmpty {
-                MessageView(systemImage: "arrow.down.circle", title: "No Downloads", detail: "Download a movie or episode from the ⋯ button on its page to watch it without a connection.")
+            if isEmpty {
+                MessageView(systemImage: "arrow.down.circle", title: "No Downloads", detail: "Download a movie or episode from the ⋯ button on its page, or an audiobook from its page, to have it without a connection.")
                     .frame(height: Lockup.emptyStateHeight)
                     .listRowBackground(Color.clear)
                     .selectionDisabled()
             } else {
-                Section {
-                    ForEach(store.records) { record in
-                        row(for: record)
-                            .tag(record.id)
+                if !store.records.isEmpty {
+                    Section {
+                        ForEach(store.records) { record in
+                            row(for: record)
+                                .tag(record.id)
+                        }
+                    } header: {
+                        if !books.records.isEmpty { Text("Movies & TV") }
+                    } footer: {
+                        if books.records.isEmpty { Text(storageSummary) }
                     }
-                } footer: {
-                    Text(storageSummary)
+                }
+                if !books.records.isEmpty {
+                    Section {
+                        ForEach(books.records) { record in
+                            bookRow(for: record)
+                                .tag(record.id)
+                        }
+                    } header: {
+                        Text("Audiobooks")
+                    } footer: {
+                        Text(storageSummary)
+                    }
                 }
             }
         }
@@ -277,7 +296,7 @@ struct DownloadsView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .onChange(of: store.records.isEmpty) { _, empty in
+        .onChange(of: isEmpty) { _, empty in
             if empty {
                 isSelecting = false
                 selection = []
@@ -287,6 +306,7 @@ struct DownloadsView: View {
             Button("Delete", role: .destructive) {
                 withAnimation {
                     store.remove(selection)
+                    books.remove(selection)
                     selection = []
                     isSelecting = false
                 }
@@ -298,12 +318,13 @@ struct DownloadsView: View {
             Button("Delete All", role: .destructive) {
                 withAnimation {
                     store.removeAll()
+                    books.removeAll()
                     selection = []
                     isSelecting = false
                 }
             }
         } message: {
-            Text("This frees \(DownloadStore.format(store.usedBytes)) and stops any downloads in progress.")
+            Text("This frees \(DownloadStore.format(store.usedBytes + books.usedBytes)) and stops any downloads in progress.")
         }
         .appCover(item: $playback) { request in
             PlayerView(request: request) { playback = nil }
@@ -344,6 +365,43 @@ struct DownloadsView: View {
         }
     }
 
+    /// A book's row: opens its page, which plays from the device once it's
+    /// downloaded.
+    @ViewBuilder
+    private func bookRow(for record: AudiobookDownload) -> some View {
+        if isSelecting {
+            AudiobookDownloadRow(record: record)
+        } else {
+            NavigationLink(value: books.book(record)) {
+                AudiobookDownloadRow(record: record)
+            }
+            .swipeActions {
+                Button(record.state == .downloading ? "Cancel" : "Remove", role: .destructive) {
+                    withAnimation { books.remove(record.id) }
+                }
+            }
+            .contextMenu {
+                if record.state == .failed {
+                    Button("Retry Download", systemImage: "arrow.clockwise") { retry(record) }
+                }
+                Button(record.state == .downloading ? "Cancel Download" : "Remove Download", systemImage: "trash", role: .destructive) {
+                    books.remove(record.id)
+                }
+            }
+        }
+    }
+
+    private func retry(_ record: AudiobookDownload) {
+        guard let client = session.client else { return }
+        Task {
+            do {
+                try await books.retry(record.id, client: client, canDownload: session.canDownload)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     /// Delete All and Delete (n), along the bottom while choosing.
     private var selectionBar: some View {
         HStack {
@@ -366,13 +424,17 @@ struct DownloadsView: View {
 
     /// The space the chosen downloads take, or will once finished.
     private func bytes(of ids: Set<String>) -> Int64 {
-        store.records.filter { ids.contains($0.id) }.reduce(0) { total, record in
+        let videos = store.records.filter { ids.contains($0.id) }.reduce(0) { total, record in
             total + (record.state == .finished ? record.bytesOnDisk : Int64(Double(record.expectedBytes) * record.progress))
         }
+        let audiobooks = books.records.filter { ids.contains($0.id) }.reduce(0) { total, record in
+            total + (record.state == .finished ? record.bytesOnDisk : books.bytesSoFar(record))
+        }
+        return videos + audiobooks
     }
 
     private var storageSummary: String {
-        var parts = ["Using \(DownloadStore.format(store.usedBytes))"]
+        var parts = ["Using \(DownloadStore.format(store.usedBytes + books.usedBytes))"]
         if let limit = DownloadSettings.storageLimit {
             parts[0] += " of \(DownloadStore.format(limit))"
         }
@@ -404,6 +466,72 @@ struct DownloadsView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+/// A downloaded book's cover, title and state.
+private struct AudiobookDownloadRow: View {
+    let record: AudiobookDownload
+
+    private let books = AudiobookDownloads.shared
+
+    private var cover: UIImage? {
+        books.coverURL(for: record.id).flatMap { UIImage(contentsOfFile: $0.path) }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                if let cover {
+                    Image(uiImage: cover)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ArtworkPlaceholder(systemImage: "book.closed")
+                }
+            }
+            .frame(width: 63, height: 63)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(record.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let author = record.author {
+                    Text(author)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                status
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch record.state {
+        case .downloading:
+            let progress = books.progress(record)
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: progress)
+                Text("Downloading · \(Int(progress * 100))% of about \(DownloadStore.format(record.expectedBytes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .finished:
+            Text(DownloadStore.format(record.bytesOnDisk))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .failed:
+            Text(record.errorMessage ?? "Download failed.")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .lineLimit(2)
         }
     }
 }

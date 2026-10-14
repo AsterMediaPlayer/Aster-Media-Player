@@ -38,6 +38,11 @@ struct PlayerView: View {
     /// Mac, when the pointer last moved over the video.
     @State private var controlsShownAt: Date?
     @State private var trackMenuOpen = false
+    #if canImport(AetherEngine)
+    /// Playback through AetherEngine, when the setting is on and it can take
+    /// the request; the system player otherwise.
+    @State private var aether: AetherPlayback?
+    #endif
 
     /// Plays `request`, and stops when the view goes away.
     init(request: PlaybackRequest, onItemStarted: ((BaseItem) -> Void)? = nil, onFinished: @escaping () -> Void) {
@@ -57,6 +62,14 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            #if canImport(AetherEngine)
+            if let aether {
+                AetherPlayerView(playback: aether, onFinished: onFinished)
+                    // Its own controls decide when Back closes the player
+                    // (on Apple TV, only once the panel and controls are away).
+                    .interactiveDismissDisabled()
+            }
+            #endif
             if let coordinator {
                 systemPlayer(for: coordinator)
                 .ignoresSafeArea()
@@ -201,6 +214,17 @@ struct PlayerView: View {
                 return
             }
             guard let request, let client = session.client else { return }
+            #if canImport(AetherEngine)
+            guard aether == nil else { return }
+            if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
+                aether = playback
+                Task {
+                    await playback.start()
+                    if playback.hasStarted, let item = playback.item { onItemStarted?(item) }
+                }
+                return
+            }
+            #endif
             let created = PlaybackCoordinator(
                 client: client,
                 request: request,
@@ -217,6 +241,9 @@ struct PlayerView: View {
         }
         .onDisappear {
             guard sharedCoordinator == nil else { return }
+            #if canImport(AetherEngine)
+            aether?.stop()
+            #endif
             coordinator?.stop()
         }
     }
@@ -520,7 +547,7 @@ private struct TouchPlayerActions: View {
 /// Covers the player while an item loads: the season's backdrop (or the
 /// series' when the season has none) with the show's logo and a spinner.
 /// Never focusable, so the remote still reaches the player underneath.
-private struct PlaybackLoadingView: View {
+struct PlaybackLoadingView: View {
     let item: BaseItem?
 
     @Environment(AppSession.self) private var session

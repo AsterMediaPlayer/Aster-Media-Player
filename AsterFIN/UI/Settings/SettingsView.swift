@@ -228,6 +228,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
+    @AppStorage(AppSettings.useAetherEngineKey) private var useAetherEngine = false
 
     private let bitrates: [(String, Int)] = [
         ("Auto (120 Mbps)", 120_000_000),
@@ -256,6 +257,12 @@ private struct PlaybackSettingsView: View {
                 Toggle("Song card at openings and endings", isOn: $themeCards)
                 SettingsNote("As an episode's opening or ending starts, and again as it finishes, the song and artist show in the corner, like a music channel. Found from the episode's OP and ED chapters, with the song named by the OP/ED plugin when the server has it.")
             }
+            #if canImport(AetherEngine)
+            Section("Player") {
+                Toggle("Use AetherEngine (test)", isOn: $useAetherEngine)
+                SettingsNote("Plays videos from the original file, with every audio and subtitle track switchable right away. Music, audiobooks, Live TV, downloads and theme clips keep the system player.")
+            }
+            #endif
         }
     }
 }

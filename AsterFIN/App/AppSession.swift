@@ -275,6 +275,9 @@ enum AppSettings {
     static let downloadHEVCKey = "AsterFIN.downloadHEVC"
     static let downloadSubtitlesKey = "AsterFIN.downloadSubtitles"
     static let downloadCellularKey = "AsterFIN.downloadCellular"
+    /// Video through AetherEngine instead of the system player (a test; see
+    /// `AetherPlayback`). Off by default.
+    static let useAetherEngineKey = "AsterFIN.useAetherEngine"
 
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)
@@ -297,5 +300,9 @@ enum AppSettings {
     /// Jump past intros without asking. Off by default.
     static var autoSkipIntro: Bool {
         UserDefaults.standard.bool(forKey: autoSkipIntroKey)
+    }
+
+    static var useAetherEngine: Bool {
+        UserDefaults.standard.bool(forKey: useAetherEngineKey)
     }
 }

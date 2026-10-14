@@ -1,0 +1,808 @@
+//
+//  AetherTVControls.swift
+//  AsterFIN
+//
+//  The Apple TV controls for AetherEngine playback, worked like the system
+//  player's:
+//  - Click (or Play/Pause) pauses and plays; the timeline shows while paused
+//    and for a few seconds after any press.
+//  - Paused, a swipe across the touch surface moves the playhead freely and a
+//    click plays from there; Menu puts it back. Left and right clicks jump
+//    10 seconds.
+//  - Paused, the title's logo shows in the top left and its details above
+//    the timeline.
+//  - A swipe or click down opens the panel: Chapters, Audio and Subtitles,
+//    the choices below them. It closes on Menu, or after a while left alone.
+//  - Menu always backs out one step: scrub, panel, controls, then the player.
+//
+//  Focus never goes missing: one invisible view holds it while the panel is
+//  closed and the panel's buttons hold it while it's open, all in one focus
+//  state, and if it ever ends up on nothing it's put back. Back steps back
+//  through the controls, from the remote or a keyboard's Esc.
+//
+
+#if canImport(AetherEngine) && os(tvOS)
+import AetherEngine
+import SwiftUI
+import UIKit
+
+struct AetherTVControls: View {
+    let playback: AetherPlayback
+    @ObservedObject var engine: AetherEngine
+    /// True while an alert is up, which takes focus on purpose.
+    var isSuspended: Bool
+    var onFinished: () -> Void
+
+    @Environment(AppSession.self) private var session
+
+    private enum Mode: Hashable {
+        case hidden, transport, panel
+    }
+
+    private enum Tab: Hashable {
+        case chapters, audio, subtitles
+
+        var title: String {
+            switch self {
+            case .chapters: "Chapters"
+            case .audio: "Audio"
+            case .subtitles: "Subtitles"
+            }
+        }
+    }
+
+    private enum Focus: Hashable {
+        /// The invisible view that takes the remote while the panel is closed.
+        case surface
+        case tab(Tab)
+        case chapter(Int)
+        case option(Tab, Int)
+    }
+
+    /// What restarts the fade: any press, and the state that holds it off.
+    private struct FadeKey: Equatable {
+        var mode: Mode
+        var activity: Int
+        var scrubbing: Bool
+        var playing: Bool
+    }
+
+    /// The screen, in points, for turning a swipe into a fraction of it.
+    private static let screen = CGSize(width: 1920, height: 1080)
+
+    @State private var mode: Mode = .transport
+    @State private var tab: Tab = .audio
+    /// Where a swipe has moved the playhead, before a click plays from there.
+    @State private var scrubTarget: Double?
+    /// The position the current swipe started from; nil between swipes.
+    @State private var scrubFrom: Double?
+    /// Counts presses and moves, so each one restarts the fade.
+    @State private var activity = 0
+    @FocusState private var focus: Focus?
+
+    private var tabs: [Tab] {
+        var tabs: [Tab] = []
+        if !chapters.isEmpty { tabs.append(.chapters) }
+        if !engine.audioTracks.isEmpty { tabs.append(.audio) }
+        if !engine.subtitleTracks.isEmpty { tabs.append(.subtitles) }
+        return tabs
+    }
+
+    var body: some View {
+        ZStack {
+            RemoteSwipeCatcher(isEnabled: mode != .panel) { moved, ended in swiped(moved, ended: ended) }
+                .allowsHitTesting(false)
+            surface
+            layout
+                .opacity(mode == .hidden ? 0 : 1)
+        }
+        .animation(.easeInOut(duration: 0.25), value: mode)
+        .defaultFocus($focus, .surface)
+        .onAppear { focus = .surface }
+        .task(id: FadeKey(mode: mode, activity: activity, scrubbing: scrubTarget != nil, playing: engine.state == .playing)) {
+            await fadeWhenIdle()
+        }
+        .onChange(of: focus) { _, now in
+            #if DEBUG
+            print("DEBUG tv controls: focus \(String(describing: now)) mode \(mode)")
+            #endif
+            if case .tab(let focused) = now { tab = focused }
+            if now == nil {
+                restoreFocusSoon()
+            } else if mode == .panel {
+                activity += 1
+            }
+        }
+        .onPlayPauseCommand { playPause() }
+        .onExitCommand { back() }
+        .onKeyPress(.escape) {
+            // A keyboard's Esc (the Mac's, in the Simulator) is Back too. Not
+            // taken here, it goes to the full-screen cover's own Esc shortcut,
+            // which closes the player without asking.
+            back()
+            return .handled
+        }
+    }
+
+    // MARK: Remote
+
+    /// Holds focus while the panel is closed and takes every press and swipe.
+    private var surface: some View {
+        Color.black.opacity(0.001)
+            .ignoresSafeArea()
+            .focusable(mode != .panel)
+            .focused($focus, equals: .surface)
+            .focusEffectDisabled()
+            .onTapGesture { playPause() }
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: jump(-10)
+                case .right: jump(10)
+                case .up: show()
+                case .down: openPanel()
+                @unknown default: show()
+                }
+            }
+    }
+
+    private func playPause() {
+        if let target = scrubTarget {
+            play(from: target)
+        } else {
+            engine.togglePlayPause()
+            show()
+        }
+    }
+
+    /// Menu: one step back at a time.
+    private func back() {
+        if mode == .panel {
+            closePanel()
+        } else if scrubTarget != nil {
+            scrubTarget = nil
+            show()
+        } else if mode == .transport {
+            mode = .hidden
+        } else {
+            onFinished()
+        }
+    }
+
+    private func swiped(_ moved: CGSize, ended: Bool) {
+        guard mode != .panel else { return }
+        let x = moved.width / Self.screen.width
+        let y = moved.height / Self.screen.height
+        if scrubFrom == nil {
+            scrubFrom = scrubTarget ?? engine.clock.currentTime
+            show()
+        }
+        // Scrubbing is for a paused picture, as in the system player; while
+        // playing a swipe only shows the timeline.
+        if engine.state == .paused, abs(x) > abs(y), engine.duration > 0, let from = scrubFrom {
+            // A swipe across the whole surface covers a quarter of the video,
+            // kept between 2 and 15 minutes.
+            let span = min(max(engine.duration / 4, 120), 900)
+            scrubTarget = clamped(from + x * span)
+        }
+        if ended {
+            scrubFrom = nil
+            if y > 0.12, y > abs(x) * 1.5 { openPanel() }
+        }
+    }
+
+    private func jump(_ seconds: Double) {
+        if let target = scrubTarget {
+            scrubTarget = clamped(target + seconds)
+        } else {
+            AetherPlayerView.skip(seconds, on: engine)
+        }
+        show()
+    }
+
+    private func play(from target: Double) {
+        show()
+        Task {
+            await engine.seek(to: target)
+            engine.play()
+            // Held until the seek lands, so the playhead doesn't jump back.
+            scrubTarget = nil
+        }
+    }
+
+    private func clamped(_ seconds: Double) -> Double {
+        min(max(seconds, 0), max(engine.duration - 1, 0))
+    }
+
+    private func show() {
+        if mode == .hidden { mode = .transport }
+        activity += 1
+    }
+
+    private func openPanel() {
+        scrubTarget = nil
+        scrubFrom = nil
+        guard let first = tabs.first else { return }
+        if !tabs.contains(tab) { tab = first }
+        mode = .panel
+        focus = .tab(tab)
+    }
+
+    private func closePanel() {
+        mode = .transport
+        activity += 1
+        refocusSurface()
+    }
+
+    /// The surface can only take focus once it's focusable again, after
+    /// this change has gone through.
+    private func refocusSurface() {
+        Task {
+            await Task.yield()
+            focus = .surface
+        }
+    }
+
+    /// The timeline fades 5 seconds after the last press while playing; the
+    /// panel closes after 8 seconds left alone. A paused picture keeps its
+    /// timeline, as the system player does.
+    private func fadeWhenIdle() async {
+        switch mode {
+        case .hidden:
+            return
+        case .transport:
+            guard scrubTarget == nil, engine.state == .playing else { return }
+            try? await Task.sleep(for: .seconds(5))
+            if !Task.isCancelled { mode = .hidden }
+        case .panel:
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            mode = engine.state == .playing ? .hidden : .transport
+            refocusSurface()
+        }
+    }
+
+    /// Focus on nothing (a view it was on went away): put it back where the
+    /// controls expect it, once the change has settled.
+    private func restoreFocusSoon() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard focus == nil, !isSuspended else { return }
+            if mode == .panel, let first = tabs.first {
+                focus = .tab(tabs.contains(tab) ? tab : first)
+            } else {
+                focus = .surface
+            }
+        }
+    }
+
+    // MARK: Layout
+
+    /// Paused, the picture gets the title's logo and its details, as a
+    /// streaming service's player does; the panel takes the room when open.
+    private var showsPauseInfo: Bool {
+        engine.state == .paused && mode != .panel
+    }
+
+    private var layout: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            if showsPauseInfo {
+                logo
+                    .transition(.opacity)
+            }
+            Spacer()
+            if mode == .panel {
+                // As in the system player: the tabs above their choices, the
+                // timeline away while they're up.
+                tabRow
+                panelCard
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                if showsPauseInfo {
+                    pauseInfo
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    titleBlock
+                }
+                AetherTimeline(engine: engine, clock: engine.clock, scrubTarget: scrubTarget)
+                tabRow
+            }
+        }
+        .padding(EdgeInsets(top: 60, leading: 90, bottom: 60, trailing: 90))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
+        .background {
+            ZStack {
+                // Darkens the foot of the picture so white text reads over it,
+                // further up while paused or in the panel.
+                LinearGradient(colors: [.clear, .black.opacity(mode == .panel || showsPauseInfo ? 0.9 : 0.65)], startPoint: mode == .panel || showsPauseInfo ? UnitPoint(x: 0.5, y: 0.25) : .center, endPoint: .bottom)
+                if showsPauseInfo {
+                    // And the top, behind the logo.
+                    LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.35))
+                }
+            }
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
+        }
+        .foregroundStyle(.white)
+    }
+
+    /// The title's clear logo (the series' for an episode) in the top left;
+    /// the name in large type when there's none.
+    @ViewBuilder
+    private var logo: some View {
+        if let item = playback.item {
+            logoImage(for: item)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func logoImage(for item: BaseItem) -> some View {
+        Group {
+            if let url = session.client?.logoURL(for: item, width: 900) {
+                RemoteImage(url: url, contentMode: .fit) { Color.clear }
+                    .frame(maxWidth: 644, maxHeight: 230, alignment: .topLeading)
+            } else {
+                Text(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
+                    .font(.largeTitle.weight(.heavy))
+                    .lineLimit(2)
+                    .frame(maxWidth: 900, alignment: .leading)
+            }
+        }
+        .accessibilityLabel(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
+    }
+
+    /// What's paused: its description, and what the stream is.
+    @ViewBuilder
+    private var pauseInfo: some View {
+        if let item = playback.item {
+            VStack(alignment: .leading, spacing: 14) {
+                if let overview = item.overview, !overview.isEmpty {
+                    AutoScrollingText(text: overview)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                HStack(spacing: 14) {
+                    let facts = [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 }
+                    if !facts.isEmpty {
+                        Text(facts.joined(separator: " · "))
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    ForEach(badges, id: \.text) { badge in
+                        MediaBadge(text: badge.text, filled: badge.filled)
+                    }
+                }
+            }
+            .padding(.horizontal, 36)
+            .padding(.vertical, 30)
+            .frame(maxWidth: 1150, alignment: .leading)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 36, style: .continuous)
+                // Darkened, so the glass doesn't take on the picture's colours.
+                shape.fill(.ultraThinMaterial)
+                    .overlay(shape.fill(.black.opacity(0.4)))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var titleBlock: some View {
+        if let item = playback.item {
+            VStack(alignment: .leading, spacing: 6) {
+                if let line = episodeLine(for: item) {
+                    Text(line)
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                Text(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// "S1, E2 · The Academy's Top Dogs" for an episode.
+    private func episodeLine(for item: BaseItem) -> String? {
+        guard item.kind == .episode else { return nil }
+        var parts: [String] = []
+        if let season = item.parentIndexNumber, let episode = item.indexNumber {
+            parts.append("S\(season), E\(episode)")
+        }
+        parts.append(item.displayTitle)
+        return parts.joined(separator: " · ")
+    }
+
+    /// The tabs. Labels until the panel opens; only then buttons, so they
+    /// never take focus from the surface.
+    private var tabRow: some View {
+        HStack(spacing: 16) {
+            ForEach(tabs, id: \.self) { item in
+                if mode == .panel {
+                    Button {
+                        // Click a tab to go down into it.
+                        if let first = firstOption(in: item) { focus = first }
+                    } label: {
+                        PanelPill(title: item.title, focused: focus == .tab(item), current: tab == item)
+                    }
+                    .buttonStyle(PanelPillStyle())
+                    .focused($focus, equals: .tab(item))
+                } else {
+                    PanelPill(title: item.title, focused: false, current: false)
+                }
+            }
+        }
+        // The full width, so up from anywhere below finds the tabs, not only
+        // from right under one.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
+    }
+
+    /// The tab's content under the tabs, straight on the darkened picture
+    /// like the pills; one height for every tab so moving between them
+    /// doesn't jolt the layout.
+    private var panelCard: some View {
+        Group {
+            switch tab {
+            case .chapters:
+                chapterRow
+            case .audio:
+                optionRow(.audio, options: engine.audioTracks.map { ($0.id, AetherPlayerView.label(for: $0)) }, selected: engine.activeAudioTrackIndex) { id in
+                    playback.selectAudio(id)
+                }
+            case .subtitles:
+                optionRow(.subtitles, options: [(-1, "Off")] + engine.subtitleTracks.map { ($0.id, AetherPlayerView.label(for: $0)) }, selected: engine.activeSubtitleTrackIndex ?? -1) { id in
+                    playback.selectSubtitle(id >= 0 ? id : nil)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: Self.cardContentHeight, maxHeight: Self.cardContentHeight, alignment: .topLeading)
+        // Down from any tab lands in here, wherever its buttons sit: From
+        // Beginning is far to the right of the Info tab.
+        .focusSection()
+    }
+
+    private static let cardContentHeight: CGFloat = 250
+
+    // MARK: Details
+
+    /// "23 min", "1 hr, 52 min".
+    private var runtime: String? {
+        let seconds = engine.duration > 0 ? engine.duration : Double(playback.item?.runTimeTicks ?? 0) / 10_000_000
+        guard seconds >= 60 else { return nil }
+        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+
+    /// What the stream is, as the system player shows it: picture size and
+    /// range filled, captions outlined.
+    private var badges: [(text: String, filled: Bool)] {
+        var badges: [(String, Bool)] = []
+        let width = engine.sourceVideoWidth
+        if width >= 3200 {
+            badges.append(("4K", true))
+        } else if width >= 1200 {
+            badges.append(("HD", true))
+        }
+        switch engine.videoFormat {
+        case .dolbyVision: badges.append(("Dolby Vision", true))
+        case .hdr10, .hdr10Plus, .hlg: badges.append(("HDR", true))
+        default: break
+        }
+        if engine.audioTracks.contains(where: \.isAtmos) { badges.append(("Atmos", true)) }
+        if !engine.subtitleTracks.isEmpty { badges.append(("CC", false)) }
+        return badges
+    }
+
+    // MARK: Chapters
+
+    /// The item's chapters, when there are enough to be worth choosing from.
+    private var chapters: [ChapterInfo] {
+        let all = playback.item?.chapters ?? []
+        return all.count > 1 ? all.sorted { $0.startPositionTicks < $1.startPositionTicks } : []
+    }
+
+    /// The chapter the playhead is in.
+    private var currentChapter: Int {
+        let now = engine.clock.currentTime
+        return chapters.lastIndex { Double($0.startPositionTicks) / 10_000_000 <= now } ?? 0
+    }
+
+    private var chapterRow: some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 28) {
+                ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                    Button {
+                        play(chapter)
+                    } label: {
+                        ChapterCard(
+                            title: chapter.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Chapter \(index + 1)",
+                            time: AetherTimeline.time(Double(chapter.startPositionTicks) / 10_000_000),
+                            image: chapterImage(chapter, index: index),
+                            focused: focus == .chapter(index),
+                            current: index == currentChapter
+                        )
+                    }
+                    .buttonStyle(PanelPillStyle())
+                    .focused($focus, equals: .chapter(index))
+                    .onMoveCommand(perform: upToTabs)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+    }
+
+    private func chapterImage(_ chapter: ChapterInfo, index: Int) -> URL? {
+        guard let item = playback.item, let tag = chapter.imageTag else { return nil }
+        return session.client?.chapterImageURL(itemId: item.id, index: index, tag: tag)
+    }
+
+    private func play(_ chapter: ChapterInfo) {
+        closePanel()
+        Task {
+            await engine.seek(to: Double(chapter.startPositionTicks) / 10_000_000)
+            engine.play()
+        }
+    }
+
+    // MARK: Tracks
+
+    /// The choices for a tab in a row; picking one leaves the panel open.
+    private func optionRow(_ tab: Tab, options: [(id: Int, title: String)], selected: Int?, choose: @escaping (Int) -> Void) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 16) {
+                ForEach(options, id: \.id) { option in
+                    Button {
+                        choose(option.id)
+                        activity += 1
+                    } label: {
+                        PanelPill(title: option.title, focused: focus == .option(tab, option.id), current: false, checked: selected == option.id)
+                    }
+                    .buttonStyle(PanelPillStyle())
+                    .focused($focus, equals: .option(tab, option.id))
+                    .onMoveCommand(perform: upToTabs)
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+    }
+
+    /// Up from a tab's content goes back to its tab, wherever the content
+    /// sits: the focus engine looks only straight up, and From Beginning is
+    /// far to the right of the Info tab.
+    private func upToTabs(_ direction: MoveCommandDirection) {
+        if direction == .up { focus = .tab(tab) }
+    }
+
+    private func firstOption(in tab: Tab) -> Focus? {
+        switch tab {
+        case .chapters: chapters.isEmpty ? nil : .chapter(currentChapter)
+        case .audio: engine.activeAudioTrackIndex.map { .option(.audio, $0) } ?? engine.audioTracks.first.map { .option(.audio, $0.id) }
+        case .subtitles: .option(.subtitles, engine.activeSubtitleTrackIndex ?? -1)
+        }
+    }
+}
+
+// MARK: - Cards and badges
+
+/// A chapter's frame, name and start time.
+private struct ChapterCard: View {
+    let title: String
+    let time: String
+    let image: URL?
+    let focused: Bool
+    /// The chapter playing now.
+    let current: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RemoteImage(url: image, systemImage: "film")
+                .frame(width: 304, height: 171)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(focused ? 0.9 : current ? 0.35 : 0), lineWidth: 4)
+                }
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            Text(time)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.6))
+        }
+        .frame(width: 304, alignment: .leading)
+        .scaleEffect(focused ? 1.05 : 1, anchor: .bottom)
+        .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
+/// Text in a window of a few lines. When it runs longer, it waits, drifts
+/// slowly up to its last line, holds there, and glides back to the top, over
+/// and over while it's on screen, the edges fading as it moves.
+private struct AutoScrollingText: View {
+    let text: String
+    var visibleLines = 4
+
+    /// How fast it reads up, in points a second: slow enough to read along.
+    private static let speed: CGFloat = 18
+    private static let hold: Duration = .seconds(3)
+
+    @State private var textHeight: CGFloat = 0
+    @State private var offset: CGFloat = 0
+
+    private var window: CGFloat {
+        ceil(UIFont.preferredFont(forTextStyle: .callout).lineHeight * CGFloat(visibleLines))
+    }
+
+    private var overflow: CGFloat { max(textHeight - window, 0) }
+
+    var body: some View {
+        Text(text)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
+            .offset(y: -offset)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: textHeight > 0 ? min(textHeight, window) : window, alignment: .top)
+            .clipped()
+            .mask {
+                // Fades an edge only while there's more text past it.
+                let top: CGFloat = offset > 1 ? 0.14 : 0
+                let bottom: CGFloat = overflow - offset > 1 ? 0.86 : 1
+                LinearGradient(stops: [
+                    .init(color: top > 0 ? .clear : .black, location: 0),
+                    .init(color: .black, location: top),
+                    .init(color: .black, location: bottom),
+                    .init(color: bottom < 1 ? .clear : .black, location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+            }
+            .task(id: textHeight) { await scrollWhileTooLong() }
+    }
+
+    private func scrollWhileTooLong() async {
+        offset = 0
+        let distance = overflow
+        guard distance > 1 else { return }
+        let duration = Double(distance / Self.speed)
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.hold)
+            guard !Task.isCancelled else { return }
+            withAnimation(.linear(duration: duration)) { offset = distance }
+            try? await Task.sleep(for: .seconds(duration) + Self.hold)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.8)) { offset = 0 }
+            try? await Task.sleep(for: .seconds(0.8))
+        }
+    }
+}
+
+/// "HD", "4K", "CC": filled, or outlined for captions, as the system shows them.
+private struct MediaBadge: View {
+    let text: String
+    let filled: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        Text(text)
+            .font(.caption2.weight(.heavy))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .foregroundStyle(filled ? .black : .white)
+            .background { if filled { shape.fill(.white) } }
+            .overlay { if !filled { shape.strokeBorder(.white, lineWidth: 2) } }
+    }
+}
+
+// MARK: - Pills
+
+/// A tab or a choice in the panel: frosted glass, lit up softly when in
+/// focus so the picture still shows through.
+private struct PanelPill: View {
+    let title: String
+    var systemImage: String? = nil
+    let focused: Bool
+    /// The tab whose choices are showing, while focus is up among them.
+    var current: Bool
+    var checked = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if checked {
+                Image(systemName: "checkmark")
+                    .font(.callout.weight(.bold))
+            }
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(title)
+                .lineLimit(1)
+        }
+        .font(.callout.weight(.medium))
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
+        .foregroundStyle(focused ? .black : .white)
+        .background {
+            if focused {
+                Capsule().fill(.white.opacity(0.8))
+            } else {
+                Capsule().fill(.ultraThinMaterial)
+                    .overlay(Capsule().fill(.white.opacity(current ? 0.18 : 0)))
+            }
+        }
+        .scaleEffect(focused ? 1.06 : 1)
+        .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
+// MARK: - Swipes
+
+/// Swipes on the remote's touch surface, which SwiftUI can't see on tvOS.
+/// The recognizer goes on the window, so it hears every swipe whichever view
+/// has focus; this view itself never takes focus, which stays with SwiftUI.
+/// Off while `isEnabled` is false, so the panel's buttons swipe as usual.
+private struct RemoteSwipeCatcher: UIViewRepresentable {
+    var isEnabled: Bool
+    /// How far the swipe has moved, and whether it has ended.
+    var onSwipe: (CGSize, Bool) -> Void
+
+    func makeUIView(context: Context) -> SwipeCatcherView {
+        let view = SwipeCatcherView()
+        view.isUserInteractionEnabled = false
+        updateUIView(view, context: context)
+        return view
+    }
+
+    func updateUIView(_ view: SwipeCatcherView, context: Context) {
+        view.onSwipe = onSwipe
+        view.pan.isEnabled = isEnabled
+    }
+
+    static func dismantleUIView(_ view: SwipeCatcherView, coordinator: ()) {
+        view.pan.view?.removeGestureRecognizer(view.pan)
+    }
+}
+
+private final class SwipeCatcherView: UIView {
+    let pan = UIPanGestureRecognizer()
+    var onSwipe: ((CGSize, Bool) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+        pan.cancelsTouchesInView = false
+        pan.addTarget(self, action: #selector(panned(_:)))
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        pan.view?.removeGestureRecognizer(pan)
+        window?.addGestureRecognizer(pan)
+    }
+
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        let moved = recognizer.translation(in: recognizer.view)
+        let size = CGSize(width: moved.x, height: moved.y)
+        switch recognizer.state {
+        case .began, .changed: onSwipe?(size, false)
+        case .ended, .cancelled: onSwipe?(size, true)
+        default: break
+        }
+    }
+}
+
+/// No system focus effect: the pill draws its own.
+private struct PanelPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.85 : 1)
+    }
+}
+#endif

@@ -412,6 +412,11 @@ struct ItemDetailView: View {
             guard let client = session.client else { return }
             session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
             await model.load(item, client: client)
+            // Opened from a hero's Play: play now, with this page behind.
+            if session.playOnOpen == item.id {
+                session.playOnOpen = nil
+                play(fromBeginning: false)
+            }
             await showOpening(client: client)
             await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
         }

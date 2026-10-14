@@ -404,6 +404,7 @@ struct HeroCarousel: View {
     var destination: (BaseItem) -> BaseItem = { $0 }
 
     @Environment(AppSession.self) private var session
+    @Environment(\.openItem) private var openItem
     @Environment(\.displayScale) private var displayScale
     @State private var index = 0
     @State private var scrollID: String?
@@ -429,6 +430,17 @@ struct HeroCarousel: View {
     #endif
 
     private var current: BaseItem { items[min(index, items.count - 1)] }
+
+    /// Play and Resume play: the title's page opens and starts playing at
+    /// once, so closing the player leaves the viewer on that page. A page
+    /// with its own button (Upcoming's) only opens.
+    private func select(_ item: BaseItem) {
+        let target = destination(item)
+        if action(item) == nil {
+            session.playOnOpen = target.id
+        }
+        openItem?(target)
+    }
 
     private func noteHorizontalMove() {
         lastHorizontalMoveAt = Date()
@@ -503,7 +515,9 @@ struct HeroCarousel: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 0) {
                         ForEach(items) { item in
-                            NavigationLink(value: destination(item)) {
+                            Button {
+                                select(item)
+                            } label: {
                                 HeroCard(
                                     item: item,
                                     isFocused: false,
@@ -634,7 +648,9 @@ struct HeroCarousel: View {
     #endif
 
     private var banner: some View {
-        NavigationLink(value: destination(current)) {
+        Button {
+            select(current)
+        } label: {
             ScrollView(.horizontal) {
                 // Every page made up front, each with its held backdrop, so
                 // none is still being made (or fetching) as it slides in.

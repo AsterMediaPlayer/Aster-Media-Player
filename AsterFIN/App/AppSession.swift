@@ -68,6 +68,11 @@ final class AppSession {
     /// Upcoming tab needs. Checked when the main screen loads.
     private(set) var hasUpcoming = false
 
+    /// A title whose page should start playing as soon as it opens: a hero's
+    /// Play or Resume plays at once, and closing the player leaves the
+    /// viewer on that title's page. Cleared by the page that takes it.
+    var playOnOpen: String?
+
     func refreshUpcoming() async {
         guard let client else { return }
         if let soonest = try? await client.upcoming(limit: 1) {

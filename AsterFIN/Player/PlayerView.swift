@@ -218,10 +218,8 @@ struct PlayerView: View {
             guard aether == nil else { return }
             if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
                 aether = playback
-                Task {
-                    await playback.start()
-                    if playback.hasStarted, let item = playback.item { onItemStarted?(item) }
-                }
+                playback.onItemStarted = onItemStarted
+                Task { await playback.start() }
                 return
             }
             #endif
@@ -246,6 +244,9 @@ struct PlayerView: View {
             #endif
             coordinator?.stop()
         }
+        #if os(macOS)
+        .modifier(FullScreenWhilePlaying())
+        #endif
     }
 
     /// The system player, with what each platform's version takes.
@@ -698,6 +699,32 @@ struct URLPlayerView: View {
     }
     #endif
 }
+
+#if os(macOS)
+/// Mac: the player takes the whole screen, as a video app's does, and gives
+/// it back as it closes; a window already full screen stays so. Off in
+/// Settings > Playback.
+private struct FullScreenWhilePlaying: ViewModifier {
+    @AppStorage(AppSettings.fullScreenPlaybackKey) private var enabled = true
+    /// The window put into full screen for this video, to take back out.
+    @State private var enteredWindow: NSWindow?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard enabled, let window = NSApp.keyWindow ?? NSApp.mainWindow,
+                      !window.styleMask.contains(.fullScreen) else { return }
+                window.toggleFullScreen(nil)
+                enteredWindow = window
+            }
+            .onDisappear {
+                guard let window = enteredWindow else { return }
+                enteredWindow = nil
+                if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+            }
+    }
+}
+#endif
 
 #if os(macOS)
 /// AVPlayerView hosted in SwiftUI: the Mac's own floating controls, which

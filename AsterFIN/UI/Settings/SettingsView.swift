@@ -229,6 +229,9 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
     @AppStorage(AppSettings.useAetherEngineKey) private var useAetherEngine = false
+    #if os(macOS)
+    @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
+    #endif
 
     private let bitrates: [(String, Int)] = [
         ("Auto (120 Mbps)", 120_000_000),
@@ -248,6 +251,12 @@ private struct PlaybackSettingsView: View {
                     }
                 }
             }
+            #if os(macOS)
+            Section("Window") {
+                Toggle("Play videos full screen", isOn: $fullScreenPlayback)
+                SettingsNote("A video takes the whole screen as it starts, and the window comes back as it closes. Off, it plays inside the window.")
+            }
+            #endif
             Section("Episodes") {
                 Toggle("Autoplay next episode", isOn: $autoplayNext)
                 Toggle("Skip intros automatically", isOn: $autoSkipIntro)

@@ -326,62 +326,20 @@ struct AetherTVControls: View {
         .foregroundStyle(.white)
     }
 
-    /// The title's clear logo (the series' for an episode) in the top left;
-    /// the name in large type when there's none.
+    /// The title's clear logo in the top left (see `AetherPauseLogo`).
     @ViewBuilder
     private var logo: some View {
         if let item = playback.item {
-            logoImage(for: item)
+            AetherPauseLogo(item: item)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    @ViewBuilder
-    private func logoImage(for item: BaseItem) -> some View {
-        Group {
-            if let url = session.client?.logoURL(for: item, width: 900) {
-                RemoteImage(url: url, contentMode: .fit) { Color.clear }
-                    .frame(maxWidth: 644, maxHeight: 230, alignment: .topLeading)
-            } else {
-                Text(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
-                    .font(.largeTitle.weight(.heavy))
-                    .lineLimit(2)
-                    .frame(maxWidth: 900, alignment: .leading)
-            }
-        }
-        .accessibilityLabel(item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle)
-    }
-
-    /// What's paused: its description, and what the stream is.
+    /// The paused title's details (see `AetherPauseDetails`).
     @ViewBuilder
     private var pauseInfo: some View {
         if let item = playback.item {
-            VStack(alignment: .leading, spacing: 14) {
-                if let overview = item.overview, !overview.isEmpty {
-                    AutoScrollingText(text: overview)
-                        .foregroundStyle(.white.opacity(0.75))
-                }
-                HStack(spacing: 14) {
-                    let facts = [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 }
-                    if !facts.isEmpty {
-                        Text(facts.joined(separator: " · "))
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                    ForEach(badges, id: \.text) { badge in
-                        MediaBadge(text: badge.text, filled: badge.filled)
-                    }
-                }
-            }
-            .padding(.horizontal, 36)
-            .padding(.vertical, 30)
-            .frame(maxWidth: 1150, alignment: .leading)
-            .background {
-                let shape = RoundedRectangle(cornerRadius: 36, style: .continuous)
-                // Darkened, so the glass doesn't take on the picture's colours.
-                shape.fill(.ultraThinMaterial)
-                    .overlay(shape.fill(.black.opacity(0.4)))
-            }
+            AetherPauseDetails(item: item, engine: engine)
         }
     }
 
@@ -462,35 +420,6 @@ struct AetherTVControls: View {
     }
 
     private static let cardContentHeight: CGFloat = 250
-
-    // MARK: Details
-
-    /// "23 min", "1 hr, 52 min".
-    private var runtime: String? {
-        let seconds = engine.duration > 0 ? engine.duration : Double(playback.item?.runTimeTicks ?? 0) / 10_000_000
-        guard seconds >= 60 else { return nil }
-        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-    }
-
-    /// What the stream is, as the system player shows it: picture size and
-    /// range filled, captions outlined.
-    private var badges: [(text: String, filled: Bool)] {
-        var badges: [(String, Bool)] = []
-        let width = engine.sourceVideoWidth
-        if width >= 3200 {
-            badges.append(("4K", true))
-        } else if width >= 1200 {
-            badges.append(("HD", true))
-        }
-        switch engine.videoFormat {
-        case .dolbyVision: badges.append(("Dolby Vision", true))
-        case .hdr10, .hdr10Plus, .hlg: badges.append(("HDR", true))
-        default: break
-        }
-        if engine.audioTracks.contains(where: \.isAtmos) { badges.append(("Atmos", true)) }
-        if !engine.subtitleTracks.isEmpty { badges.append(("CC", false)) }
-        return badges
-    }
 
     // MARK: Chapters
 
@@ -587,7 +516,7 @@ struct AetherTVControls: View {
     }
 }
 
-// MARK: - Cards and badges
+// MARK: - Chapter cards
 
 /// A chapter's frame, name and start time.
 private struct ChapterCard: View {
@@ -617,83 +546,6 @@ private struct ChapterCard: View {
         .frame(width: 304, alignment: .leading)
         .scaleEffect(focused ? 1.05 : 1, anchor: .bottom)
         .animation(.easeOut(duration: 0.15), value: focused)
-    }
-}
-
-/// Text in a window of a few lines. When it runs longer, it waits, drifts
-/// slowly up to its last line, holds there, and glides back to the top, over
-/// and over while it's on screen, the edges fading as it moves.
-private struct AutoScrollingText: View {
-    let text: String
-    var visibleLines = 4
-
-    /// How fast it reads up, in points a second: slow enough to read along.
-    private static let speed: CGFloat = 18
-    private static let hold: Duration = .seconds(3)
-
-    @State private var textHeight: CGFloat = 0
-    @State private var offset: CGFloat = 0
-
-    private var window: CGFloat {
-        ceil(UIFont.preferredFont(forTextStyle: .callout).lineHeight * CGFloat(visibleLines))
-    }
-
-    private var overflow: CGFloat { max(textHeight - window, 0) }
-
-    var body: some View {
-        Text(text)
-            .font(.callout)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
-            .offset(y: -offset)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .frame(height: textHeight > 0 ? min(textHeight, window) : window, alignment: .top)
-            .clipped()
-            .mask {
-                // Fades an edge only while there's more text past it.
-                let top: CGFloat = offset > 1 ? 0.14 : 0
-                let bottom: CGFloat = overflow - offset > 1 ? 0.86 : 1
-                LinearGradient(stops: [
-                    .init(color: top > 0 ? .clear : .black, location: 0),
-                    .init(color: .black, location: top),
-                    .init(color: .black, location: bottom),
-                    .init(color: bottom < 1 ? .clear : .black, location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-            }
-            .task(id: textHeight) { await scrollWhileTooLong() }
-    }
-
-    private func scrollWhileTooLong() async {
-        offset = 0
-        let distance = overflow
-        guard distance > 1 else { return }
-        let duration = Double(distance / Self.speed)
-        while !Task.isCancelled {
-            try? await Task.sleep(for: Self.hold)
-            guard !Task.isCancelled else { return }
-            withAnimation(.linear(duration: duration)) { offset = distance }
-            try? await Task.sleep(for: .seconds(duration) + Self.hold)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.8)) { offset = 0 }
-            try? await Task.sleep(for: .seconds(0.8))
-        }
-    }
-}
-
-/// "HD", "4K", "CC": filled, or outlined for captions, as the system shows them.
-private struct MediaBadge: View {
-    let text: String
-    let filled: Bool
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
-        Text(text)
-            .font(.caption2.weight(.heavy))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .foregroundStyle(filled ? .black : .white)
-            .background { if filled { shape.fill(.white) } }
-            .overlay { if !filled { shape.strokeBorder(.white, lineWidth: 2) } }
     }
 }
 

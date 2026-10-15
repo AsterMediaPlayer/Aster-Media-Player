@@ -778,6 +778,12 @@ final class PlaybackCoordinator {
     /// The episode after this one in its series, skipping missing ones and
     /// specials (unless the current episode is itself a special).
     private func resolveNextEpisode(after episode: BaseItem) async -> BaseItem? {
+        await Self.nextEpisode(after: episode, client: client)
+    }
+
+    /// The episode after `episode` in its series, skipping missing ones and,
+    /// unless it's a special itself, the specials. Used by both players.
+    static func nextEpisode(after episode: BaseItem, client: JellyfinClient) async -> BaseItem? {
         guard let seriesId = episode.seriesId,
               let all = try? await client.episodes(seriesId: seriesId, seasonId: nil),
               let position = all.firstIndex(where: { $0.id == episode.id }) else { return nil }

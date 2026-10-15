@@ -35,8 +35,18 @@ final class AetherPlayback {
     /// until it's ready; they're only the fallback if it fails.
     private(set) var isLoadingStyledSubtitles = false
 
+    /// The episode after this one, once found.
+    private(set) var upNext: BaseItem?
+    /// The episode has ended and the Up Next card holds the screen.
+    private(set) var endCardVisible = false
+    /// Seconds before the next episode starts on its own (autoplay).
+    private(set) var countdown: Int?
+    /// Told each time an item starts, so the page behind can follow when
+    /// the next episode plays on its own.
+    @ObservationIgnored var onItemStarted: ((BaseItem) -> Void)?
+
     private let client: JellyfinClient
-    private let entry: PlaybackQueueItem
+    private var entry: PlaybackQueueItem
     private let preferences: PlaybackPreferences
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -47,6 +57,9 @@ final class AetherPlayback {
     private var subtitleStreams: [MediaStream] = []
     private var attachments: [MediaAttachment] = []
     private var assTask: Task<Void, Never>?
+    private var countdownTask: Task<Void, Never>?
+    /// The current item's end was already reported to the server.
+    private var stopReported = false
 
     /// Whether this engine can take `request`: one whole title from the
     /// server. A queue, a clip, or a download keeps to the system player.
@@ -103,8 +116,15 @@ final class AetherPlayback {
             }
             engine.play()
             hasStarted = true
+            stopReported = false
             await client.reportStart(report(paused: false))
             startReporting()
+            onItemStarted?(item)
+            // The next episode, found once this one plays, for Up Next.
+            if item.kind == .episode {
+                let next = await PlaybackCoordinator.nextEpisode(after: item, client: client)
+                if self.item?.id == item.id { upNext = next }
+            }
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
@@ -117,12 +137,71 @@ final class AetherPlayback {
         guard !stopped else { return }
         stopped = true
         reportTask?.cancel()
+        countdownTask?.cancel()
         clearStyledSubtitles()
         let final = report(paused: true)
         engine.stop()
-        if hasStarted {
+        if hasStarted, !stopReported {
             let client = client
             Task { await client.reportStopped(final) }
+        }
+    }
+
+    // MARK: Up Next
+
+    /// The item played to its end: the server hears it finished, and when
+    /// there's a next episode its card holds the screen, counting down to
+    /// play it if autoplay is on. False when there's nothing next, and the
+    /// player should close.
+    func playbackEnded() -> Bool {
+        reportTask?.cancel()
+        if hasStarted, !stopReported {
+            stopReported = true
+            var final = report(paused: true)
+            // At the very end, so the server marks it watched.
+            if engine.duration > 0 { final.positionTicks = Int64(engine.duration * 10_000_000) }
+            let client = client
+            Task { await client.reportStopped(final) }
+        }
+        guard upNext != nil else { return false }
+        endCardVisible = true
+        if AppSettings.autoplayNext { startCountdown() }
+        return true
+    }
+
+    /// Plays the next episode in this same player.
+    func playUpNextNow() {
+        countdownTask?.cancel()
+        countdown = nil
+        guard let next = upNext else { return }
+        endCardVisible = false
+        upNext = nil
+        clearStyledSubtitles()
+        hasStarted = false
+        // Its artwork covers the screen until it starts.
+        item = next
+        entry = PlaybackQueueItem(itemId: next.id, startTicks: next.userData?.playbackPositionTicks ?? 0)
+        Task { await start() }
+    }
+
+    /// Closes the Up Next card without playing on; the player closes too.
+    func dismissEndCard() {
+        countdownTask?.cancel()
+        countdown = nil
+        endCardVisible = false
+    }
+
+    private func startCountdown() {
+        countdownTask?.cancel()
+        countdown = 10
+        countdownTask = Task { [weak self] in
+            for remaining in stride(from: 9, through: 0, by: -1) {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                self.countdown = remaining
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.playUpNextNow()
         }
     }
 

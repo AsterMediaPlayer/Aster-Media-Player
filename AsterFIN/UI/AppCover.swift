@@ -178,6 +178,9 @@ private struct WindowCoverHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // A cover fills the window, so the window's toolbar (sidebar
+            // button, back, title) goes while one is up.
+            .toolbar(covers.covers.isEmpty ? .automatic : .hidden, for: .windowToolbar)
             .overlay {
                 ZStack {
                     ForEach(covers.covers) { cover in

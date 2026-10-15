@@ -40,21 +40,37 @@ struct AetherPlayerView: View {
                 AetherSubtitleLayer(engine: engine, clock: engine.clock)
                     .allowsHitTesting(false)
             }
-            #if os(tvOS)
-            AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil, onFinished: onFinished)
-            #else
-            touchControls
-            #endif
+            // The Up Next card takes the screen (and the remote) on its own.
+            if !playback.endCardVisible {
+                #if os(tvOS)
+                AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil, onFinished: onFinished)
+                #else
+                touchControls
+                #endif
+            }
 
             if !playback.hasStarted, playback.errorMessage == nil {
                 PlaybackLoadingView(item: playback.item)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
+
+            if playback.endCardVisible, let next = playback.upNext {
+                UpNextCard(episode: next, countdown: playback.countdown) {
+                    playback.playUpNextNow()
+                } dismiss: {
+                    playback.dismissEndCard()
+                    onFinished()
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
+        .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
         .onChange(of: engine.state) { _, state in
-            if state == .ended { onFinished() }
+            // The end of an episode with one after it holds on Up Next;
+            // anything else closes the player.
+            if state == .ended, !playback.playbackEnded() { onFinished() }
         }
         .alert("Can't Play", isPresented: Binding(get: { errorMessage != nil }, set: { _ in })) {
             Button("OK", action: onFinished)
@@ -147,13 +163,24 @@ struct AetherPlayerView: View {
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("Close")
-                titleBlock
+                if showsPauseInfo, let item = playback.item {
+                    AetherPauseLogo(item: item)
+                        .padding(.leading, 8)
+                        .transition(.opacity)
+                } else {
+                    titleBlock
+                }
                 Spacer()
             }
             Spacer()
             centerButtons
                 .frame(maxWidth: .infinity)
             Spacer()
+            if showsPauseInfo, let item = playback.item {
+                AetherPauseDetails(item: item, engine: engine)
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal)
             HStack(spacing: 20) {
                 Spacer()
@@ -161,14 +188,34 @@ struct AetherPlayerView: View {
             }
             .padding(.top, 16)
         }
-        .padding(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+        .padding(edgePadding)
+        .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
         .background {
-            // Darkens the edges so white text reads over a bright picture.
-            LinearGradient(colors: [.black.opacity(0.6), .clear, .clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+            // Darkens the edges so white text reads over a bright picture,
+            // more so while paused, under the logo and the details.
+            LinearGradient(colors: [.black.opacity(showsPauseInfo ? 0.7 : 0.6), .clear, .clear, .black.opacity(showsPauseInfo ? 0.85 : 0.7)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
         }
         .foregroundStyle(.white)
+    }
+
+    /// Mac: paused, the title's logo and details show, as on Apple TV.
+    private var showsPauseInfo: Bool {
+        #if os(macOS)
+        engine.state == .paused
+        #else
+        false
+        #endif
+    }
+
+    private var edgePadding: EdgeInsets {
+        #if os(macOS)
+        EdgeInsets(top: 24, leading: 32, bottom: 24, trailing: 32)
+        #else
+        EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        #endif
     }
 
     @ViewBuilder

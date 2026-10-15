@@ -278,6 +278,9 @@ enum AppSettings {
     /// Video through AetherEngine instead of the system player (a test; see
     /// `AetherPlayback`). Off by default.
     static let useAetherEngineKey = "AsterFIN.useAetherEngine"
+    /// Mac: videos play full screen, the window going back as they close.
+    /// On by default.
+    static let fullScreenPlaybackKey = "AsterFIN.fullScreenPlayback"
 
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)

@@ -36,8 +36,12 @@ private enum PauseMetrics {
     static let spacing: CGFloat = 10
     static let overview: Font = .title3
     static let overviewLineHeight: CGFloat = {
+        #if canImport(UIKit)
+        UIFont.preferredFont(forTextStyle: .title3).lineHeight
+        #else
         let font = NSFont.preferredFont(forTextStyle: .title3)
         return font.ascender - font.descender + font.leading
+        #endif
     }()
     static let facts: Font = .body
     #endif

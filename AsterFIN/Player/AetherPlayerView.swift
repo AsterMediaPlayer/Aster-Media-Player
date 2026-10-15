@@ -46,6 +46,7 @@ struct AetherPlayerView: View {
                 AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil, onFinished: onFinished)
                 #else
                 touchControls
+                skipButton
                 #endif
             }
 
@@ -286,6 +287,41 @@ struct AetherPlayerView: View {
                 Label("Subtitles", systemImage: "captions.bubble")
             }
         }
+    }
+
+    /// Skip Intro / Skip Credits, or Play Next Episode near the end, in the
+    /// lower right while one applies: for 5 seconds as it comes up, and
+    /// again whenever the controls do.
+    @ViewBuilder
+    private var skipButton: some View {
+        Group {
+            // For its first 5 seconds, then again whenever the controls are up.
+            if !(playback.skipOfferIsFresh || controlsShown) {
+                EmptyView()
+            } else if let segment = playback.activeSegment {
+                Button {
+                    playback.skipActiveSegment()
+                } label: {
+                    Label(segment.skipTitle, systemImage: "forward.fill")
+                }
+            } else if playback.showsUpNextAction {
+                Button {
+                    playback.playUpNextNow()
+                } label: {
+                    Label("Play Next Episode", systemImage: "forward.end.fill")
+                }
+            }
+        }
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        // Clear of the timeline and track menus while they show.
+        .padding(.trailing, edgePadding.trailing)
+        .padding(.bottom, controlsShown ? 130 : edgePadding.bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .animation(.easeInOut(duration: 0.25), value: playback.activeSegment?.id)
+        .animation(.easeInOut(duration: 0.25), value: playback.showsUpNextAction)
+        .animation(.easeInOut(duration: 0.25), value: controlsShown)
+        .animation(.easeInOut(duration: 0.25), value: playback.skipOfferIsFresh)
     }
 
     private func reveal() {

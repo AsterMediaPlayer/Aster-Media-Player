@@ -45,6 +45,16 @@ final class AetherPlayback {
     /// the next episode plays on its own.
     @ObservationIgnored var onItemStarted: ((BaseItem) -> Void)?
 
+    /// The item's intro, credits and recap markers from the server, and the
+    /// one the playhead is inside now, which Skip Intro / Skip Credits skips.
+    private(set) var segments: [MediaSegment] = []
+    private(set) var activeSegment: MediaSegment?
+    /// Near the end of an episode with one after it: Play Next Episode.
+    private(set) var showsUpNextAction = false
+    /// A skip (or Play Next Episode) has just come up: it shows by itself
+    /// for 5 seconds, and after that only with the controls.
+    private(set) var skipOfferIsFresh = false
+
     private let client: JellyfinClient
     private var entry: PlaybackQueueItem
     private let preferences: PlaybackPreferences
@@ -58,6 +68,11 @@ final class AetherPlayback {
     private var attachments: [MediaAttachment] = []
     private var assTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
+    /// Follows the playhead for the markers and Play Next Episode.
+    private var timedTask: Task<Void, Never>?
+    /// Intros already skipped by themselves, so seeking back into one plays it.
+    private var autoSkipped: Set<String> = []
+    private var skipOfferTask: Task<Void, Never>?
     /// The current item's end was already reported to the server.
     private var stopReported = false
 
@@ -120,11 +135,15 @@ final class AetherPlayback {
             await client.reportStart(report(paused: false))
             startReporting()
             onItemStarted?(item)
-            // The next episode, found once this one plays, for Up Next.
-            if item.kind == .episode {
-                let next = await PlaybackCoordinator.nextEpisode(after: item, client: client)
-                if self.item?.id == item.id { upNext = next }
-            }
+            startTimedState()
+            // Markers and the next episode load once it plays, so they never
+            // hold up the start.
+            async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
+            let next = item.kind == .episode ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
+            let markers = await loadedSegments
+            guard self.item?.id == item.id, !stopped else { return }
+            segments = markers
+            upNext = next
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
@@ -138,6 +157,7 @@ final class AetherPlayback {
         stopped = true
         reportTask?.cancel()
         countdownTask?.cancel()
+        timedTask?.cancel()
         clearStyledSubtitles()
         let final = report(paused: true)
         engine.stop()
@@ -155,6 +175,9 @@ final class AetherPlayback {
     /// player should close.
     func playbackEnded() -> Bool {
         reportTask?.cancel()
+        timedTask?.cancel()
+        activeSegment = nil
+        showsUpNextAction = false
         if hasStarted, !stopReported {
             stopReported = true
             var final = report(paused: true)
@@ -174,6 +197,19 @@ final class AetherPlayback {
         countdownTask?.cancel()
         countdown = nil
         guard let next = upNext else { return }
+        // From Play Next Episode, before the end: this one stops here.
+        if hasStarted, !stopReported {
+            stopReported = true
+            reportTask?.cancel()
+            let final = report(paused: true)
+            let client = client
+            Task { await client.reportStopped(final) }
+        }
+        timedTask?.cancel()
+        segments = []
+        activeSegment = nil
+        showsUpNextAction = false
+        autoSkipped = []
         endCardVisible = false
         upNext = nil
         clearStyledSubtitles()
@@ -202,6 +238,67 @@ final class AetherPlayback {
             }
             guard !Task.isCancelled, let self else { return }
             self.playUpNextNow()
+        }
+    }
+
+    // MARK: Skipping
+
+    /// Jumps past the intro, credits or recap the playhead is in.
+    func skipActiveSegment() {
+        guard let segment = activeSegment else { return }
+        activeSegment = nil
+        let engine = engine
+        Task { await engine.seek(to: Double(segment.endTicks) / 10_000_000) }
+    }
+
+    /// Four times a second: which marker the playhead is in (skipping an
+    /// intro by itself when that's set), and whether it's time to offer the
+    /// next episode, at the credits or in the last 30 seconds.
+    private func startTimedState() {
+        timedTask?.cancel()
+        timedTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.updateTimedState()
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private func updateTimedState() {
+        guard hasStarted, !endCardVisible else { return }
+        let seconds = engine.clock.currentTime
+        guard seconds.isFinite else { return }
+        let ticks = Int64(seconds * 10_000_000)
+        let inside = segments.first { $0.contains(ticks: ticks) }
+        if inside?.id != activeSegment?.id {
+            activeSegment = inside
+            if inside != nil { freshenSkipOffer() }
+        }
+        if AppSettings.autoSkipIntro, let segment = inside, segment.type == "Intro", !autoSkipped.contains(segment.id) {
+            autoSkipped.insert(segment.id)
+            skipActiveSegment()
+        }
+        var offer = false
+        let runTime = engine.duration > 0 ? Int64(engine.duration * 10_000_000) : (item?.runTimeTicks ?? 0)
+        if upNext != nil, runTime > 0 {
+            let creditsStart = segments.first { $0.type == "Outro" }?.startTicks
+            let threshold = creditsStart ?? max(runTime - 30 * 10_000_000, Int64(Double(runTime) * 0.92))
+            offer = ticks >= threshold
+        }
+        if offer != showsUpNextAction {
+            showsUpNextAction = offer
+            if offer, activeSegment == nil { freshenSkipOffer() }
+        }
+    }
+
+    /// Shows the skip just offered for 5 seconds on its own.
+    private func freshenSkipOffer() {
+        skipOfferIsFresh = true
+        skipOfferTask?.cancel()
+        skipOfferTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.skipOfferIsFresh = false
         }
     }
 

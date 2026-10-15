@@ -95,7 +95,18 @@ struct AetherTVControls: View {
             surface
             layout
                 .opacity(mode == .hidden ? 0 : 1)
+            if showsSkip, let action = skipAction {
+                // A click takes it, as with the system player's Skip Intro;
+                // Play/Pause still pauses.
+                PanelPill(title: action.title, systemImage: action.systemImage, focused: true, current: false)
+                    .padding(.trailing, 90)
+                    .padding(.bottom, 60)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: showsSkip ? skipAction?.title : nil)
         .animation(.easeInOut(duration: 0.25), value: mode)
         .defaultFocus($focus, .surface)
         .onAppear { focus = .surface }
@@ -133,7 +144,7 @@ struct AetherTVControls: View {
             .focusable(mode != .panel)
             .focused($focus, equals: .surface)
             .focusEffectDisabled()
-            .onTapGesture { playPause() }
+            .onTapGesture { select() }
             .onMoveCommand { direction in
                 switch direction {
                 case .left: jump(-10)
@@ -143,6 +154,33 @@ struct AetherTVControls: View {
                 @unknown default: show()
                 }
             }
+    }
+
+    /// Skip Intro / Skip Credits, or Play Next Episode near the end, while one
+    /// applies.
+    private var skipAction: (title: String, systemImage: String, perform: () -> Void)? {
+        if let segment = playback.activeSegment {
+            return (segment.skipTitle, "forward.fill", { playback.skipActiveSegment() })
+        }
+        if playback.showsUpNextAction {
+            return ("Play Next Episode", "forward.end.fill", { playback.playUpNextNow() })
+        }
+        return nil
+    }
+
+    /// The skip shows for its first 5 seconds, then again whenever the
+    /// controls are up; never over the panel.
+    private var showsSkip: Bool {
+        skipAction != nil && mode != .panel && (playback.skipOfferIsFresh || mode == .transport)
+    }
+
+    /// A click: plays from a scrub, takes the skip on screen, or pauses.
+    private func select() {
+        if scrubTarget == nil, showsSkip, let action = skipAction {
+            action.perform()
+            return
+        }
+        playPause()
     }
 
     private func playPause() {

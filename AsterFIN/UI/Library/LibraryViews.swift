@@ -255,6 +255,13 @@ struct TypeGridView: View {
     @State private var model = GridModel()
     @State private var recent: [BaseItem] = []
     @State private var sort: LibrarySort = .name
+    /// The hero's titles: what's in progress, then (for shows) what's up
+    /// next, then what's new, as Home picks its own. Anime is left out.
+    @State private var featured: [BaseItem] = []
+    /// Whether the hero's load has finished, so the page knows it isn't coming.
+    @State private var heroLoaded = false
+    /// Where focus goes on pressing down from the hero: the first new title.
+    @FocusState private var focusedLockup: String?
 
     private var title: String { kind == .movie ? "Movies" : "TV Shows" }
 
@@ -269,58 +276,112 @@ struct TypeGridView: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(.largeTitle.weight(.bold))
-                    Spacer()
-                    Picker("Sort", selection: $sort) {
-                        ForEach(LibrarySort.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
+            // A plain VStack, as on Home: focus can only move from the hero to
+            // a card that exists. The grid below stays lazy.
+            VStack(alignment: .leading, spacing: 0) {
+                if !featured.isEmpty {
+                    HeroCarousel(items: featured, moveDown: {
+                        focusedLockup = recent.first?.id
+                    }, focusChanged: { focused in
+                        if focused { focusedLockup = nil }
+                    })
                 }
-                .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, Lockup.pageTopPadding)
-
-                Shelf(title: "Recently Added", items: recent) { item in
-                    LandscapeLockup(item: item)
-                }
-
-                if model.items.isEmpty, let error = model.errorMessage {
-                    MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
-                        .frame(height: Lockup.emptyStateHeight)
+                if heroLoaded {
+                    page
                 } else {
-                    Text("All \(title)")
-                        .font(.title3.weight(.semibold))
-                        .padding(.horizontal, Lockup.screenPadding)
-                        .padding(.top, 20)
-                    ItemGrid(items: model.items)
-                    if model.hasMore {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(Lockup.pageBottomPadding)
-                            .task { await load() }
-                    }
+                    // Only the spinner until the hero is ready: a row shown
+                    // first takes focus on Apple TV, and the hero arriving
+                    // above pushes it and its focus down the page.
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 200)
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
+        // Full-bleed under the hero, as on Home; the rows keep their margins.
+        .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
         .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await load(reset: true) }
-        .task(id: session.animeItemIds.count) {
-            guard let client = session.client else { return }
-            // Ask for extra, as anime ones are taken out.
-            let latest = (try? await client.latest(parentId: nil, limit: 40, includeTypes: kind.rawValue)) ?? []
-            recent = Array(latest.filter { !session.animeItemIds.contains($0.id) }.prefix(20))
+        .task(id: session.animeItemIds.count) { await loadHero() }
+        .onChange(of: session.userDataRevision) { _, _ in
+            Task { await loadHero() }
+        }
+    }
+
+    @ViewBuilder
+    private var page: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.largeTitle.weight(.bold))
+            Spacer()
+            Picker("Sort", selection: $sort) {
+                ForEach(LibrarySort.allCases) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, Lockup.screenPadding)
+        .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 20)
+
+        Shelf(title: "Recently Added", items: recent) { item in
+            LandscapeLockup(item: item, focus: $focusedLockup)
+        }
+
+        if model.items.isEmpty, let error = model.errorMessage {
+            MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
+                .frame(height: Lockup.emptyStateHeight)
+        } else {
+            Text("All \(title)")
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, Lockup.screenPadding)
+                .padding(.top, 20)
+            ItemGrid(items: model.items)
+            if model.hasMore {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(Lockup.pageBottomPadding)
+                    .task { await load() }
+            }
         }
     }
 
     private func load(reset: Bool = false) async {
         guard let client = session.client else { return }
         await model.load(client: client, query: query, excluding: session.animeItemIds, reset: reset)
+    }
+
+    /// Recently Added, and from it and what's in progress, the hero.
+    private func loadHero() async {
+        guard let client = session.client else { return }
+        let anime = session.animeItemIds
+        // Ask for extra, as anime ones are taken out.
+        async let latest = client.latest(parentId: nil, limit: 40, includeTypes: kind.rawValue)
+        async let resumed = client.resume(limit: 30)
+        let isShows = kind == .series
+        async let next: [BaseItem] = isShows ? ((try? await client.nextUp(limit: 20)) ?? []) : []
+        let newest = Array(((try? await latest) ?? []).filter { !anime.contains($0.id) }.prefix(20))
+
+        var picks: [BaseItem] = []
+        let inProgress: [BaseItem]
+        let upNext: [BaseItem]
+        if kind == .movie {
+            inProgress = ((try? await resumed) ?? []).filter { $0.kind == .movie && !anime.contains($0.id) }
+            upNext = []
+        } else {
+            inProgress = ((try? await resumed) ?? []).filter { $0.kind == .episode && !anime.contains($0.seriesId ?? "") }
+            upNext = (await next).filter { episode in
+                !anime.contains(episode.seriesId ?? "") && !inProgress.contains { $0.id == episode.id }
+            }
+        }
+        for item in inProgress.prefix(kind == .movie ? 4 : 3) + upNext.prefix(3) + newest.prefix(5) where !picks.contains(where: { $0.id == item.id }) {
+            picks.append(item)
+        }
+        recent = newest
+        featured = Array(picks.prefix(8))
+        heroLoaded = true
     }
 }
 

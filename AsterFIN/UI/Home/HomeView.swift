@@ -402,6 +402,11 @@ struct HeroCarousel: View {
     var action: (BaseItem) -> HeroCard.Action? = { _ in nil }
     /// What selecting a page opens; the page's own title unless given.
     var destination: (BaseItem) -> BaseItem = { $0 }
+    /// Draws a page in place of `HeroCard`, given whether the banner has
+    /// focus; for pages without a wide backdrop, like a book's square cover.
+    var card: ((BaseItem, Bool) -> AnyView)? = nil
+    /// What selecting a page does, in place of opening its page and playing.
+    var onSelect: ((BaseItem) -> Void)? = nil
 
     @Environment(AppSession.self) private var session
     @Environment(\.openItem) private var openItem
@@ -435,6 +440,10 @@ struct HeroCarousel: View {
     /// once, so closing the player leaves the viewer on that page. A page
     /// with its own button (Upcoming's) only opens.
     private func select(_ item: BaseItem) {
+        if let onSelect {
+            onSelect(item)
+            return
+        }
         let target = destination(item)
         if action(item) == nil {
             session.playOnOpen = target.id
@@ -474,7 +483,9 @@ struct HeroCarousel: View {
         .tvFocusSection()
         .task(id: items.map(\.id)) {
             // Every page's backdrop, the one shown first, held for as long
-            // as the hero is; pages no longer featured are let go.
+            // as the hero is; pages no longer featured are let go. A page
+            // drawn by `card` brings its own picture.
+            guard card == nil else { return }
             let client = session.client
             var held = backdrops.filter { id, _ in items.contains { $0.id == id } }
             let order = items.indices.sorted { abs($0 - index) < abs($1 - index) }.map { items[$0] }
@@ -518,14 +529,18 @@ struct HeroCarousel: View {
                             Button {
                                 select(item)
                             } label: {
-                                HeroCard(
-                                    item: item,
-                                    isFocused: false,
-                                    isPortrait: proxy.size.height > proxy.size.width,
-                                    screenPixels: pixels(proxy.size),
-                                    tag: tag(item),
-                                    action: action(item)
-                                )
+                                if let card {
+                                    card(item, false)
+                                } else {
+                                    HeroCard(
+                                        item: item,
+                                        isFocused: false,
+                                        isPortrait: proxy.size.height > proxy.size.width,
+                                        screenPixels: pixels(proxy.size),
+                                        tag: tag(item),
+                                        action: action(item)
+                                    )
+                                }
                             }
                             .buttonStyle(.plain)
                             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -657,14 +672,26 @@ struct HeroCarousel: View {
                 HStack(spacing: 0) {
                     ForEach(items) { item in
                         #if os(tvOS)
-                        HeroCard(item: item, isFocused: isFocused, screenPixels: tvScreenPixels, backdrop: backdrops[item.id], tag: tag(item), action: action(item))
-                            .containerRelativeFrame(.horizontal)
-                            .frame(height: Self.tvScreen.height)
-                            .id(item.id)
+                        Group {
+                            if let card {
+                                card(item, isFocused)
+                            } else {
+                                HeroCard(item: item, isFocused: isFocused, screenPixels: tvScreenPixels, backdrop: backdrops[item.id], tag: tag(item), action: action(item))
+                            }
+                        }
+                        .containerRelativeFrame(.horizontal)
+                        .frame(height: Self.tvScreen.height)
+                        .id(item.id)
                         #else
-                        HeroCard(item: item, isFocused: isFocused, tag: tag(item), action: action(item))
-                            .containerRelativeFrame([.horizontal, .vertical])
-                            .id(item.id)
+                        Group {
+                            if let card {
+                                card(item, isFocused)
+                            } else {
+                                HeroCard(item: item, isFocused: isFocused, tag: tag(item), action: action(item))
+                            }
+                        }
+                        .containerRelativeFrame([.horizontal, .vertical])
+                        .id(item.id)
                         #endif
                     }
                 }

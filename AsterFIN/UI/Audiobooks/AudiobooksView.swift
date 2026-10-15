@@ -26,22 +26,59 @@ struct AudiobooksView: View {
     @Environment(AppSession.self) private var session
     @State private var model = AudiobookLibrary()
     @State private var section: AudiobookSection = .books
+    /// Where focus goes on pressing down from the hero: the first book below.
+    @FocusState private var focusedBook: String?
+
+    /// The hero's books: those partway through, then the newest, as Home
+    /// picks its titles.
+    private var featured: [Audiobook] {
+        var picks: [Audiobook] = []
+        for book in model.continueListening.prefix(4) + model.recentlyAdded.prefix(5) where !picks.contains(where: { $0.id == book.id }) {
+            picks.append(book)
+        }
+        return Array(picks.prefix(8))
+    }
 
     private var libraries: [BaseItem] {
         library.map { [$0] } ?? session.bookLibraries
     }
 
     var body: some View {
+        let featured = featured
+        let hasHero = model.hasLoaded && !featured.isEmpty
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                header
-                    .padding(.horizontal, Lockup.screenPadding)
-                    #if os(tvOS)
-                    .padding(.top, 40)
-                    #else
-                    .padding(.top, 8)
-                    #endif
-                    .tvFocusSection()
+            // A plain VStack, as on Home: focus can only move from the hero to
+            // a book that exists. The grid below stays lazy.
+            VStack(alignment: .leading, spacing: 20) {
+                if hasHero {
+                    HeroCarousel(items: featured.map(\.cover), moveDown: {
+                        focusedBook = (model.continueListening.first ?? model.recentlyAdded.first)?.id
+                    }, focusChanged: { focused in
+                        if focused { focusedBook = nil }
+                    }, card: { item, focused in
+                        AnyView(Group {
+                            if let book = featured.first(where: { $0.id == item.id }) {
+                                AudiobookHeroCard(book: book, isFocused: focused)
+                            }
+                        })
+                    }, onSelect: { item in
+                        // Listen straight away, as Play on a title does.
+                        guard let book = featured.first(where: { $0.id == item.id }), let client = session.client else { return }
+                        session.audiobooks.play(book, client: client)
+                    })
+                }
+                // Only once loaded: the header shown first would take focus on
+                // Apple TV, and the hero arriving above would push it down.
+                if model.hasLoaded || !model.books.isEmpty {
+                    header
+                        .padding(.horizontal, Lockup.screenPadding)
+                        #if os(tvOS)
+                        .padding(.top, hasHero ? 0 : 40)
+                        #else
+                        .padding(.top, hasHero ? 0 : 8)
+                        #endif
+                        .tvFocusSection()
+                }
 
                 #if os(tvOS)
                 // Elsewhere the book playing shows on every tab (see
@@ -71,6 +108,8 @@ struct AudiobooksView: View {
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
+        // Full-bleed under the hero, as on Home; the rows keep their margins.
+        .ignoresSafeArea(edges: hasHero ? .all : [])
         // Again each time the tab shows, so listening done elsewhere (or
         // just now) moves Continue Listening along.
         .task(id: session.audiobooks.book?.id) { await load() }
@@ -81,10 +120,10 @@ struct AudiobooksView: View {
         switch section {
         case .books:
             Shelf(title: "Continue Listening", items: model.continueListening) { book in
-                AudiobookLockup(book: book)
+                AudiobookLockup(book: book, focus: $focusedBook)
             }
             Shelf(title: "Recently Added", items: model.recentlyAdded) { book in
-                AudiobookLockup(book: book)
+                AudiobookLockup(book: book, focus: $focusedBook)
             }
             sectionTitle("All Books")
             AudiobookGrid(books: model.books)
@@ -155,9 +194,107 @@ struct AudiobookGrid: View {
 }
 
 /// A book's cover, how far through it is, its title and author.
+/// A book as a page of the Audiobooks hero. A book has only its square
+/// cover, so the cover, blurred, fills the banner behind the cover itself,
+/// its title, author and how far along it is.
+struct AudiobookHeroCard: View {
+    let book: Audiobook
+    let isFocused: Bool
+
+    @Environment(AppSession.self) private var session
+
+    #if os(tvOS)
+    private static let coverSize: CGFloat = 420
+    private static let titleSize: CGFloat = 60
+    private static let overviewWidth: CGFloat = 900
+    #else
+    private static let coverSize: CGFloat = 200
+    private static let titleSize: CGFloat = 32
+    private static let overviewWidth: CGFloat = 560
+    #endif
+
+    private var backgroundURL: URL? {
+        session.client?.posterURL(for: book.cover, width: 600)
+    }
+
+    /// "4 hr 12 min left", or the whole length before it's started.
+    private var timeText: String? {
+        guard book.duration > 0 else { return nil }
+        if book.progress > 0, !book.isFinished {
+            let left = book.duration * (1 - book.progress)
+            return MusicFormat.length(ticks: Int64(left * 10_000_000)).map { "\($0) left" }
+        }
+        return book.lengthText
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            // The cover, blurred and darkened, as the backdrop.
+            RemoteImage(url: backgroundURL, contentMode: .fill) { Color.black }
+                .blur(radius: 60)
+                .overlay(Color.black.opacity(0.35))
+                .extendsUnderSidebar()
+            LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.35), endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .leading, endPoint: .center)
+
+            HStack(alignment: .bottom, spacing: 48) {
+                AudiobookCover(book: book, size: Self.coverSize, width: 900)
+                    .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
+                VStack(alignment: .leading, spacing: 16) {
+                    if let series = book.series {
+                        Text([series, book.seriesIndex.map { "Book \($0)" }].compactMap { $0 }.joined(separator: " · ").uppercased())
+                            .font(.headline.weight(.bold))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    Text(book.title)
+                        .font(.system(size: Self.titleSize, weight: .bold))
+                        .lineLimit(2)
+                    if let author = book.author {
+                        Text(author)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    if book.progress > 0, !book.isFinished {
+                        ProgressBar(progress: book.progress)
+                            .frame(width: 360, height: 6)
+                    }
+                    if let overview = book.overview {
+                        Text(overview)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .frame(maxWidth: Self.overviewWidth, alignment: .leading)
+                    }
+                    HStack(spacing: 14) {
+                        Image(systemName: "play.fill")
+                        Text(book.resumePoint != nil ? "Resume" : "Listen")
+                        if let timeText {
+                            Text("·  \(timeText)").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.headline)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
+                    .foregroundStyle(.black)
+                }
+            }
+            .padding(.horizontal, Lockup.screenPadding)
+            .padding(.bottom, HeroCard.bottomPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct AudiobookLockup: View {
     let book: Audiobook
     var size: CGFloat = Lockup.squareWidth
+    /// Lets a page move focus here (by book id), e.g. down from the hero.
+    var focus: FocusState<String?>.Binding? = nil
 
     private var subtitle: String? {
         if let index = book.seriesIndex, let series = book.series {
@@ -188,6 +325,7 @@ struct AudiobookLockup: View {
                     }
             }
             .cardButtonStyle()
+            .optionallyFocused(focus, equals: book.id)
             .keyboardTarget(opening: book)
             .accessibilityLabel([book.title, book.author].compactMap { $0 }.joined(separator: ", "))
 

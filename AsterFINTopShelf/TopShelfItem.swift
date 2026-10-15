@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import os
 import TVServices
 
 nonisolated struct TopShelfItem: Decodable, Sendable {
@@ -94,9 +95,16 @@ nonisolated struct TopShelfAPI: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession(configuration: .ephemeral).data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            shelfLog.error("\(path, privacy: .public): HTTP \(status)")
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode(TopShelfItemsResult.self, from: data).items
+        do {
+            return try JSONDecoder().decode(TopShelfItemsResult.self, from: data).items
+        } catch {
+            shelfLog.error("\(path, privacy: .public): couldn't decode: \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     func shelfItem(for item: TopShelfItem) -> TVTopShelfSectionedItem {

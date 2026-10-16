@@ -28,12 +28,20 @@ final class ImageStore {
         if let hit = cache.object(forKey: url as NSURL) { return hit }
         if let task = inFlight[url] { return await task.value }
         let task = Task<PlatformImage?, Never> {
-            let data: Data?
+            var data: Data?
+            var decoded: PlatformImage?
             // Inline pictures, and covers saved with downloaded audiobooks.
             if url.scheme == "data" || url.isFileURL {
                 data = try? Data(contentsOf: url)
             } else if let client {
                 data = try? await client.data(from: url)
+                decoded = data.flatMap { PlatformImage(data: $0) }
+                // A damaged copy in the disk cache (zeros, from the app
+                // stopping as it was written) would come back every time:
+                // drop it and fetch the picture again, once.
+                if decoded == nil, data != nil {
+                    data = try? await client.data(from: url, fresh: true)
+                }
             } else if let (body, response) = try? await JellyfinClient.imageSession.data(from: url),
                       let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
                 // An error page decoded as a picture logs "possibly corrupt".
@@ -41,7 +49,7 @@ final class ImageStore {
             } else {
                 data = nil
             }
-            guard let data, let image = PlatformImage(data: data) else {
+            guard let data, let image = decoded ?? PlatformImage(data: data) else {
                 #if DEBUG
                 if let data {
                     let head = data.prefix(12).map { String(format: "%02x", $0) }.joined()

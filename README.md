@@ -32,6 +32,8 @@ Taken on Apple TV.
 | **Live TV**: guide, recordings, mini player | **Music**: albums, artists, lyrics, Now Playing |
 | ![Anime](docs/screenshots/anime.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
 | **Anime**: openings and endings with song cards | **Disc menus**: JellyDisc menus with transitions and sounds |
+| ![Channels](docs/screenshots/channels.jpg) | |
+| **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | |
 
 ## Platforms
 

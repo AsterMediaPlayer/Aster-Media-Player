@@ -2,11 +2,12 @@
 //  AetherPlayback.swift
 //  AsterFIN
 //
-//  Plays one video through AetherEngine instead of AVPlayer, a test of the
-//  engine behind the "Player engine" setting. The file streams from the
-//  server untouched (no transcode, no HLS), so every audio and subtitle
-//  track is in hand and switches on the device. Progress goes to Jellyfin
-//  as it does for the system player. Music and audiobooks don't use this.
+//  Plays one video through AetherEngine, the app's main video player. The
+//  file streams from the server untouched (no transcode, no HLS), so every
+//  audio and subtitle track is in hand and switches on the device. Progress
+//  goes to Jellyfin as it does for the system player. What the engine can't
+//  play is handed to the system player, which can ask for a transcode
+//  (`onFallback`). Music and audiobooks don't use this.
 //
 
 #if canImport(AetherEngine)
@@ -44,6 +45,12 @@ final class AetherPlayback {
     /// Told each time an item starts, so the page behind can follow when
     /// the next episode plays on its own.
     @ObservationIgnored var onItemStarted: ((BaseItem) -> Void)?
+    /// Told when the engine can't play the title, with a request for the
+    /// same title from the same spot and on the same tracks, for the system
+    /// player. Without it, a failure shows "Can't Play" instead.
+    @ObservationIgnored var onFallback: ((PlaybackRequest) -> Void)?
+    /// Whether a failure goes to the system player rather than an alert.
+    var handsOverOnFailure: Bool { onFallback != nil }
 
     /// The item's intro, credits and recap markers from the server, and the
     /// one the playhead is inside now, which Skip Intro / Skip Credits skips.
@@ -75,9 +82,13 @@ final class AetherPlayback {
     private var skipOfferTask: Task<Void, Never>?
     /// The current item's end was already reported to the server.
     private var stopReported = false
+    /// The title has gone to the system player.
+    private var fellBack = false
 
     /// Whether this engine can take `request`: one whole title from the
-    /// server. A queue, a clip, or a download keeps to the system player.
+    /// server, unless "Use the system player" is on. A queue, a clip, or a
+    /// download keeps to the system player; so does a Live TV channel, once
+    /// `start` sees what it is.
     static func canPlay(_ request: PlaybackRequest) -> Bool {
         guard AppSettings.useAetherEngine, sharedEngine != nil, request.items.count == 1, let entry = request.items.first, entry.endTicks == nil else { return false }
         #if os(iOS)
@@ -98,6 +109,12 @@ final class AetherPlayback {
         do {
             let item = try await client.item(entry.itemId)
             self.item = item
+            // A Live TV channel needs a live stream opened on the server,
+            // which only the system player does for now.
+            if item.kind == .tvChannel {
+                fallBack("a Live TV channel")
+                return
+            }
             // Asked only for the session id and the file's id: the stream
             // below is the file itself, whatever the server would choose.
             let info = try await client.playbackInfo(
@@ -150,8 +167,33 @@ final class AetherPlayback {
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
-            if !stopped { errorMessage = error.localizedDescription }
+            if !stopped { fallBack(error.localizedDescription) }
         }
+    }
+
+    /// Hands the title to the system player: the load failed, the engine
+    /// gave up partway, or it's something the engine doesn't take. It
+    /// carries on from where this got to, on the same tracks.
+    func fallBack(_ reason: String) {
+        guard !stopped, !fellBack else { return }
+        guard let onFallback else {
+            errorMessage = reason
+            return
+        }
+        fellBack = true
+        var resume = entry
+        resume.mediaSourceId = mediaSourceId ?? entry.mediaSourceId
+        if hasStarted {
+            let seconds = engine.clock.currentTime
+            if seconds.isFinite, seconds > 0 { resume.startTicks = Int64(seconds * 10_000_000) }
+            if let audio = engine.activeAudioTrackIndex { resume.audioStreamIndex = audio }
+            resume.subtitleStreamIndex = engine.activeSubtitleTrackIndex ?? -1
+        }
+        #if DEBUG
+        print("DEBUG playback: AetherEngine can't play \(entry.itemId) (\(reason)); handing it to the system player")
+        #endif
+        stop()
+        onFallback(PlaybackRequest(entry: resume))
     }
 
     /// Stops playback and tells the server where it ended. Safe to call twice.

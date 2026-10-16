@@ -78,9 +78,10 @@ nonisolated struct PlaybackRequest: Identifiable, Hashable, Sendable {
         items = [PlaybackQueueItem(itemId: itemId, startTicks: startTicks, endTicks: endTicks, clipStartTicks: startTicks, themeInfo: info)]
     }
 
-    /// A channel's movie, from `ChannelTuner`.
-    init(channelEntry: PlaybackQueueItem) {
-        items = [channelEntry]
+    /// One entry as it stands, e.g. a channel's movie from `ChannelTuner`,
+    /// or a title handed over from AetherEngine mid-play.
+    init(entry: PlaybackQueueItem) {
+        items = [entry]
     }
 }
 

@@ -72,6 +72,8 @@ struct AetherPlayerView: View {
             // The end of an episode with one after it holds on Up Next;
             // anything else closes the player.
             if state == .ended, !playback.playbackEnded() { onFinished() }
+            // Given up partway: the system player carries on from here.
+            if case .error(let message) = state { playback.fallBack(message) }
         }
         .alert("Can't Play", isPresented: Binding(get: { errorMessage != nil }, set: { _ in })) {
             Button("OK", action: onFinished)
@@ -80,10 +82,11 @@ struct AetherPlayerView: View {
         }
     }
 
-    /// The load failing, or the engine giving up partway.
+    /// The load failing, or the engine giving up partway, when there's no
+    /// system player to hand over to.
     private var errorMessage: String? {
         if let message = playback.errorMessage { return message }
-        if case .error(let message) = engine.state { return message }
+        if case .error(let message) = engine.state, !playback.handsOverOnFailure { return message }
         return nil
     }
 

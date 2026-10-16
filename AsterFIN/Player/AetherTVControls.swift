@@ -343,7 +343,7 @@ struct AetherTVControls: View {
                 } else {
                     titleBlock
                 }
-                AetherTimeline(engine: engine, clock: engine.clock, scrubTarget: scrubTarget)
+                AetherTimeline(engine: engine, clock: engine.clock, scrubTarget: scrubTarget, preview: playback.scrubPreview(at:))
                 tabRow
             }
         }

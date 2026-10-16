@@ -11,6 +11,7 @@
 
 #if canImport(AetherEngine)
 import AetherEngine
+import AVKit
 import SwiftUI
 
 struct AetherPlayerView: View {
@@ -21,6 +22,10 @@ struct AetherPlayerView: View {
     #if !os(tvOS)
     /// When the controls were last called up; nil while they're hidden.
     @State private var controlsShownAt: Date? = Date()
+    /// The picture fills the screen, cropping the edges, rather than fitting.
+    @State private var fills = false
+    /// A double-tap skip just made: which way, shown briefly over its side.
+    @State private var skipFlash: SkipFlash?
     #endif
 
     init(playback: AetherPlayback, onFinished: @escaping () -> Void) {
@@ -75,6 +80,10 @@ struct AetherPlayerView: View {
                 .transition(.opacity)
             }
         }
+        #if !os(tvOS)
+        // The engine is shared between videos: each one starts fitted.
+        .onAppear { engine.videoGravity = .resizeAspect }
+        #endif
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
         .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
@@ -140,11 +149,44 @@ struct AetherPlayerView: View {
 
     private var touchControls: some View {
         ZStack {
-            // A tap or click on the picture shows or hides the controls.
-            Color.clear
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .onTapGesture { controlsShownAt = controlsShownAt == nil ? Date() : nil }
+            // A tap or click on the picture shows or hides the controls. On
+            // iPhone and iPad a double-tap on either side skips 10 seconds,
+            // and a pinch fills the screen or fits the picture again.
+            GeometryReader { proxy in
+                Color.clear
+                    .contentShape(Rectangle())
+                    #if os(iOS)
+                    .gesture(
+                        SpatialTapGesture(count: 2)
+                            .onEnded { value in
+                                let forward = value.location.x > proxy.size.width / 2
+                                Self.skip(forward ? 10 : -10, on: engine)
+                                skipFlash = SkipFlash(forward: forward)
+                            }
+                            .exclusively(before: TapGesture().onEnded { toggleControls() })
+                    )
+                    .simultaneousGesture(
+                        MagnifyGesture().onEnded { value in
+                            if value.magnification > 1.1 { setFills(true) }
+                            if value.magnification < 0.9 { setFills(false) }
+                        }
+                    )
+                    #else
+                    .onTapGesture { toggleControls() }
+                    #endif
+            }
+            .ignoresSafeArea()
+            #if os(iOS)
+            if let skipFlash {
+                SkipFlashView(flash: skipFlash)
+                    .id(skipFlash.id)
+                    .allowsHitTesting(false)
+                    .task(id: skipFlash.id) {
+                        try? await Task.sleep(for: .milliseconds(700))
+                        if self.skipFlash?.id == skipFlash.id { self.skipFlash = nil }
+                    }
+            }
+            #endif
             controlsLayout
                 .opacity(controlsShown ? 1 : 0)
                 .disabled(!controlsShown)
@@ -195,12 +237,36 @@ struct AetherPlayerView: View {
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal)
+            AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
             HStack(spacing: 20) {
+                RoutePicker()
+                    .frame(width: 30, height: 30)
+                    .accessibilityLabel("AirPlay")
+                #if os(iOS)
+                Button { setFills(!fills); reveal() } label: {
+                    Label(fills ? "Fit to Screen" : "Fill Screen", systemImage: fills ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                }
+                #endif
                 Spacer()
+                chapterMenu
+                speedMenu
                 trackMenus
             }
+            #if os(iOS)
+            // Icons only: an upright iPhone has no room for the words.
+            .labelStyle(.iconOnly)
+            .font(.title3)
+            #endif
+            .buttonStyle(.plain)
             .padding(.top, 16)
+            #if os(iOS)
+            if engine.airPlayPictureStaysLocal {
+                Text("AirPlay is playing the sound only; this video's picture stays on this device.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 8)
+            }
+            #endif
         }
         .padding(edgePadding)
         .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
@@ -355,6 +421,54 @@ struct AetherPlayerView: View {
         controlsShownAt = Date()
     }
 
+    private func toggleControls() {
+        controlsShownAt = controlsShownAt == nil ? Date() : nil
+    }
+
+    private func setFills(_ fill: Bool) {
+        fills = fill
+        engine.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+    }
+
+    @ViewBuilder
+    private var chapterMenu: some View {
+        if !playback.chapters.isEmpty {
+            Menu {
+                ForEach(Array(playback.chapters.enumerated()), id: \.offset) { index, chapter in
+                    Button {
+                        playback.play(chapter: chapter)
+                        reveal()
+                    } label: {
+                        Text(chapter.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Chapter \(index + 1)")
+                        Text(AetherTimeline.time(Double(chapter.startPositionTicks) / 10_000_000))
+                    }
+                }
+            } label: {
+                Label("Chapters", systemImage: "list.bullet")
+            }
+        }
+    }
+
+    private var speedMenu: some View {
+        Menu {
+            Picker("Speed", selection: Binding(
+                get: { playback.speed },
+                set: { playback.setSpeed($0); reveal() }
+            )) {
+                ForEach(AetherPlayback.speeds, id: \.self) { speed in
+                    Text(Self.speedTitle(speed)).tag(speed)
+                }
+            }
+        } label: {
+            Label("Speed", systemImage: playback.speed == 1 ? "gauge.with.dots.needle.33percent" : "gauge.with.dots.needle.67percent")
+        }
+    }
+
+    /// "1×", "1.25×".
+    static func speedTitle(_ speed: Float) -> String {
+        speed.formatted(.number.precision(.fractionLength(0...2))) + "×"
+    }
+
     private func togglePlayPause() {
         engine.togglePlayPause()
         reveal()
@@ -377,6 +491,9 @@ struct AetherTimeline: View {
     /// Apple TV: where a swipe has moved the playhead to, not yet played from.
     var scrubTarget: Double? = nil
     var onScrub: () -> Void = {}
+    /// The picture for a point on the timeline, shown above the playhead
+    /// while scrubbing.
+    var preview: ((Double) async -> CGImage?)? = nil
 
     /// Where a drag on the bar has got to, before it's let go.
     @State private var scrubPosition: Double?
@@ -400,6 +517,17 @@ struct AetherTimeline: View {
                 .frame(height: barHeight)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
+                .overlay(alignment: .bottomLeading) {
+                    if let scrubbing = scrubTarget ?? scrubPosition {
+                        let x = proxy.size.width * fraction - ScrubBubble.width / 2
+                        ScrubBubble(seconds: scrubbing, preview: preview)
+                            .frame(width: ScrubBubble.width)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .alignmentGuide(.bottom) { _ in -16 }
+                            .offset(x: min(max(x, 0), max(proxy.size.width - ScrubBubble.width, 0)))
+                            .allowsHitTesting(false)
+                    }
+                }
                 #if !os(tvOS)
                 .gesture(
                     DragGesture(minimumDistance: 0)
@@ -546,6 +674,97 @@ struct StallQualityCard: View {
                     .focused($focused, equals: cap)
                     #endif
             }
+        }
+    }
+}
+
+// MARK: - Touch extras
+
+#if !os(tvOS)
+/// A double-tap skip, for the flash over its side of the screen.
+struct SkipFlash: Equatable {
+    var forward: Bool
+    var id = UUID()
+}
+
+/// "10" with arrows, briefly, over the side that was double-tapped.
+private struct SkipFlashView: View {
+    let flash: SkipFlash
+
+    var body: some View {
+        Image(systemName: flash.forward ? "goforward.10" : "gobackward.10")
+            .font(.system(size: 44, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(28)
+            .background(.black.opacity(0.35), in: Circle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: flash.forward ? .trailing : .leading)
+            .padding(.horizontal, 60)
+            .transition(.opacity)
+    }
+}
+
+/// The system's AirPlay button.
+#if os(iOS)
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.prioritizesVideoDevices = true
+        picker.tintColor = .white
+        picker.activeTintColor = .systemBlue
+        return picker
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+#elseif os(macOS)
+private struct RoutePicker: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+
+    func updateNSView(_ view: AVRoutePickerView, context: Context) {}
+}
+#endif
+#endif
+
+// MARK: - Scrub preview
+
+/// The frame and time above the playhead while scrubbing.
+struct ScrubBubble: View {
+    let seconds: Double
+    var preview: ((Double) async -> CGImage?)?
+
+    @State private var image: CGImage?
+
+    #if os(tvOS)
+    static let width: CGFloat = 400
+    #else
+    static let width: CGFloat = 200
+    #endif
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(16 / 9, contentMode: .fill)
+                    .frame(width: Self.width, height: Self.width * 9 / 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .shadow(color: .black.opacity(0.5), radius: 8)
+            }
+            Text(AetherTimeline.time(seconds))
+                .font(.callout.monospacedDigit().weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.6), in: Capsule())
+        }
+        .foregroundStyle(.white)
+        // A new frame every two seconds of timeline, not every pixel dragged.
+        .task(id: Int(seconds / 2)) {
+            guard let preview else { return }
+            if let frame = await preview(seconds), !Task.isCancelled { image = frame }
         }
     }
 }

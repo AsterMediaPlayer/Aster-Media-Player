@@ -413,6 +413,9 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     var primaryImageAspectRatio: Double?
     var userData: UserItemData?
     var chapters: [ChapterInfo]?
+    /// Trickplay images for scrubbing, by file (media source) id and then
+    /// by width; only on a title the server has made them for.
+    var trickplay: [String: [String: TrickplayInfo]]?
     var mediaSources: [MediaSourceInfo]?
     var mediaStreams: [MediaStream]?
     var providerIds: [String: String]?
@@ -498,6 +501,7 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
         case primaryImageAspectRatio = "PrimaryImageAspectRatio"
         case userData = "UserData"
         case chapters = "Chapters"
+        case trickplay = "Trickplay"
         case mediaSources = "MediaSources"
         case mediaStreams = "MediaStreams"
         case providerIds = "ProviderIds"

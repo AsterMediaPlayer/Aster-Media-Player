@@ -214,7 +214,7 @@ nonisolated final class JellyfinClient: Sendable {
     // MARK: Library
 
     static let listFields = "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,MediaStreams,ProviderIds"
-    static let detailFields = "PrimaryImageAspectRatio,Overview,Genres,Studios,People,Taglines,ProductionYear,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,RecursiveItemCount,Chapters,MediaSources,MediaStreams,ProviderIds,RemoteTrailers,DateCreated"
+    static let detailFields = "Trickplay,PrimaryImageAspectRatio,Overview,Genres,Studios,People,Taglines,ProductionYear,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,RecursiveItemCount,Chapters,MediaSources,MediaStreams,ProviderIds,RemoteTrailers,DateCreated"
 
     private func requireUser() throws -> String {
         guard let userId else { throw JellyfinError.notSignedIn }
@@ -1039,6 +1039,11 @@ nonisolated final class JellyfinClient: Sendable {
 
     /// A chapter's frame from Jellyfin's own chapter images, as JPEG for the
     /// player's chapter list.
+    /// One sheet of a title's trickplay frames (see `TrickplayInfo`).
+    func trickplayTileURL(itemId: String, width: Int, index: Int, mediaSourceId: String) -> URL {
+        url("/Videos/\(itemId)/Trickplay/\(width)/\(index).jpg", query: ["MediaSourceId": mediaSourceId])
+    }
+
     func chapterImageURL(itemId: String, index: Int, tag: String) -> URL {
         url("/Items/\(itemId)/Images/Chapter/\(index)", query: [
             "maxWidth": "480",

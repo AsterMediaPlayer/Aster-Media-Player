@@ -67,6 +67,9 @@ final class AetherPlayback {
     /// A converted stream's text subtitle under the playhead, drawn by the
     /// app; ASS tracks go to libass (`assTrack`) as usual.
     private(set) var subtitleText: String?
+    /// The playback speed chosen in the player. The engine forgets it on
+    /// each load, so it's put back after one.
+    private(set) var speed: Float = 1
 
     /// The item's intro, credits and recap markers from the server, and the
     /// one the playhead is inside now, which Skip Intro / Skip Credits skips.
@@ -113,6 +116,8 @@ final class AetherPlayback {
     private var playMethod = "DirectPlay"
     /// The lock screen, Control Center and remote buttons.
     @ObservationIgnored private let nowPlaying: AetherNowPlaying
+    /// The item's trickplay frames, when the server has made them.
+    @ObservationIgnored private var trickplay: ScrubPreviewSource?
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -202,10 +207,12 @@ final class AetherPlayback {
                 }
             }
             guard !stopped else { return }
+            if speed != 1 { engine.setRate(speed) }
             engine.play()
             hasStarted = true
             stopReported = false
             nowPlaying.show(item)
+            trickplay = ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
             if reportsPlayback {
                 await client.reportStart(report(paused: false))
                 startReporting()
@@ -601,6 +608,39 @@ final class AetherPlayback {
     private func isTextSubtitle(_ index: Int) -> Bool {
         guard let stream = subtitleStreams.first(where: { $0.index == index }) else { return true }
         return PlaybackCoordinator.isTextTrack(stream)
+    }
+
+    // MARK: Speed, chapters and scrubbing
+
+    /// The speeds offered; the engine plays video at up to 2×.
+    static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+    func setSpeed(_ speed: Float) {
+        self.speed = speed
+        engine.setRate(speed)
+    }
+
+    /// The item's chapters, when there are enough to be worth choosing from.
+    var chapters: [ChapterInfo] {
+        let all = item?.chapters ?? []
+        return all.count > 1 ? all.sorted { $0.startPositionTicks < $1.startPositionTicks } : []
+    }
+
+    func play(chapter: ChapterInfo) {
+        let engine = engine
+        Task {
+            await engine.seek(to: Double(chapter.startPositionTicks) / 10_000_000)
+            engine.play()
+        }
+    }
+
+    /// The picture for a point on the timeline while scrubbing: a trickplay
+    /// frame, else a still from what the engine has downloaded, else nil
+    /// (the preview shows just the time).
+    func scrubPreview(at seconds: Double) async -> CGImage? {
+        if let trickplay, let frame = await trickplay.frame(at: seconds) { return frame }
+        guard engine.supportsCacheBackedStills else { return nil }
+        return await engine.scrubThumbnail(atSeconds: seconds, maxWidth: ScrubPreviewSource.previewWidth)
     }
 
     // MARK: Converted stream subtitles

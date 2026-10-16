@@ -522,7 +522,8 @@ final class PlaybackCoordinator {
     /// only when the OP/ED plugin says a theme plays in it, so an ordinary
     /// show's intro gets no song card. The plugin names the song when it
     /// knows it.
-    private static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
+    /// Used by both players.
+    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
         guard item.kind == .episode else { return [] }
         let series = item.seriesName ?? item.displayTitle
         let playing = pluginThemes.filter { $0.playsInEpisode == true }

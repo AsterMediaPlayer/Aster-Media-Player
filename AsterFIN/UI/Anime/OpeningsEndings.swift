@@ -308,6 +308,9 @@ struct ThemeInfoCard: View {
 /// simply shows once when it appears.
 struct ThemeInfoOverlay: View {
     var player: AVPlayer?
+    /// Where playback is, in seconds, for a player that isn't an `AVPlayer`
+    /// (AetherEngine); read four times a second. Takes the place of `player`.
+    var currentTime: (() -> Double)? = nil
     /// The stretch of `player`'s timeline the theme occupies, in seconds,
     /// when it is part of a longer video (an episode's OP chapter).
     var range: ClosedRange<Double>?
@@ -315,6 +318,7 @@ struct ThemeInfoOverlay: View {
 
     @State private var visible = false
     @State private var observer: Any?
+    @State private var clock: Task<Void, Never>?
 
     private static let showFor: Double = 16
 
@@ -338,6 +342,16 @@ struct ThemeInfoOverlay: View {
     }
 
     private func start() {
+        if let currentTime {
+            stop()
+            clock = Task {
+                while !Task.isCancelled {
+                    update(at: currentTime(), end: range?.upperBound ?? .nan)
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+            return
+        }
         guard let player else {
             visible = true
             Task {
@@ -357,13 +371,17 @@ struct ThemeInfoOverlay: View {
             player.removeTimeObserver(observer)
         }
         observer = nil
+        clock?.cancel()
+        clock = nil
     }
 
     private func update(at time: CMTime, of player: AVPlayer) {
-        let seconds = time.seconds
+        update(at: time.seconds, end: range?.upperBound ?? player.currentItem?.duration.seconds ?? .nan)
+    }
+
+    private func update(at seconds: Double, end: Double) {
         guard seconds.isFinite else { return }
         let start = range?.lowerBound ?? 0
-        let end = range?.upperBound ?? player.currentItem?.duration.seconds ?? .nan
         // Only inside the theme: an episode's opening comes after its start.
         let inside = seconds >= start - 0.5 && (!end.isFinite || seconds <= end)
         let atStart = inside && seconds - start < Self.showFor

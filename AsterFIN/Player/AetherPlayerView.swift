@@ -49,6 +49,13 @@ struct AetherPlayerView: View {
                 AetherSubtitleLayer(engine: engine, clock: engine.clock)
                     .allowsHitTesting(false)
             }
+            // An anime episode's opening or ending gets its song card, as it
+            // does in the system player.
+            if playback.hasStarted, !playback.endCardVisible {
+                ForEach(playback.themeMoments) { moment in
+                    ThemeInfoOverlay(currentTime: { engine.clock.currentTime }, range: moment.range, info: moment.info)
+                }
+            }
             // The Up Next card takes the screen (and the remote) on its own.
             if !playback.endCardVisible {
                 #if os(tvOS)

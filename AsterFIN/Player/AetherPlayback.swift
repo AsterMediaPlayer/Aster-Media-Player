@@ -70,6 +70,9 @@ final class AetherPlayback {
     /// The playback speed chosen in the player. The engine forgets it on
     /// each load, so it's put back after one.
     private(set) var speed: Float = 1
+    /// An anime episode's openings and endings, for the song card, when the
+    /// card is on (the same as the system player's).
+    private(set) var themeMoments: [PlaybackCoordinator.ThemeMoment] = []
 
     /// The item's intro, credits and recap markers from the server, and the
     /// one the playhead is inside now, which Skip Intro / Skip Credits skips.
@@ -228,6 +231,11 @@ final class AetherPlayback {
             guard self.item?.id == item.id, !stopped else { return }
             segments = markers
             upNext = next
+            if AppSettings.themeCards, item.kind == .episode {
+                let themes = await client.opEdThemes(for: item.id) ?? []
+                guard self.item?.id == item.id, !stopped else { return }
+                themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+            }
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
@@ -442,6 +450,7 @@ final class AetherPlayback {
         autoSkipped = []
         endCardVisible = false
         upNext = nil
+        themeMoments = []
         clearStyledSubtitles()
         clearCues()
         hasStarted = false

@@ -6,7 +6,7 @@
 
 A native Jellyfin client for Apple TV, iPhone, iPad and the Mac, written in SwiftUI.
 
-AsterFIN covers movies, TV, anime, music, audiobooks and live TV. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. You can watch with the system player, or try **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device.
+AsterFIN covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. You can watch with the system player, or try **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device.
 
 > AsterFIN is in beta (0.3). Expect rough edges, and please report what you find.
 
@@ -42,6 +42,7 @@ Taken on Apple TV.
 | AetherEngine player (test) | ✓ | ✓ | ✓ |
 | Music and audiobooks, with a now-playing bar | ✓ | ✓ | ✓ |
 | Live TV | ✓ | ✓ | ✓ |
+| Channels from playlists (beta) | ✓ | ✓ | ✓ |
 | Downloads for offline viewing | | ✓ | |
 | Top Shelf | ✓ | | |
 | Full-screen playback, keyboard shortcuts | | | ✓ |
@@ -85,6 +86,15 @@ Taken on Apple TV.
 - What's on now, a programme guide, a channel list and recordings.
 - A mini player keeps the channel playing in the header after you press Back.
 - Record single programmes, or set series recording rules with options.
+
+### Channels (Beta)
+Your Jellyfin video playlists become TV-style channels on a Channels tab, laid out in the same guide as Live TV. Tune in and you join whatever is on, partway through, and when it ends the channel carries on to what's on next.
+- **Setup:** pick playlists and their order in Settings ▸ Channels (Beta). A channel can show its playlist's picture as its logo. The Channels tab appears once a channel is on.
+- **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
+- **Two modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays two to four in a row. Either way the order is reshuffled every day.
+- **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
+- **Synced settings:** your channels, modes and logos are saved in AsterFIN's own settings on your Jellyfin server (its display preferences), so they follow your Jellyfin account to your other devices.
+- **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
 
 ### Disc menus
 - AsterFIN renders DVD/Blu-ray-style menus from the **JellyDisc** plugin. They support backgrounds, chapter and trailer screens, and theme songs.
@@ -142,7 +152,7 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 | `AsterFIN/DiscMenu` | JellyDisc menu models, rules, rendering, transitions, audio |
 | `AsterFIN/Downloads` | Video and audiobook downloads (iPhone and iPad) |
 | `AsterFIN/CarPlay` | CarPlay scene (needs Apple's entitlement) |
-| `AsterFIN/UI` | Feature screens (Home, Library, Detail, Upcoming, Live TV, Music, Audiobooks, Anime, …) |
+| `AsterFIN/UI` | Feature screens (Home, Library, Detail, Upcoming, Live TV, Channels, Music, Audiobooks, Anime, …) |
 | `AsterFINTopShelf` | Top Shelf extension |
 | `AsterFINTests` | Unit tests and JellyDisc conformance vectors |
 
@@ -154,6 +164,10 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Use AetherEngine for both.
 - **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). AsterFIN avoids this by drawing subtitles itself.
 - **AetherEngine:** it's a test. It doesn't yet do Picture in Picture, trickplay thumbnails or the system Now Playing info, and on iPhone and iPad its controls are basic.
+- **Channels (beta):**
+  - Each day starts at local midnight, so devices in different time zones show different schedules.
+  - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
+  - There's no channel up/down inside the player yet.
 - **Mac:** the Mac app has no downloads yet.
 - **Anime without the OP/ED plugin:** openings and endings are guessed from chapter names.
 

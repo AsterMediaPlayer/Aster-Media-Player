@@ -141,8 +141,8 @@ struct ChannelScheduleTests {
         return items.reversed()
     }()
 
-    private static func tv(_ mode: ChannelMode, items: [BaseItem] = shows, channel: String = "tv", from: Date, to: Date) -> [ScheduledProgram] {
-        ChannelSchedule.programs(channelId: channel, items: items, mode: mode, from: from, to: to, calendar: calendar)
+    private static func tv(_ mode: ChannelMode, items: [BaseItem]? = nil, channel: String = "tv", from: Date, to: Date) -> [ScheduledProgram] {
+        ChannelSchedule.programs(channelId: channel, items: items ?? shows, mode: mode, from: from, to: to, calendar: calendar)
     }
 
     /// Where an episode falls in its show, counting from 0.

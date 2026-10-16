@@ -11,8 +11,8 @@
 //    10 seconds.
 //  - Paused, the title's logo shows in the top left and its details above
 //    the timeline.
-//  - A swipe or click down opens the panel: Chapters, Audio and Subtitles,
-//    the choices below them. It closes on Menu, or after a while left alone.
+//  - A swipe or click down opens the panel: Chapters, Audio, Subtitles and
+//    Quality, the choices below them. It closes on Menu, or after a while left alone.
 //  - Menu always backs out one step: scrub, panel, controls, then the player.
 //
 //  Focus never goes missing: one invisible view holds it while the panel is
@@ -40,13 +40,14 @@ struct AetherTVControls: View {
     }
 
     private enum Tab: Hashable {
-        case chapters, audio, subtitles
+        case chapters, audio, subtitles, quality
 
         var title: String {
             switch self {
             case .chapters: "Chapters"
             case .audio: "Audio"
             case .subtitles: "Subtitles"
+            case .quality: "Quality"
             }
         }
     }
@@ -83,8 +84,9 @@ struct AetherTVControls: View {
     private var tabs: [Tab] {
         var tabs: [Tab] = []
         if !chapters.isEmpty { tabs.append(.chapters) }
-        if !engine.audioTracks.isEmpty { tabs.append(.audio) }
-        if !engine.subtitleTracks.isEmpty { tabs.append(.subtitles) }
+        if !playback.audioChoices.isEmpty { tabs.append(.audio) }
+        if !playback.subtitleChoices.isEmpty { tabs.append(.subtitles) }
+        tabs.append(.quality)
         return tabs
     }
 
@@ -442,12 +444,18 @@ struct AetherTVControls: View {
             case .chapters:
                 chapterRow
             case .audio:
-                optionRow(.audio, options: engine.audioTracks.map { ($0.id, AetherPlayerView.label(for: $0)) }, selected: engine.activeAudioTrackIndex) { id in
+                optionRow(.audio, options: playback.audioChoices.map { ($0.id, $0.title) }, selected: playback.currentAudio) { id in
                     playback.selectAudio(id)
                 }
             case .subtitles:
-                optionRow(.subtitles, options: [(-1, "Off")] + engine.subtitleTracks.map { ($0.id, AetherPlayerView.label(for: $0)) }, selected: engine.activeSubtitleTrackIndex ?? -1) { id in
+                optionRow(.subtitles, options: [(-1, "Off")] + playback.subtitleChoices.map { ($0.id, $0.title) }, selected: playback.currentSubtitle) { id in
                     playback.selectSubtitle(id >= 0 ? id : nil)
+                }
+            case .quality:
+                // A cap has the server convert the file down to it; the
+                // engine plays on from the same spot.
+                optionRow(.quality, options: playback.qualityChoices.map { ($0.id, $0.title) }, selected: playback.currentQuality) { cap in
+                    playback.chooseQuality(cap)
                 }
             }
         }
@@ -548,8 +556,9 @@ struct AetherTVControls: View {
     private func firstOption(in tab: Tab) -> Focus? {
         switch tab {
         case .chapters: chapters.isEmpty ? nil : .chapter(currentChapter)
-        case .audio: engine.activeAudioTrackIndex.map { .option(.audio, $0) } ?? engine.audioTracks.first.map { .option(.audio, $0.id) }
-        case .subtitles: .option(.subtitles, engine.activeSubtitleTrackIndex ?? -1)
+        case .audio: playback.currentAudio.map { .option(.audio, $0) } ?? playback.audioChoices.first.map { .option(.audio, $0.id) }
+        case .subtitles: .option(.subtitles, playback.currentSubtitle)
+        case .quality: .option(.quality, playback.currentQuality)
         }
     }
 }

@@ -36,6 +36,10 @@ struct AetherPlayerView: View {
                 .ignoresSafeArea()
             if let track = playback.assTrack {
                 AssSubtitleOverlay(track: track, videoSize: CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight)))
+            } else if playback.isConverted {
+                // A converted stream carries no subtitles; the app draws them.
+                SubtitleOverlayView(text: playback.subtitleText)
+                    .allowsHitTesting(false)
             } else if !playback.isLoadingStyledSubtitles {
                 AetherSubtitleLayer(engine: engine, clock: engine.clock)
                     .allowsHitTesting(false)
@@ -43,11 +47,16 @@ struct AetherPlayerView: View {
             // The Up Next card takes the screen (and the remote) on its own.
             if !playback.endCardVisible {
                 #if os(tvOS)
-                AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil, onFinished: onFinished)
+                AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil || playback.qualityOfferVisible, onFinished: onFinished)
                 #else
                 touchControls
                 skipButton
                 #endif
+            }
+
+            if playback.qualityOfferVisible, !playback.endCardVisible {
+                StallQualityCard(playback: playback)
+                    .transition(.opacity)
             }
 
             if !playback.hasStarted, playback.errorMessage == nil {
@@ -68,6 +77,7 @@ struct AetherPlayerView: View {
         }
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
+        .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
         .onChange(of: engine.state) { _, state in
             // The end of an episode with one after it holds on Up Next;
             // anything else closes the player.
@@ -261,34 +271,48 @@ struct AetherPlayerView: View {
 
     @ViewBuilder
     private var trackMenus: some View {
-        if engine.audioTracks.count > 1 {
+        if playback.audioChoices.count > 1 {
             Menu {
                 Picker("Audio", selection: Binding(
-                    get: { engine.activeAudioTrackIndex ?? -1 },
+                    get: { playback.currentAudio ?? -1 },
                     set: { playback.selectAudio($0); reveal() }
                 )) {
-                    ForEach(engine.audioTracks) { track in
-                        Text(Self.label(for: track)).tag(track.id)
+                    ForEach(playback.audioChoices) { track in
+                        Text(track.title).tag(track.id)
                     }
                 }
             } label: {
                 Label("Audio", systemImage: "speaker.wave.2")
             }
         }
-        if !engine.subtitleTracks.isEmpty {
+        if !playback.subtitleChoices.isEmpty {
             Menu {
                 Picker("Subtitles", selection: Binding(
-                    get: { engine.activeSubtitleTrackIndex ?? -1 },
+                    get: { playback.currentSubtitle },
                     set: { playback.selectSubtitle($0 >= 0 ? $0 : nil); reveal() }
                 )) {
                     Text("Off").tag(-1)
-                    ForEach(engine.subtitleTracks) { track in
-                        Text(Self.label(for: track)).tag(track.id)
+                    ForEach(playback.subtitleChoices) { track in
+                        Text(track.title).tag(track.id)
                     }
                 }
             } label: {
                 Label("Subtitles", systemImage: "captions.bubble")
             }
+        }
+        Menu {
+            // A cap has the server convert the file down to it; AetherEngine
+            // plays on from the same spot.
+            Picker("Quality", selection: Binding(
+                get: { playback.currentQuality },
+                set: { playback.chooseQuality($0); reveal() }
+            )) {
+                ForEach(playback.qualityChoices) { choice in
+                    Text(choice.title).tag(choice.id)
+                }
+            }
+        } label: {
+            Label("Quality", systemImage: "dial.medium")
         }
     }
 
@@ -474,4 +498,56 @@ private struct AetherSubtitleLayer: View {
         return CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
     }
 }
+// MARK: - Stalling
+
+/// Comes up when the original file keeps stalling: carry on, or play at a
+/// lower quality, which the server converts down to fit the connection.
+struct StallQualityCard: View {
+    let playback: AetherPlayback
+
+    #if os(tvOS)
+    @FocusState private var focused: Int?
+    #endif
+
+    var body: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Text("Playback Keeps Stopping")
+                    .font(.title2.weight(.semibold))
+                Text("The connection can't keep up with the original file. A lower quality has the server convert it to fit.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            choices
+        }
+        .padding(40)
+        .frame(maxWidth: 900)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(40)
+        #if os(tvOS)
+        .onAppear { focused = 0 }
+        // Back is "Keep Trying".
+        .onExitCommand { playback.keepTrying() }
+        #endif
+    }
+
+    private var choices: some View {
+        HStack(spacing: 16) {
+            Button("Keep Trying") { playback.keepTrying() }
+                .buttonStyle(.bordered)
+                #if os(tvOS)
+                .focused($focused, equals: 0)
+                #endif
+            ForEach(StreamQuality.caps, id: \.self) { cap in
+                Button(StreamQuality.title(cap)) { playback.chooseQuality(cap) }
+                    .buttonStyle(.borderedProminent)
+                    #if os(tvOS)
+                    .focused($focused, equals: cap)
+                    #endif
+            }
+        }
+    }
+}
+
 #endif

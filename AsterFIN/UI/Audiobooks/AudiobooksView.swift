@@ -202,6 +202,22 @@ struct AudiobookHeroCard: View {
     let isFocused: Bool
 
     @Environment(AppSession.self) private var session
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
+
+    /// An iPhone held upright has no room for the cover beside the text, so
+    /// the cover goes above it, smaller.
+    private var stacked: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact && verticalSizeClass == .regular
+        #else
+        false
+        #endif
+    }
+
+    private static let stackedCoverSize: CGFloat = 150
 
     #if os(tvOS)
     private static let coverSize: CGFloat = 420
@@ -237,8 +253,11 @@ struct AudiobookHeroCard: View {
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)], startPoint: UnitPoint(x: 0.5, y: 0.35), endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .leading, endPoint: .center)
 
-            HStack(alignment: .bottom, spacing: 48) {
-                AudiobookCover(book: book, size: Self.coverSize, width: 900)
+            let layout = stacked
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 24))
+                : AnyLayout(HStackLayout(alignment: .bottom, spacing: 48))
+            layout {
+                AudiobookCover(book: book, size: stacked ? Self.stackedCoverSize : Self.coverSize, width: 900)
                     .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
                 VStack(alignment: .leading, spacing: 16) {
                     if let series = book.series {
@@ -257,7 +276,8 @@ struct AudiobookHeroCard: View {
                     }
                     if book.progress > 0, !book.isFinished {
                         ProgressBar(progress: book.progress)
-                            .frame(width: 360, height: 6)
+                            .frame(maxWidth: 360)
+                            .frame(height: 6)
                     }
                     if let overview = book.overview {
                         Text(overview)

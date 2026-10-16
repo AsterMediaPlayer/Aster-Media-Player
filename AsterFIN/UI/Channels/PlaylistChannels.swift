@@ -45,6 +45,8 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     let number: Int
     let items: [BaseItem]
     var mode: ChannelMode = .rotation
+    /// The guide shows the playlist's picture as the channel's logo.
+    var showsLogo = false
 
     var id: String { playlist.id }
     var name: String { playlist.displayTitle }
@@ -95,15 +97,17 @@ final class ChannelsModel {
 
     /// Loads the chosen playlists and their movies and episodes, in channel
     /// order. A playlist that's gone from the server, or has neither, is left out.
-    func load(ids: [String], modes: [String: ChannelMode], client: JellyfinClient, force: Bool = false) async {
+    func load(ids: [String], modes: [String: ChannelMode], logos: Set<String>, client: JellyfinClient, force: Bool = false) async {
         guard force || ids != loadedFor || !hasLoaded else {
-            // Only the modes changed: no need to fetch again.
-            if channels.contains(where: { $0.mode != (modes[$0.id] ?? .rotation) }) {
-                channels = channels.map { channel in
-                    var changed = channel
-                    changed.mode = modes[channel.id] ?? .rotation
-                    return changed
-                }
+            // Only the modes or logos changed: no need to fetch again.
+            let updated = channels.map { channel in
+                var changed = channel
+                changed.mode = modes[channel.id] ?? .rotation
+                changed.showsLogo = logos.contains(channel.id)
+                return changed
+            }
+            if updated != channels {
+                channels = updated
                 ChannelTuner.register(channels)
             }
             return
@@ -125,7 +129,7 @@ final class ChannelsModel {
             for playlist in chosen {
                 let items = (contents[playlist.id] ?? []).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty else { continue }
-                built.append(PlaylistChannel(playlist: playlist, number: built.count + 1, items: items, mode: modes[playlist.id] ?? .rotation))
+                built.append(PlaylistChannel(playlist: playlist, number: built.count + 1, items: items, mode: modes[playlist.id] ?? .rotation, showsLogo: logos.contains(playlist.id)))
             }
             channels = built
             ChannelTuner.register(built)

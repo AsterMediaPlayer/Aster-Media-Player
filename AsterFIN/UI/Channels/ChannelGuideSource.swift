@@ -35,6 +35,8 @@ final class ChannelGuideSource: GuideSource {
         for channel in playlistChannels {
             var item = BaseItem(id: channel.id, name: channel.name, type: "TvChannel")
             item.channelNumber = "\(channel.number)"
+            // The playlist's picture as the logo, when turned on for it.
+            if channel.showsLogo { item.imageTags = channel.playlist.imageTags }
             channels.append(item)
 
             let row = channel.programs(from: start, to: end).map { program in
@@ -98,7 +100,4 @@ final class ChannelGuideSource: GuideSource {
         guard let item = scheduled[program.id]?.item else { return nil }
         return client.landscapeURL(for: item, width: width)
     }
-
-    /// Playlists' pictures are usually a collage, so channels show their name.
-    func channelLogoURL(_ channel: BaseItem, width: Int, client: JellyfinClient) -> URL? { nil }
 }

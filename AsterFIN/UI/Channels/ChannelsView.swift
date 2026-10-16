@@ -13,6 +13,7 @@ struct ChannelsView: View {
     @Environment(\.openItem) private var openItem
     @AppStorage(AppSettings.playlistChannelsKey) private var stored = ""
     @AppStorage(AppSettings.playlistChannelModesKey) private var storedModes = ""
+    @AppStorage(AppSettings.playlistChannelLogosKey) private var storedLogos = ""
     @State private var model = ChannelsModel()
     @State private var guide: ChannelGuideSource?
 
@@ -57,9 +58,14 @@ struct ChannelsView: View {
                 .id(ObjectIdentifier(guide))
             }
         }
-        .task(id: stored + "|" + storedModes) {
+        .task(id: [stored, storedModes, storedLogos]) {
             guard let client = session.client else { return }
-            await model.load(ids: ids, modes: PlaylistChannelList.modes(from: storedModes), client: client)
+            await model.load(
+                ids: ids,
+                modes: PlaylistChannelList.modes(from: storedModes),
+                logos: Set(PlaylistChannelList.ids(from: storedLogos)),
+                client: client
+            )
             rebuildGuide()
         }
         .onAppear {

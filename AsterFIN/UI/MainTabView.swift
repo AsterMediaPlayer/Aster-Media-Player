@@ -80,6 +80,7 @@ enum TabLayout {
 
 struct MainTabView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
     @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
@@ -181,6 +182,11 @@ struct MainTabView: View {
                     PlayerView(request: request) { linkedPlayback = nil }
                 }
         }
+        // Settings that follow the user (their channels), alongside the
+        // loading below rather than holding it up.
+        .task {
+            if let client = session.client { await SettingsSync.pull(client: client) }
+        }
         .task {
             guard let client = session.client else { return }
             await session.refreshUserConfiguration()
@@ -189,6 +195,11 @@ struct MainTabView: View {
             await session.refreshUpcoming()
             await session.detectAnimeLibraries(among: views)
             await followPendingLinks()
+        }
+        // Back from the background: changes made on another device since.
+        .onChange(of: scenePhase) { old, phase in
+            guard phase == .active, old == .background, let client = session.client else { return }
+            Task { await SettingsSync.pull(client: client) }
         }
         .onChange(of: session.router.pendingItemId) { _, _ in
             Task { await followPendingLinks() }

@@ -282,6 +282,8 @@ enum AppSettings {
     /// (see `PlaylistChannelList`). Kept on this device.
     static let playlistChannelsKey = "AsterFIN.playlistChannels"
     static let playlistChannelModesKey = "AsterFIN.playlistChannelModes"
+    /// Channels showing their playlist's picture as their logo, comma-joined.
+    static let playlistChannelLogosKey = "AsterFIN.playlistChannelLogos"
     /// Mac: videos play full screen, the window going back as they close.
     /// On by default.
     static let fullScreenPlaybackKey = "AsterFIN.fullScreenPlayback"

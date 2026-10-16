@@ -80,6 +80,10 @@ struct SettingsView: View {
             case .about: AboutSettingsView()
             }
         }
+        // Settings that follow the user come from their server on opening.
+        .task {
+            if let client = session.client { await SettingsSync.pull(client: client) }
+        }
     }
 }
 
@@ -87,6 +91,8 @@ struct SettingsView: View {
 /// The Mac's Settings window (AsterFIN › Settings…, ⌘,): a pane per section,
 /// as Mac apps do, in place of the Settings tab the other platforms have.
 struct MacSettingsView: View {
+    @Environment(AppSession.self) private var session
+
     var body: some View {
         TabView {
             PlaybackSettingsView()
@@ -106,6 +112,9 @@ struct MacSettingsView: View {
         }
         .frame(width: 560)
         .frame(minHeight: 380)
+        .task {
+            if let client = session.client { await SettingsSync.pull(client: client) }
+        }
     }
 }
 #endif
@@ -398,6 +407,7 @@ struct ChannelSettingsView: View {
     @Environment(AppSession.self) private var session
     @AppStorage(AppSettings.playlistChannelsKey) private var stored = ""
     @AppStorage(AppSettings.playlistChannelModesKey) private var storedModes = ""
+    @AppStorage(AppSettings.playlistChannelLogosKey) private var storedLogos = ""
     @State private var playlists: [BaseItem] = []
     @State private var loaded = false
     @State private var errorMessage: String?
@@ -451,7 +461,13 @@ struct ChannelSettingsView: View {
                                 selection: modeBinding(for: playlist.id)
                             )
                         }
-                        SettingsNote("Rotation plays one episode of each show in turn; Blocks plays two to four in a row. Either way a show's episodes come in order and pick up where they left off, and each movie takes a turn of its own. Specials are left out. Set a channel the same on each device to see the same schedule.")
+                        SettingsNote("Rotation plays one episode of each show in turn; Blocks plays two to four in a row. Either way a show's episodes come in order and pick up where they left off, and each movie takes a turn of its own. Specials are left out.")
+                    }
+                    Section("Logos") {
+                        ForEach(chosen) { playlist in
+                            Toggle(playlist.displayTitle, isOn: logoBinding(for: playlist.id))
+                        }
+                        SettingsNote("Shows the playlist's picture in the guide in place of the channel's name. Set a picture for the playlist in Jellyfin first.")
                     }
                 }
                 if !others.isEmpty {
@@ -462,11 +478,28 @@ struct ChannelSettingsView: View {
                     }
                 }
                 Section {
-                    SettingsNote("Touch and hold a channel (or right-click it) to move it up or down.")
+                    SettingsNote("Touch and hold a channel (or right-click it) to move it up or down. Your channels are saved on your Jellyfin server, so they follow you to your other devices when you open Settings there.")
                 }
             }
         }
-        .task { await load() }
+        .task {
+            // Edit Channels on the Channels tab opens this page directly.
+            if let client = session.client { await SettingsSync.pull(client: client) }
+            await load()
+        }
+        // Changes go to the server, so the user's other devices pick them up.
+        .onChange(of: stored) {
+            guard let client = session.client else { return }
+            Task { await SettingsSync.push(AppSettings.playlistChannelsKey, client: client) }
+        }
+        .onChange(of: storedModes) {
+            guard let client = session.client else { return }
+            Task { await SettingsSync.push(AppSettings.playlistChannelModesKey, client: client) }
+        }
+        .onChange(of: storedLogos) {
+            guard let client = session.client else { return }
+            Task { await SettingsSync.push(AppSettings.playlistChannelLogosKey, client: client) }
+        }
     }
 
     private func row(_ playlist: BaseItem, number: Int?) -> some View {
@@ -508,6 +541,17 @@ struct ChannelSettingsView: View {
                 var modes = PlaylistChannelList.modes(from: storedModes)
                 modes[id] = mode
                 storedModes = PlaylistChannelList.encode(modes)
+            }
+        )
+    }
+
+    private func logoBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { PlaylistChannelList.ids(from: storedLogos).contains(id) },
+            set: { on in
+                var ids = PlaylistChannelList.ids(from: storedLogos).filter { $0 != id }
+                if on { ids.append(id) }
+                storedLogos = PlaylistChannelList.encode(ids)
             }
         )
     }

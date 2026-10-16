@@ -866,11 +866,46 @@ nonisolated final class JellyfinClient: Sendable {
         try await send(authorizedRequest(url(path, query: query))).0
     }
 
-    private func postRaw(_ path: String, body: Data) async throws {
-        var request = authorizedRequest(url(path), method: "POST")
+    private func postRaw(_ path: String, query: [String: String?] = [:], body: Data) async throws {
+        var request = authorizedRequest(url(path, query: query), method: "POST")
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         _ = try await send(request)
+    }
+
+    // MARK: Settings on the server
+
+    /// AsterFIN's own settings for this user are kept in Jellyfin's display
+    /// preferences, the place the server gives each app for its settings
+    /// (Jellyfin's web app keeps its own under the client name "emby").
+    private static let settingsRecord = "asterfin"
+    private static let settingsClient = "AsterFIN"
+    /// Account-wide web settings the server mixes into every record it
+    /// returns, and saves to the account from any record posted. Never sent
+    /// back, so AsterFIN can't change them.
+    private static let accountWidePrefs: Set<String> = ["chromecastversion", "skipforwardlength", "skipbacklength", "enablenextvideoinfooverlay", "tvhome", "dashboardtheme"]
+
+    private func settingsRecordJSON() async throws -> [String: Any] {
+        let data = try await rawGet("/DisplayPreferences/\(Self.settingsRecord)", query: ["userId": try requireUser(), "client": Self.settingsClient])
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    private static func ownPrefs(in record: [String: Any]) -> [String: String] {
+        let prefs = record["CustomPrefs"] as? [String: Any] ?? [:]
+        return prefs.filter { !accountWidePrefs.contains($0.key.lowercased()) }.compactMapValues { $0 as? String }
+    }
+
+    /// AsterFIN's settings saved on the server, by key.
+    func appSettings() async throws -> [String: String] {
+        Self.ownPrefs(in: try await settingsRecordJSON())
+    }
+
+    /// Saves settings on the server, keeping the others already there.
+    func saveAppSettings(_ values: [String: String]) async throws {
+        var record = try await settingsRecordJSON()
+        record["CustomPrefs"] = Self.ownPrefs(in: record).merging(values) { _, new in new }
+        let body = try JSONSerialization.data(withJSONObject: record)
+        try await postRaw("/DisplayPreferences/\(Self.settingsRecord)", query: ["userId": try requireUser(), "client": Self.settingsClient], body: body)
     }
 
     // MARK: Playlists

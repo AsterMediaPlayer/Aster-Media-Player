@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, channels, tabBar, downloads, account, about
 }
 
 /// The Settings root: one row per category, each opening its own page.
@@ -31,6 +31,9 @@ struct SettingsView: View {
                 }
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
+                }
+                NavigationLink(value: SettingsDestination.channels) {
+                    Label("Channels", systemImage: "tv.and.mediabox")
                 }
                 #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {
@@ -60,6 +63,7 @@ struct SettingsView: View {
             case .audioSubtitles: AudioSubtitleSettingsView()
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
+            case .channels: ChannelSettingsView()
             case .tabBar:
                 #if os(iOS)
                 TabBarSettingsView()
@@ -93,6 +97,8 @@ struct MacSettingsView: View {
                 .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
+            ChannelSettingsView()
+                .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
             AboutSettingsView()
@@ -383,6 +389,157 @@ private struct DiscMenuSettingsView: View {
 }
 
 // MARK: - Title Pages
+
+// MARK: - Channels
+
+/// Which video playlists are Channels, and in what order. Reached from
+/// Settings and from the Channels tab's Edit button.
+struct ChannelSettingsView: View {
+    @Environment(AppSession.self) private var session
+    @AppStorage(AppSettings.playlistChannelsKey) private var stored = ""
+    @AppStorage(AppSettings.playlistChannelModesKey) private var storedModes = ""
+    @State private var playlists: [BaseItem] = []
+    @State private var loaded = false
+    @State private var errorMessage: String?
+
+    private var chosenIds: [String] { PlaylistChannelList.ids(from: stored) }
+
+    /// Chosen playlists in channel order; any gone from the server are skipped.
+    private var chosen: [BaseItem] {
+        chosenIds.compactMap { id in playlists.first { $0.id == id } }
+    }
+
+    private var others: [BaseItem] {
+        let ids = Set(chosenIds)
+        return playlists.filter { !ids.contains($0.id) }
+    }
+
+    var body: some View {
+        SettingsPage(title: "Channels") {
+            Section {
+                SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, in a new shuffled order every day and the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once one is on.")
+            }
+            if let errorMessage, playlists.isEmpty {
+                Section { Text(errorMessage).foregroundStyle(.secondary) }
+            } else if !loaded {
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            } else if playlists.isEmpty {
+                Section {
+                    SettingsNote("No video playlists yet. Make one in Jellyfin, or with Add to Playlist on any movie.")
+                }
+            } else {
+                if !chosen.isEmpty {
+                    Section("Channels") {
+                        ForEach(Array(chosen.enumerated()), id: \.element.id) { index, playlist in
+                            row(playlist, number: index + 1)
+                        }
+                        #if !os(tvOS)
+                        .onMove { from, to in
+                            var ids = chosen.map(\.id)
+                            ids.move(fromOffsets: from, toOffset: to)
+                            stored = PlaylistChannelList.encode(ids)
+                        }
+                        #endif
+                    }
+                }
+                if !chosen.isEmpty {
+                    Section("Shows Take Turns") {
+                        ForEach(chosen) { playlist in
+                            SettingsChoiceRow(
+                                title: playlist.displayTitle,
+                                options: ChannelMode.allCases.map { ($0, $0.title) },
+                                selection: modeBinding(for: playlist.id)
+                            )
+                        }
+                        SettingsNote("Rotation plays one episode of each show in turn; Blocks plays two to four in a row. Either way a show's episodes come in order and pick up where they left off, and each movie takes a turn of its own. Specials are left out. Set a channel the same on each device to see the same schedule.")
+                    }
+                }
+                if !others.isEmpty {
+                    Section(chosen.isEmpty ? "Video Playlists" : "More Playlists") {
+                        ForEach(others) { playlist in
+                            row(playlist, number: nil)
+                        }
+                    }
+                }
+                Section {
+                    SettingsNote("Touch and hold a channel (or right-click it) to move it up or down.")
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func row(_ playlist: BaseItem, number: Int?) -> some View {
+        Toggle(isOn: Binding(
+            get: { chosenIds.contains(playlist.id) },
+            set: { setChannel(playlist.id, on: $0) }
+        )) {
+            HStack(spacing: 14) {
+                if let number {
+                    Text("\(number)")
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 28, alignment: .trailing)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.displayTitle)
+                    if let count = playlist.childCount {
+                        Text(count == 1 ? "1 title" : "\(count) titles")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .contextMenu {
+            if let number {
+                Button("Move Up", systemImage: "arrow.up") { move(playlist.id, by: -1) }
+                    .disabled(number == 1)
+                Button("Move Down", systemImage: "arrow.down") { move(playlist.id, by: 1) }
+                    .disabled(number == chosen.count)
+            }
+        }
+    }
+
+    private func modeBinding(for id: String) -> Binding<ChannelMode> {
+        Binding(
+            get: { PlaylistChannelList.modes(from: storedModes)[id] ?? .rotation },
+            set: { mode in
+                var modes = PlaylistChannelList.modes(from: storedModes)
+                modes[id] = mode
+                storedModes = PlaylistChannelList.encode(modes)
+            }
+        )
+    }
+
+    private func setChannel(_ id: String, on: Bool) {
+        var ids = chosen.map(\.id)
+        if on, !ids.contains(id) {
+            ids.append(id)
+        } else if !on {
+            ids.removeAll { $0 == id }
+        }
+        stored = PlaylistChannelList.encode(ids)
+    }
+
+    private func move(_ id: String, by step: Int) {
+        var ids = chosen.map(\.id)
+        guard let index = ids.firstIndex(of: id), ids.indices.contains(index + step) else { return }
+        ids.swapAt(index, index + step)
+        stored = PlaylistChannelList.encode(ids)
+    }
+
+    private func load() async {
+        guard let client = session.client else { return }
+        do {
+            playlists = try await client.playlists(mediaType: "Video")
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        loaded = true
+    }
+}
 
 private struct TitlePageSettingsView: View {
     @AppStorage(AppSettings.themeMusicKey) private var themeMusic = false

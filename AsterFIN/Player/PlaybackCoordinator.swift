@@ -39,6 +39,10 @@ nonisolated struct PlaybackQueueItem: Hashable, Sendable {
     var clipStartTicks: Int64?
     /// The music video card shown over a clip.
     var themeInfo: ThemeInfo?
+    /// Set for a movie or episode on a Channels tab channel: nothing is reported, so
+    /// its resume point and watched state are left alone, and when it ends
+    /// whatever is on the channel then plays next (see `ChannelTuner`).
+    var channelId: String?
 }
 
 /// The streams tried in turn when a title won't play, each asking the server
@@ -72,6 +76,11 @@ nonisolated struct PlaybackRequest: Identifiable, Hashable, Sendable {
     /// resume point or watched state. `info` fills the music video card.
     init(clipOf itemId: String, fromTicks startTicks: Int64, toTicks endTicks: Int64, info: ThemeInfo? = nil) {
         items = [PlaybackQueueItem(itemId: itemId, startTicks: startTicks, endTicks: endTicks, clipStartTicks: startTicks, themeInfo: info)]
+    }
+
+    /// A channel's movie, from `ChannelTuner`.
+    init(channelEntry: PlaybackQueueItem) {
+        items = [channelEntry]
     }
 }
 
@@ -275,9 +284,10 @@ final class PlaybackCoordinator {
         themeMoments = []
 
         #if os(iOS)
-        // A download plays from the device. Not for a clip, nor once it has
+        // A download plays from the device. Not for a clip or a channel
+        // (which would keep its place on the device), nor once it has
         // failed to play: then the stream from the server takes over.
-        if entry.endTicks == nil, entry.fallback == .none, let download = DownloadStore.shared.playable(entry.itemId) {
+        if entry.endTicks == nil, entry.channelId == nil, entry.fallback == .none, let download = DownloadStore.shared.playable(entry.itemId) {
             await playDownload(download, entry: entry)
             return
         }
@@ -439,7 +449,8 @@ final class PlaybackCoordinator {
                     #endif
                 }
             }
-            let next = item.kind == .episode && !isClip && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
+            // A channel goes on to what it's showing, never Up Next.
+            let next = item.kind == .episode && !isClip && entry.channelId == nil && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
             guard currentItem?.id == item.id else { return }
             segments = loadedSegments
             upNext = next
@@ -802,6 +813,13 @@ final class PlaybackCoordinator {
         }
         showsUpNextAction = false
         activeSegment = nil
+        // A channel carries on with whatever it's showing now.
+        if index < queue.count, let channelId = queue[index].channelId,
+           let live = ChannelTuner.live(channelId: channelId, after: queue[index].itemId) {
+            queue[index] = live.entry
+            Task { await play(index: index) }
+            return
+        }
         if index + 1 >= queue.count, upNext != nil {
             // Hold on the Up Next card instead of closing the player.
             player.pause()
@@ -812,10 +830,10 @@ final class PlaybackCoordinator {
         Task { await play(index: index + 1) }
     }
 
-    /// False while playing a clip, which must leave the episode's resume
-    /// point and watched state as they were.
+    /// False while playing a clip or a channel, which must leave the item's
+    /// resume point and watched state as they were.
     private var reportsPlayback: Bool {
-        !(index < queue.count && queue[index].endTicks != nil)
+        !(index < queue.count && (queue[index].endTicks != nil || queue[index].channelId != nil))
     }
 
     /// Before replacing the stream: ends the old one on the server.

@@ -8,8 +8,37 @@
 
 import SwiftUI
 
+/// Where the guide's listings come from: Jellyfin's Live TV (`GuideModel`),
+/// or a schedule worked out on the device (`ChannelGuideSource`).
+protocol GuideSource: AnyObject {
+    var guideStart: Date { get }
+    var guideEnd: Date { get }
+    /// Each channel's programmes, keyed by channel id; a channel is missing
+    /// until its row has loaded.
+    var programs: [String: [BaseItem]] { get }
+    func program(withId id: String) -> BaseItem?
+    func channelId(forProgram id: String) -> String?
+    func airingProgram(for channelId: String) -> BaseItem?
+    func detail(for program: BaseItem) -> BaseItem
+    func hasDetail(for programId: String) -> Bool
+    func ensureDetail(for programId: String, client: JellyfinClient)
+    func ensurePrograms(for channelId: String, client: JellyfinClient)
+    func programImageURL(_ program: BaseItem, width: Int, client: JellyfinClient) -> URL?
+    func channelLogoURL(_ channel: BaseItem, width: Int, client: JellyfinClient) -> URL?
+}
+
+extension GuideSource {
+    func programImageURL(_ program: BaseItem, width: Int, client: JellyfinClient) -> URL? {
+        client.programImageURL(program, width: width)
+    }
+
+    func channelLogoURL(_ channel: BaseItem, width: Int, client: JellyfinClient) -> URL? {
+        client.channelLogoURL(channel, width: width)
+    }
+}
+
 @Observable
-final class GuideModel {
+final class GuideModel: GuideSource {
     let guideStart: Date
     let guideEnd: Date
 
@@ -130,11 +159,13 @@ final class GuideModel {
 struct GuideView: View {
     /// Owned by the Live TV screen so recording changes made from the programme
     /// sheet can be pushed straight into the guide.
-    let model: GuideModel
+    let model: any GuideSource
     let channels: [BaseItem]
     var select: (BaseItem) -> Void
     var playChannel: (String) -> Void
-    var toggleFavorite: (String) -> Void = { _ in }
+    /// Nil leaves the favourites menu off the channel cells.
+    var toggleFavorite: ((String) -> Void)? = nil
+    var emptyDetail = "Add a tuner or M3U source in the Jellyfin dashboard."
 
     @Environment(AppSession.self) private var session
     @State private var windowStart = GuideModel.floorToHalfHour(Date())
@@ -184,7 +215,7 @@ struct GuideView: View {
             guard channels.indices.contains(row), let programs = model.programs[channels[row].id] else { continue }
             for program in programs {
                 guard let start = program.start, let end = program.end, end > windowStart, start < windowEnd else { continue }
-                if let url = client.programImageURL(program, width: GuideNowPlayingPanel.imageWidth) {
+                if let url = model.programImageURL(program, width: GuideNowPlayingPanel.imageWidth, client: client) {
                     urls.append(url)
                 }
             }
@@ -262,6 +293,7 @@ struct GuideView: View {
             // follow, and tapping a programme opens its page instead.
             if let channel = highlightedChannel {
                 GuideNowPlayingPanel(
+                    source: model,
                     channel: channel,
                     program: highlightedProgram,
                     detailLoaded: highlightedProgram.map { model.hasDetail(for: $0.id) } ?? false
@@ -278,7 +310,7 @@ struct GuideView: View {
             .padding(.top, 10)
 
             if channels.isEmpty {
-                MessageView(systemImage: "antenna.radiowaves.left.and.right", title: "No channels", detail: "Add a tuner or M3U source in the Jellyfin dashboard.")
+                MessageView(systemImage: "antenna.radiowaves.left.and.right", title: "No channels", detail: emptyDetail)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
@@ -286,6 +318,7 @@ struct GuideView: View {
                             ForEach(channels) { channel in
                                 GuideRow(
                                     channel: channel,
+                                    logoURL: session.client.flatMap { model.channelLogoURL(channel, width: 200, client: $0) },
                                     programs: model.programs[channel.id],
                                     guideStart: model.guideStart,
                                     windowStart: windowStart,
@@ -296,7 +329,7 @@ struct GuideView: View {
                                     channelFocus: $focusedChannel,
                                     placeholderFocus: $focusedPlaceholder,
                                     playChannel: { playChannel(channel.id) },
-                                    toggleFavorite: { toggleFavorite(channel.id) },
+                                    toggleFavorite: toggleFavorite.map { toggle in { toggle(channel.id) } },
                                     select: select
                                 )
                                 .id(channel.id)
@@ -578,6 +611,7 @@ struct GuideHeader: View {
 /// right above the grid. Uses the guide's programme when the row has loaded,
 /// else the channel's own current-programme summary.
 struct GuideNowPlayingPanel: View {
+    let source: any GuideSource
     let channel: BaseItem
     let program: BaseItem?
     /// Whether the programme's full record has arrived.
@@ -598,12 +632,12 @@ struct GuideNowPlayingPanel: View {
             // falling back to the channel logo, so a logo is never shown and
             // then replaced a moment later.
             guard hasOwnPicture || detailLoaded else { return nil }
-            return client.programImageURL(program, width: Self.imageWidth)
+            return source.programImageURL(program, width: Self.imageWidth, client: client)
         }
         if let current = channel.currentProgram, let tag = current.imageTags?["Primary"] {
             return client.imageURL(itemId: current.id, kind: .primary, tag: tag, maxWidth: Self.imageWidth)
         }
-        return client.channelLogoURL(channel, width: Self.imageWidth)
+        return source.channelLogoURL(channel, width: Self.imageWidth, client: client)
     }
 
     // The channel's own current-programme summary is only used when no guide
@@ -679,6 +713,7 @@ struct GuideNowPlayingPanel: View {
 
 struct GuideRow: View {
     let channel: BaseItem
+    let logoURL: URL?
     let programs: [BaseItem]?
     let guideStart: Date
     let windowStart: Date
@@ -689,7 +724,7 @@ struct GuideRow: View {
     let channelFocus: FocusState<String?>.Binding
     let placeholderFocus: FocusState<String?>.Binding
     var playChannel: () -> Void
-    var toggleFavorite: () -> Void = {}
+    var toggleFavorite: (() -> Void)? = nil
     var select: (BaseItem) -> Void
 
     /// Programmes near the window, including one hour either side so focus can
@@ -707,7 +742,7 @@ struct GuideRow: View {
 
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
-            ChannelCell(channel: channel, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, action: playChannel)
+            ChannelCell(channel: channel, logoURL: logoURL, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, action: playChannel)
                 .frame(width: GuideView.channelColumnWidth, height: GuideView.rowHeight)
                 .focused(channelFocus, equals: channel.id)
 
@@ -796,11 +831,11 @@ struct GuidePlaceholderCell: View {
 
 struct ChannelCell: View {
     let channel: BaseItem
+    /// The channel's logo; nil shows its name.
+    let logoURL: URL?
     var isFavorite = false
     var toggleFavorite: (() -> Void)? = nil
     var action: () -> Void
-
-    @Environment(AppSession.self) private var session
 
     #if os(tvOS)
     private static let spacing: CGFloat = 12
@@ -821,7 +856,7 @@ struct ChannelCell: View {
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
                     .frame(width: Self.numberWidth, alignment: .leading)
-                if let logo = session.client?.channelLogoURL(channel, width: 200) {
+                if let logo = logoURL {
                     RemoteImage(url: logo, contentMode: .fit) {
                         Text(channel.displayTitle).font(GuideView.titleFont).lineLimit(2)
                     }

@@ -81,7 +81,7 @@ final class AetherPlayback {
     static func canPlay(_ request: PlaybackRequest) -> Bool {
         guard AppSettings.useAetherEngine, sharedEngine != nil, request.items.count == 1, let entry = request.items.first, entry.endTicks == nil else { return false }
         #if os(iOS)
-        if DownloadStore.shared.playable(entry.itemId) != nil { return false }
+        if entry.channelId == nil, DownloadStore.shared.playable(entry.itemId) != nil { return false }
         #endif
         return true
     }
@@ -132,14 +132,17 @@ final class AetherPlayback {
             engine.play()
             hasStarted = true
             stopReported = false
-            await client.reportStart(report(paused: false))
-            startReporting()
+            if reportsPlayback {
+                await client.reportStart(report(paused: false))
+                startReporting()
+            }
             onItemStarted?(item)
             startTimedState()
             // Markers and the next episode load once it plays, so they never
             // hold up the start.
             async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
-            let next = item.kind == .episode ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
+            // A channel goes on to what it's showing, never Up Next.
+            let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
             let markers = await loadedSegments
             guard self.item?.id == item.id, !stopped else { return }
             segments = markers
@@ -161,23 +164,31 @@ final class AetherPlayback {
         clearStyledSubtitles()
         let final = report(paused: true)
         engine.stop()
-        if hasStarted, !stopReported {
+        if hasStarted, !stopReported, reportsPlayback {
             let client = client
             Task { await client.reportStopped(final) }
         }
     }
 
+    /// A channel's movie leaves its resume point and watched state alone.
+    private var reportsPlayback: Bool { entry.channelId == nil }
+
     // MARK: Up Next
 
     /// The item played to its end: the server hears it finished, and when
     /// there's a next episode its card holds the screen, counting down to
-    /// play it if autoplay is on. False when there's nothing next, and the
-    /// player should close.
+    /// play it if autoplay is on. A channel goes on to whatever it's showing
+    /// now. False when there's nothing next, and the player should close.
     func playbackEnded() -> Bool {
         reportTask?.cancel()
         timedTask?.cancel()
         activeSegment = nil
         showsUpNextAction = false
+        if let channelId = entry.channelId {
+            guard let live = ChannelTuner.live(channelId: channelId, after: entry.itemId) else { return false }
+            play(live.item, entry: live.entry)
+            return true
+        }
         if hasStarted, !stopReported {
             stopReported = true
             var final = report(paused: true)
@@ -205,6 +216,13 @@ final class AetherPlayback {
             let client = client
             Task { await client.reportStopped(final) }
         }
+        play(next, entry: PlaybackQueueItem(itemId: next.id, startTicks: next.userData?.playbackPositionTicks ?? 0))
+    }
+
+    /// Starts another item in this same player.
+    private func play(_ next: BaseItem, entry: PlaybackQueueItem) {
+        countdownTask?.cancel()
+        countdown = nil
         timedTask?.cancel()
         segments = []
         activeSegment = nil
@@ -216,7 +234,7 @@ final class AetherPlayback {
         hasStarted = false
         // Its artwork covers the screen until it starts.
         item = next
-        entry = PlaybackQueueItem(itemId: next.id, startTicks: next.userData?.playbackPositionTicks ?? 0)
+        self.entry = entry
         Task { await start() }
     }
 

@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, library, downloads, settings, search
+    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, channels, library, downloads, settings, search
 
     var title: String {
         switch self {
@@ -28,6 +28,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "Music"
         case .audiobooks: "Audiobooks"
         case .liveTV: "Live TV"
+        case .channels: "Channels"
         case .library: "Library"
         case .downloads: "Downloads"
         case .settings: "Settings"
@@ -45,6 +46,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "music.note"
         case .audiobooks: "books.vertical.fill"
         case .liveTV: "antenna.radiowaves.left.and.right"
+        case .channels: "tv.and.mediabox"
         case .library: "square.stack.fill"
         case .downloads: "arrow.down.circle.fill"
         case .settings: "gearshape.fill"
@@ -81,6 +83,8 @@ struct MainTabView: View {
     @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
     @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
+    /// Channels show once a playlist is made into one (Settings › Channels).
+    @AppStorage(AppSettings.playlistChannelsKey) private var playlistChannels = ""
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var linkedPlayback: PlaybackRequest?
@@ -100,7 +104,11 @@ struct MainTabView: View {
         let order = TabLayout.order(from: tabOrder)
         let hidden = TabLayout.hidden(from: hiddenTabs)
         #endif
-        return order.filter { !hidden.contains($0) && session.hasContent(for: $0) && ($0 != .downloads || downloadsEnabled) }
+        return order.filter {
+            !hidden.contains($0) && session.hasContent(for: $0)
+                && ($0 != .downloads || downloadsEnabled)
+                && ($0 != .channels || !PlaylistChannelList.ids(from: playlistChannels).isEmpty)
+        }
     }
 
     var body: some View {
@@ -463,6 +471,7 @@ struct MainTabView: View {
         case .music: BrowseStack { MusicView() }
         case .audiobooks: BrowseStack { AudiobooksView() }
         case .liveTV: BrowseStack { LiveTVView() }
+        case .channels: BrowseStack { ChannelsView() }
         case .library: BrowseStack { LibraryView() }
         case .downloads:
             #if os(iOS)

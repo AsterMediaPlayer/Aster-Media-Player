@@ -154,10 +154,17 @@ nonisolated final class JellyfinClient: Sendable {
         _ = try await send(authorizedRequest(url(path, query: query), method: "DELETE"))
     }
 
-    /// Raw bytes with authentication (pictures, sounds).
-    func data(from url: URL) async throws -> Data {
+    /// Raw bytes with authentication (pictures, sounds), from the disk cache
+    /// when it has them. `fresh` skips the cache and drops what it held, for
+    /// a cached copy that turned out to be damaged.
+    func data(from url: URL, fresh: Bool = false) async throws -> Data {
         var request = authorizedRequest(url)
-        request.cachePolicy = .returnCacheDataElseLoad
+        if fresh {
+            Self.imageSession.configuration.urlCache?.removeCachedResponse(for: request)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        } else {
+            request.cachePolicy = .returnCacheDataElseLoad
+        }
         let (data, response) = try await Self.imageSession.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw JellyfinError.http(http.statusCode, nil)

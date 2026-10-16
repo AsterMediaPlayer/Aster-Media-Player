@@ -522,14 +522,15 @@ nonisolated final class JellyfinClient: Sendable {
 
     // MARK: Images
 
-    func imageURL(itemId: String, kind: ImageKind, tag: String? = nil, index: Int? = nil, maxWidth: Int? = nil, maxHeight: Int? = nil) -> URL {
+    /// `quality` is the server's JPEG/WebP quality, 0 to 100.
+    func imageURL(itemId: String, kind: ImageKind, tag: String? = nil, index: Int? = nil, maxWidth: Int? = nil, maxHeight: Int? = nil, quality: Int = 90) -> URL {
         var path = "/Items/\(itemId)/Images/\(kind.rawValue)"
         if let index { path += "/\(index)" }
         return url(path, query: [
             "tag": tag,
             "maxWidth": maxWidth.map(String.init),
             "maxHeight": maxHeight.map(String.init),
-            "quality": "90",
+            "quality": String(quality),
         ])
     }
 
@@ -564,18 +565,18 @@ nonisolated final class JellyfinClient: Sendable {
         return nil
     }
 
-    func posterURL(for item: BaseItem, width: Int = 500) -> URL? {
+    func posterURL(for item: BaseItem, width: Int = 500, quality: Int = 90) -> URL? {
         if let tag = item.imageTags?["Primary"] {
-            return imageURL(itemId: item.id, kind: .primary, tag: tag, maxWidth: width)
+            return imageURL(itemId: item.id, kind: .primary, tag: tag, maxWidth: width, quality: quality)
         }
         if let album = item.albumId, let tag = item.albumPrimaryImageTag {
-            return imageURL(itemId: album, kind: .primary, tag: tag, maxWidth: width)
+            return imageURL(itemId: album, kind: .primary, tag: tag, maxWidth: width, quality: quality)
         }
         if let series = item.seriesId, let tag = item.seriesPrimaryImageTag {
-            return imageURL(itemId: series, kind: .primary, tag: tag, maxWidth: width)
+            return imageURL(itemId: series, kind: .primary, tag: tag, maxWidth: width, quality: quality)
         }
         if let parent = item.parentPrimaryImageItemId, let tag = item.parentPrimaryImageTag {
-            return imageURL(itemId: parent, kind: .primary, tag: tag, maxWidth: width)
+            return imageURL(itemId: parent, kind: .primary, tag: tag, maxWidth: width, quality: quality)
         }
         return nil
     }

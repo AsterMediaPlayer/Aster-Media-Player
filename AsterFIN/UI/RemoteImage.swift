@@ -75,8 +75,10 @@ final class ImageStore {
     /// Fetches pictures ahead into the disk cache without decoding them, a
     /// few at a time in order, so a long grid's posters are there as they
     /// scroll in without holding hundreds of them decoded in memory. Stops
-    /// when the caller's task is cancelled (the grid went away).
-    func warm(_ urls: [URL], client: JellyfinClient?, concurrently width: Int = 6) async {
+    /// when the caller's task is cancelled (the grid went away). Three at a
+    /// time leaves half of the session's six connections to the server for
+    /// the pictures on screen, so they never wait behind the look-ahead.
+    func warm(_ urls: [URL], client: JellyfinClient?, concurrently width: Int = 3) async {
         guard let client else { return }
         let pending = urls.filter { cache.object(forKey: $0 as NSURL) == nil }
         await withTaskGroup(of: Void.self) { group in

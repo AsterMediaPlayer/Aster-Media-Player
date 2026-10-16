@@ -94,6 +94,21 @@ extension Lockup {
         1920
         #endif
     }
+
+    /// Pixels to ask for a poster card: its width at the sharpest screen it
+    /// shows on (2× on a 4K TV, 3× on iPhone), and nothing more.
+    #if os(tvOS)
+    static let posterImageWidth = 480
+    #else
+    static let posterImageWidth = 330
+    #endif
+
+    /// A poster card's picture. At quality 80 it's about 40% smaller than at
+    /// 90, with no difference you can see at card size. Cards and the grid's
+    /// look-ahead both use this, so they ask for the same URL and share the cache.
+    static func posterImageURL(for item: BaseItem, client: JellyfinClient?) -> URL? {
+        client?.posterURL(for: item, width: posterImageWidth, quality: 80)
+    }
 }
 
 // MARK: - Shelf
@@ -267,7 +282,7 @@ struct PosterLockup: View {
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink(value: item) {
                 ZStack(alignment: .bottom) {
-                    RemoteImage(url: session.client?.posterURL(for: item, width: 500), systemImage: item.kind == .series ? "tv" : "film")
+                    RemoteImage(url: Lockup.posterImageURL(for: item, client: session.client), systemImage: item.kind == .series ? "tv" : "film")
                         .frame(width: width, height: width * 1.5)
                     if let progress = shown.progressFraction {
                         ProgressBar(progress: progress)
@@ -615,7 +630,7 @@ struct ItemGrid: View {
             warmed = items.count
             let client = session.client
             let urls = fresh.compactMap { item in
-                landscape ? client?.landscapeURL(for: item, width: 800) : client?.posterURL(for: item, width: 500)
+                landscape ? client?.landscapeURL(for: item, width: 800) : Lockup.posterImageURL(for: item, client: client)
             }
             await ImageStore.shared.warm(urls, client: client)
         }

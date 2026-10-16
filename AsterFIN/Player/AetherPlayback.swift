@@ -111,6 +111,8 @@ final class AetherPlayback {
     private var convertedSubtitle = -1
     private var cueTask: Task<Void, Never>?
     private var playMethod = "DirectPlay"
+    /// The lock screen, Control Center and remote buttons.
+    @ObservationIgnored private let nowPlaying: AetherNowPlaying
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -133,6 +135,7 @@ final class AetherPlayback {
         self.client = client
         self.entry = entry
         self.preferences = preferences
+        self.nowPlaying = AetherNowPlaying(engine: engine, client: client)
     }
 
     func start() async {
@@ -168,6 +171,7 @@ final class AetherPlayback {
             let subtitle = PlaybackCoordinator.resolveSubtitle(for: entry, source: source, among: subtitles, preferences: preferences)
             let start = entry.startTicks > 0 ? Double(entry.startTicks) / 10_000_000 : nil
 
+            nowPlaying.prepare()
             mustConvert = false
             #if os(tvOS)
             // Apple TV has no AV1 or VP9 hardware, and decoding them in
@@ -201,6 +205,7 @@ final class AetherPlayback {
             engine.play()
             hasStarted = true
             stopReported = false
+            nowPlaying.show(item)
             if reportsPlayback {
                 await client.reportStart(report(paused: false))
                 startReporting()
@@ -357,6 +362,7 @@ final class AetherPlayback {
         timedTask?.cancel()
         clearStyledSubtitles()
         clearCues()
+        nowPlaying.end()
         let final = report(paused: true)
         engine.stop()
         if hasStarted, !stopReported, reportsPlayback {
@@ -484,6 +490,7 @@ final class AetherPlayback {
 
     private func updateTimedState() {
         guard hasStarted, !endCardVisible else { return }
+        nowPlaying.tick()
         let stalling = switch engine.playbackPhase {
         case .rebuffering, .stalled: true
         default: false

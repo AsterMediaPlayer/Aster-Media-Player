@@ -274,32 +274,36 @@ struct TypeGridView: View {
         ]
     }
 
+    private static let allTitlesID = "all-titles"
+
     var body: some View {
-        ScrollView(.vertical) {
-            // A plain VStack, as on Home: focus can only move from the hero to
-            // a card that exists. The grid below stays lazy.
-            VStack(alignment: .leading, spacing: 0) {
-                if !featured.isEmpty {
-                    HeroCarousel(items: featured, moveDown: {
-                        focusedLockup = recent.first?.id
-                    }, focusChanged: { focused in
-                        if focused { focusedLockup = nil }
-                    })
+        ScrollViewReader { reader in
+            ScrollView(.vertical) {
+                // A plain VStack, as on Home: focus can only move from the hero to
+                // a card that exists. The grid below stays lazy.
+                VStack(alignment: .leading, spacing: 0) {
+                    if !featured.isEmpty {
+                        HeroCarousel(items: featured, moveDown: {
+                            focusedLockup = recent.first?.id
+                        }, focusChanged: { focused in
+                            if focused { focusedLockup = nil }
+                        })
+                    }
+                    if heroLoaded {
+                        page(reader)
+                    } else {
+                        // Only the spinner until the hero is ready: a row shown
+                        // first takes focus on Apple TV, and the hero arriving
+                        // above pushes it and its focus down the page.
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 200)
+                    }
                 }
-                if heroLoaded {
-                    page
-                } else {
-                    // Only the spinner until the hero is ready: a row shown
-                    // first takes focus on Apple TV, and the hero arriving
-                    // above pushes it and its focus down the page.
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 200)
-                }
+                .padding(.bottom, Lockup.pageBottomPadding)
             }
-            .padding(.bottom, Lockup.pageBottomPadding)
+            .scrollClipDisabled()
         }
-        .scrollClipDisabled()
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
@@ -311,7 +315,7 @@ struct TypeGridView: View {
     }
 
     @ViewBuilder
-    private var page: some View {
+    private func page(_ reader: ScrollViewProxy) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
                 .font(.largeTitle.weight(.bold))
@@ -329,6 +333,11 @@ struct TypeGridView: View {
         Shelf(title: "Recently Added", items: recent) { item in
             LandscapeLockup(item: item, focus: $focusedLockup)
         }
+        #if os(tvOS)
+        .onMoveCommand { direction in
+            if direction == .down { moveDownFromRecent(reader) }
+        }
+        #endif
 
         if model.items.isEmpty, let error = model.errorMessage {
             MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
@@ -338,7 +347,8 @@ struct TypeGridView: View {
                 .font(.title3.weight(.semibold))
                 .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 20)
-            ItemGrid(items: model.items)
+                .id(Self.allTitlesID)
+            ItemGrid(items: model.items, focus: $focusedLockup)
             if model.hasMore {
                 ProgressView()
                     .frame(maxWidth: .infinity)
@@ -351,6 +361,23 @@ struct TypeGridView: View {
     private func load(reset: Bool = false) async {
         guard let client = session.client else { return }
         await model.load(client: client, query: query, excluding: session.animeItemIds, reset: reset)
+    }
+
+    /// Down from Recently Added. Below the hero the shelf sits low on the
+    /// page, with the grid's first row not yet made (the grid is lazy), so
+    /// the focus engine finds nothing below and focus stays put. Then the
+    /// grid is brought up and its first title takes focus.
+    private func moveDownFromRecent(_ reader: ScrollViewProxy) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let focused = focusedLockup, recent.contains(where: { $0.id == focused }),
+                  let first = model.items.first else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                reader.scrollTo(Self.allTitlesID, anchor: .top)
+            }
+            try? await Task.sleep(for: .milliseconds(350))
+            focusedLockup = first.id
+        }
     }
 
     /// Recently Added, and from it and what's in progress, the hero.

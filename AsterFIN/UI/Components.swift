@@ -254,6 +254,8 @@ struct LandscapeLockup: View {
 struct PosterLockup: View {
     let item: BaseItem
     var width: CGFloat = Lockup.posterWidth
+    /// Lets a parent move focus to this lockup by item id.
+    var focus: FocusState<String?>.Binding? = nil
 
     @Environment(AppSession.self) private var session
     @Environment(\.isKeyboardSelected) private var isKeyboardSelected
@@ -276,6 +278,7 @@ struct PosterLockup: View {
                 .frame(width: width, height: width * 1.5)
             }
             .cardButtonStyle()
+            .optionallyFocused(focus, equals: item.id)
             .keyboardSelectionHighlight(isKeyboardSelected)
             .keyboardTarget(opening: item)
             .itemActions(for: item, userData: $editedUserData.or(item.userData))
@@ -578,6 +581,12 @@ struct MetadataLine: View {
 struct ItemGrid: View {
     let items: [BaseItem]
     var landscape = false
+    /// Lets a parent move focus into the grid by item id.
+    var focus: FocusState<String?>.Binding? = nil
+
+    @Environment(AppSession.self) private var session
+    /// How many of `items` have had their pictures fetched ahead.
+    @State private var warmed = 0
 
     private var columns: [GridItem] {
         if landscape {
@@ -590,14 +599,26 @@ struct ItemGrid: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
             ForEach(items) { item in
                 if landscape {
-                    LandscapeLockup(item: item)
+                    LandscapeLockup(item: item, focus: focus)
                 } else {
-                    PosterLockup(item: item)
+                    PosterLockup(item: item, focus: focus)
                 }
             }
         }
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
+        // Each page of titles as it arrives: its pictures fetched ahead, the
+        // same ones the cards ask for, so scrolling finds them waiting.
+        .task(id: items.count) {
+            if items.count < warmed { warmed = 0 }
+            let fresh = items.dropFirst(warmed)
+            warmed = items.count
+            let client = session.client
+            let urls = fresh.compactMap { item in
+                landscape ? client?.landscapeURL(for: item, width: 800) : client?.posterURL(for: item, width: 500)
+            }
+            await ImageStore.shared.warm(urls, client: client)
+        }
     }
 }
 

@@ -33,7 +33,7 @@ struct SettingsView: View {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
                 NavigationLink(value: SettingsDestination.channels) {
-                    Label("Channels", systemImage: "tv.and.mediabox")
+                    Label("Channels (Beta)", systemImage: "tv.and.mediabox")
                 }
                 #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {
@@ -104,7 +104,7 @@ struct MacSettingsView: View {
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
             ChannelSettingsView()
-                .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
+                .tabItem { Label("Channels (Beta)", systemImage: "tv.and.mediabox") }
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
             AboutSettingsView()
@@ -425,7 +425,7 @@ struct ChannelSettingsView: View {
     }
 
     var body: some View {
-        SettingsPage(title: "Channels") {
+        SettingsPage(title: "Channels (Beta)") {
             Section {
                 SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, in a new shuffled order every day and the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once one is on.")
             }

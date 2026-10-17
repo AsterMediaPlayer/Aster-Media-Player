@@ -284,7 +284,7 @@ private struct PlaybackSettingsView: View {
             #if canImport(AetherEngine)
             Section("Player") {
                 Toggle("Use the system player", isOn: $useSystemPlayer)
-                SettingsNote("Videos play in AetherEngine, from the original file, with every audio and subtitle track switchable right away. Anything it can't play moves to the system player by itself, which can have the server convert it. Turn this on to use the system player for everything. Music, audiobooks, Live TV, playlists, downloads and theme clips use the system player either way.")
+                SettingsNote("Videos and Live TV play in AetherEngine, from the original file, with every audio and subtitle track switchable right away. A file that's too much for this device or the connection is converted by the server, and anything the engine can't play moves to the system player by itself. Turn this on to use the system player for everything. Playlists, downloads and opening and ending clips use the system player either way.")
             }
             #endif
         }

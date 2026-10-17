@@ -6,7 +6,7 @@
 
 A native Jellyfin client for Apple TV, iPhone, iPad and the Mac, written in SwiftUI.
 
-AsterFIN covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. You can watch with the system player, or try **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device.
+AsterFIN covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
 
 > AsterFIN is in beta (0.3). Expect rough edges, and please report what you find.
 
@@ -40,8 +40,8 @@ Taken on Apple TV.
 | | Apple TV | iPhone & iPad | Mac |
 | --- | :---: | :---: | :---: |
 | Browsing, title pages, search | ✓ | ✓ | ✓ |
-| System player | ✓ | ✓ | ✓ |
-| AetherEngine player (test) | ✓ | ✓ | ✓ |
+| AetherEngine player (the default) | ✓ | ✓ | ✓ |
+| System player (fallback, or by choice) | ✓ | ✓ | ✓ |
 | Music and audiobooks, with a now-playing bar | ✓ | ✓ | ✓ |
 | Live TV | ✓ | ✓ | ✓ |
 | Channels from playlists (beta) | ✓ | ✓ | ✓ |
@@ -60,12 +60,16 @@ Taken on Apple TV.
 - **Playlists**: Add to Playlist from any title. Video playlists have Play All and Shuffle, and you can reorder or remove items.
 
 ### Two players
-- **System player** (the default): Apple's player. AsterFIN direct plays when it can and asks the server to transcode when it can't. If a stream fails, it retries with a fresh H.264/AAC encode.
-- **AetherEngine** (Settings ▸ Playback ▸ "Use AetherEngine (test)"): plays the original file through [AetherEngine](https://github.com/superuser404notfound/AetherEngine) (FFmpeg demuxing, VideoToolbox decoding), so nothing is transcoded.
+- **AetherEngine** (the default): plays the original file through [AetherEngine](https://github.com/superuser404notfound/AetherEngine) (FFmpeg demuxing, VideoToolbox decoding), so nothing is transcoded unless it has to be.
   - **Tracks:** every audio and subtitle track switches on the device instantly, PGS/DVB/VobSub picture subtitles are drawn as they are, and HDR10, Dolby Vision and Atmos pass through.
-  - **Apple TV controls:** they work like the system player's. Click to pause, swipe to scrub while paused, swipe down for Chapters, Audio and Subtitles, and Back steps out one level at a time.
+  - **When the file is too much:** AV1 and VP9 on Apple TV, which has no hardware for them, are converted by the server and still play in AetherEngine. So does a lower quality, picked from the Quality menu or from the card that comes up when playback keeps stalling.
+  - **When it can't play something:** the title moves to the system player by itself, from the same spot and on the same tracks.
+  - **Apple TV controls:** they work like the system player's. Click to pause, swipe to scrub while paused (with a preview frame), swipe down for Chapters, Audio, Subtitles and Quality, and Back steps out one level at a time.
+  - **iPhone and iPad controls:** double-tap either side to skip 10 seconds, pinch to fill the screen, a scrub preview, and menus for chapters, speed (0.5x to 2x), audio, subtitles and quality, plus AirPlay.
+  - **Scrub previews:** Jellyfin's trickplay images when the server has made them, else stills from what's already downloaded.
+  - **Now Playing:** the lock screen, Control Center and headphone buttons on iPhone and iPad, and the Mac's Now Playing.
   - **Pause screen:** on Apple TV and the Mac, the title's logo and details appear, with a long description scrolling slowly.
-  - **Not yet:** music, audiobooks, Live TV, downloads and theme clips still use the system player.
+- **System player** (Settings ▸ Playback ▸ "Use the system player"): Apple's player. AsterFIN direct plays when it can and asks the server to transcode when it can't. If a stream fails, it retries with a fresh H.264/AAC encode. Playlists (Play All, Shuffle), downloads and opening/ending clips always use it.
 
 ### Subtitles
 - **Text subtitles:** AsterFIN draws them itself from Jellyfin's cue data, so they work in direct play as well as HLS.
@@ -86,7 +90,7 @@ Taken on Apple TV.
 
 ### Live TV
 - What's on now, a programme guide, a channel list and recordings.
-- A mini player keeps the channel playing in the header after you press Back.
+- Channels play through AetherEngine. A mini player keeps the channel playing in the header after you press Back, and choosing another channel switches it in the same player.
 - Record single programmes, or set series recording rules with options.
 
 ### Channels (Beta)
@@ -165,7 +169,11 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - A transcoded stream has one audio track, so switching audio needs direct play.
   - Use AetherEngine for both.
 - **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). AsterFIN avoids this by drawing subtitles itself.
-- **AetherEngine:** it's a test. It doesn't yet do Picture in Picture, trickplay thumbnails or the system Now Playing info, and on iPhone and iPad its controls are basic.
+- **AetherEngine:**
+  - No Picture in Picture yet.
+  - A converted stream (AV1 on Apple TV, or a lower quality) carries one audio track, so switching audio asks the server for a new stream.
+  - Video the engine decodes in software has no system Now Playing info.
+  - The Apple TV's Control Center doesn't list AsterFIN's video, with either player.
 - **Channels (beta):**
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.

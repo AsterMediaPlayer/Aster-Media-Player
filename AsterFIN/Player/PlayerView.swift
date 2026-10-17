@@ -42,6 +42,8 @@ struct PlayerView: View {
     /// Playback through AetherEngine, the main player, when it can take the
     /// request; the system player otherwise, or once it hands over.
     @State private var aether: AetherPlayback?
+    /// AetherEngine playback owned by someone else (the Live TV screen).
+    private var sharedAether: AetherPlayback?
     #endif
 
     /// Plays `request`, and stops when the view goes away.
@@ -58,6 +60,17 @@ struct PlayerView: View {
         self.sharedCoordinator = coordinator
         self.onFinished = onFinished
     }
+
+    #if canImport(AetherEngine)
+    /// Shows AetherEngine playback that keeps going after the view goes away,
+    /// like a Live TV channel the mini player carries on with.
+    init(aether: AetherPlayback, onFinished: @escaping () -> Void) {
+        self.request = nil
+        self.sharedCoordinator = nil
+        self.sharedAether = aether
+        self.onFinished = onFinished
+    }
+    #endif
 
     var body: some View {
         ZStack {
@@ -213,6 +226,12 @@ struct PlayerView: View {
                 #endif
                 return
             }
+            #if canImport(AetherEngine)
+            if let sharedAether {
+                aether = sharedAether
+                return
+            }
+            #endif
             guard let request, let client = session.client else { return }
             #if canImport(AetherEngine)
             guard aether == nil else { return }
@@ -234,6 +253,7 @@ struct PlayerView: View {
         .onDisappear {
             guard sharedCoordinator == nil else { return }
             #if canImport(AetherEngine)
+            guard sharedAether == nil else { return }
             aether?.stop()
             #endif
             coordinator?.stop()

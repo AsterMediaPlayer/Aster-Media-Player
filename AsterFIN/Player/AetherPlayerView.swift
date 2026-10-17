@@ -166,6 +166,8 @@ struct AetherPlayerView: View {
                     .gesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
+                                // A live channel has nothing to skip through.
+                                guard !playback.isLive else { return }
                                 let forward = value.location.x > proxy.size.width / 2
                                 Self.skip(forward ? 10 : -10, on: engine)
                                 skipFlash = SkipFlash(forward: forward)
@@ -244,7 +246,11 @@ struct AetherPlayerView: View {
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
+            if playback.isLive {
+                LiveBadge()
+            } else {
+                AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
+            }
             HStack(spacing: 20) {
                 RoutePicker()
                     .frame(width: 30, height: 30)
@@ -255,8 +261,10 @@ struct AetherPlayerView: View {
                 }
                 #endif
                 Spacer()
-                chapterMenu
-                speedMenu
+                if !playback.isLive {
+                    chapterMenu
+                    speedMenu
+                }
                 trackMenus
             }
             #if os(iOS)
@@ -327,6 +335,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "gobackward.10")
             }
             .accessibilityLabel("Back 10 seconds")
+            .opacity(playback.isLive ? 0 : 1)
+            .disabled(playback.isLive)
             Button(action: togglePlayPause) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 44))
@@ -337,6 +347,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "goforward.10")
             }
             .accessibilityLabel("Forward 10 seconds")
+            .opacity(playback.isLive ? 0 : 1)
+            .disabled(playback.isLive)
         }
         .font(.system(size: 30))
         .buttonStyle(.plain)
@@ -373,6 +385,7 @@ struct AetherPlayerView: View {
                 Label("Subtitles", systemImage: "captions.bubble")
             }
         }
+        if !playback.isLive {
         Menu {
             // A cap has the server convert the file down to it; AetherEngine
             // plays on from the same spot.
@@ -386,6 +399,7 @@ struct AetherPlayerView: View {
             }
         } label: {
             Label("Quality", systemImage: "dial.medium")
+        }
         }
     }
 
@@ -735,6 +749,28 @@ private struct RoutePicker: NSViewRepresentable {
 }
 #endif
 #endif
+
+// MARK: - Live
+
+/// In place of the timeline for a Live TV channel.
+struct LiveBadge: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(.red)
+                .frame(width: 10, height: 10)
+            Text("LIVE")
+                .font(.callout.weight(.bold))
+                .tracking(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.black.opacity(0.5), in: Capsule())
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("Live")
+    }
+}
 
 // MARK: - Scrub preview
 

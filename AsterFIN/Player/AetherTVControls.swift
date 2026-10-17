@@ -218,7 +218,7 @@ struct AetherTVControls: View {
         }
         // Scrubbing is for a paused picture, as in the system player; while
         // playing a swipe only shows the timeline.
-        if engine.state == .paused, abs(x) > abs(y), engine.duration > 0, let from = scrubFrom {
+        if !playback.isLive, engine.state == .paused, abs(x) > abs(y), engine.duration > 0, let from = scrubFrom {
             // A swipe across the whole surface covers a quarter of the video,
             // kept between 2 and 15 minutes.
             let span = min(max(engine.duration / 4, 120), 900)
@@ -231,6 +231,11 @@ struct AetherTVControls: View {
     }
 
     private func jump(_ seconds: Double) {
+        // A live channel has nothing to skip through.
+        guard !playback.isLive else {
+            show()
+            return
+        }
         if let target = scrubTarget {
             scrubTarget = clamped(target + seconds)
         } else {
@@ -343,7 +348,11 @@ struct AetherTVControls: View {
                 } else {
                     titleBlock
                 }
-                AetherTimeline(engine: engine, clock: engine.clock, scrubTarget: scrubTarget, preview: playback.scrubPreview(at:))
+                if playback.isLive {
+                    LiveBadge()
+                } else {
+                    AetherTimeline(engine: engine, clock: engine.clock, scrubTarget: scrubTarget, preview: playback.scrubPreview(at:))
+                }
                 tabRow
             }
         }

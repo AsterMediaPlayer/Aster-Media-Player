@@ -18,6 +18,8 @@ nonisolated struct FlickChannel: Identifiable, Equatable, Sendable {
     let number: String?
     let name: String
     let logoURL: URL?
+    /// A Channels-tab channel's bug, shown beside what's on.
+    var bugURL: URL? = nil
     let now: FlickProgram?
 }
 
@@ -156,10 +158,18 @@ final class ChannelFlickModel {
                     imageURL: client.landscapeURL(for: item, width: 480)
                 )
             }
-            let logo = channel.showsLogo ? channel.playlist.imageTags?["Primary"].map {
+            let picture = channel.playlist.imageTags?["Primary"].map {
                 client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: $0, maxWidth: 300)
-            } : nil
-            return FlickChannel(id: channel.id, number: "\(channel.number)", name: channel.name, logoURL: logo, now: program)
+            }
+            return FlickChannel(
+                id: channel.id,
+                number: "\(channel.number)",
+                name: channel.name,
+                logoURL: channel.showsLogo ? picture : nil,
+                // The playlist's picture is a logo when it's the bug or the logo.
+                bugURL: channel.showsBug || channel.showsLogo ? picture : nil,
+                now: program
+            )
         }
     }
 }

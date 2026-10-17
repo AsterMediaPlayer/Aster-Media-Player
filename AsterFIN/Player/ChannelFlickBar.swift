@@ -56,20 +56,30 @@ private struct ChannelFlickDetail: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 14) {
-                    if let number = channel.number {
-                        Text(number)
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.7))
+                HStack(alignment: .center, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 14) {
+                            if let number = channel.number {
+                                Text(number)
+                                    .font(.headline.monospacedDigit())
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                            Text(channel.name)
+                                .font(.headline)
+                                .foregroundStyle(.white.opacity(0.7))
+                                .lineLimit(1)
+                        }
+                        Text(channel.now?.title ?? "No programme information")
+                            .font(.system(size: 40, weight: .bold))
+                            .lineLimit(1)
                     }
-                    Text(channel.name)
-                        .font(.headline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
+                    // A Channels-tab channel's bug, beside its name and what's on.
+                    if let bug = channel.bugURL {
+                        Spacer(minLength: 0)
+                        RemoteImage(url: bug, contentMode: .fit) { EmptyView() }
+                            .frame(width: 140, height: 90, alignment: .trailing)
+                    }
                 }
-                Text(channel.now?.title ?? "No programme information")
-                    .font(.system(size: 40, weight: .bold))
-                    .lineLimit(1)
                 if let subtitle = channel.now?.subtitle {
                     Text(subtitle)
                         .font(.callout.weight(.semibold))

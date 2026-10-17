@@ -151,6 +151,11 @@ final class AetherPlayback {
     @ObservationIgnored private var tuneTask: Task<Void, Never>?
     /// A channel couldn't be tuned, so the one playing stayed; shown briefly.
     private(set) var tuneMessage: String?
+    /// Until when a channel isn't opened beside the playing one: the tuner
+    /// source turned a second stream away (some give only one at a time,
+    /// whatever Jellyfin counts), so for a while each change goes straight
+    /// to letting this channel go first, rather than failing first.
+    @ObservationIgnored private static var holdingUnavailableUntil = Date.distantPast
     @ObservationIgnored private var tuneMessageTask: Task<Void, Never>?
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
@@ -382,7 +387,7 @@ final class AetherPlayback {
             tuningName = nil
             return
         }
-        guard hasStarted else {
+        guard hasStarted, Date() >= Self.holdingUnavailableUntil else {
             cutOver(to: channelId)
             return
         }
@@ -399,8 +404,9 @@ final class AetherPlayback {
             } catch {
                 guard !Task.isCancelled, !self.stopped else { return }
                 #if DEBUG
-                print("DEBUG playback: couldn't open \(channelId) beside the playing channel (\(error.localizedDescription)); tuning it the plain way")
+                print("DEBUG playback: couldn't open \(channelId) beside the playing channel (\(error.localizedDescription)); tuning the plain way for 10 minutes")
                 #endif
+                Self.holdingUnavailableUntil = Date().addingTimeInterval(600)
                 self.tuningName = nil
                 self.cutOver(to: channelId)
                 return

@@ -56,30 +56,20 @@ private struct ChannelFlickDetail: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 14) {
-                            if let number = channel.number {
-                                Text(number)
-                                    .font(.headline.monospacedDigit())
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                            Text(channel.name)
-                                .font(.headline)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .lineLimit(1)
-                        }
-                        Text(channel.now?.title ?? "No programme information")
-                            .font(.system(size: 40, weight: .bold))
-                            .lineLimit(1)
+                HStack(spacing: 14) {
+                    if let number = channel.number {
+                        Text(number)
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    // A Channels-tab channel's bug, beside its name and what's on.
-                    if let bug = channel.bugURL {
-                        Spacer(minLength: 0)
-                        RemoteImage(url: bug, contentMode: .fit) { EmptyView() }
-                            .frame(width: 280, height: 180, alignment: .trailing)
-                    }
+                    Text(channel.name)
+                        .font(.headline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
                 }
+                Text(channel.now?.title ?? "No programme information")
+                    .font(.system(size: 40, weight: .bold))
+                    .lineLimit(1)
                 if let subtitle = channel.now?.subtitle {
                     Text(subtitle)
                         .font(.callout.weight(.semibold))
@@ -89,7 +79,7 @@ private struct ChannelFlickDetail: View {
                     Text(overview)
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(3)
+                        .lineLimit(2)
                 }
                 if let program = channel.now {
                     ChannelFlickTime(program: program)
@@ -99,10 +89,24 @@ private struct ChannelFlickDetail: View {
                     .foregroundStyle(isCurrent ? .white.opacity(0.6) : .white)
                     .padding(.top, 4)
             }
+            // Clear of the bug, which sits in the top right corner beside the
+            // channel and what's on without pushing the lines below apart.
+            .padding(.trailing, channel.bugURL == nil ? 0 : Self.bugWidth + 24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topTrailing) {
+                if let bug = channel.bugURL {
+                    RemoteImage(url: bug, contentMode: .fit) { EmptyView() }
+                        .frame(width: Self.bugWidth, height: 180, alignment: .topTrailing)
+                }
+            }
         }
-        .frame(height: 260, alignment: .top)
+        // As tall as what it holds, at least the picture's height, so the
+        // channel row below always stays below it.
+        .frame(minHeight: 225, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
     }
+
+    private static let bugWidth: CGFloat = 280
 }
 
 /// "8:00 – 8:30 PM", how far into it the channel is, and the time left.

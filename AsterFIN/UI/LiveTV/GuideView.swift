@@ -223,6 +223,14 @@ struct GuideView: View {
         ImageStore.shared.prefetch(urls, client: client)
     }
 
+    /// Where focus goes on entering the grid: the programme at the start of
+    /// the window (on now, unless the window has moved) on the row last
+    /// highlighted, else the first.
+    private var entryProgramId: String? {
+        guard let channelId = highlightedChannelId ?? channels.first?.id else { return nil }
+        return firstVisibleProgram(in: channelId)?.id
+    }
+
     private func nudgeIntoRow(_ channelId: String) {
         pendingNudgeChannelId = nil
         if let target = firstVisibleProgram(in: channelId) {
@@ -359,6 +367,10 @@ struct GuideView: View {
                     .tvFocusSection()
                     #if os(tvOS)
                     .focusScope(gridFocus)
+                    // Coming down into the grid (from the day picker, say)
+                    // lands on what's on in view on the current row, rather
+                    // than whichever cell happens to sit under the button.
+                    .defaultFocus($focusedProgram, entryProgramId, priority: .userInitiated)
                     #endif
                     // The lazy stack builds a row or two past the bottom edge, so
                     // focus can reach them before the system's animated scroll

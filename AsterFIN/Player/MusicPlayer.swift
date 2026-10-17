@@ -358,7 +358,7 @@ final class MusicPlayer {
             if start {
                 await client.reportStart(report)
             } else {
-                await client.reportProgress(report)
+                await client.reportProgress(report, savingResumePoint: .never)
             }
         }
     }

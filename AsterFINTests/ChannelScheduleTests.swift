@@ -265,4 +265,91 @@ struct ChannelScheduleTests {
         let to = Self.date(2026, 10, 16, 6)
         #expect(Self.tv(.shuffle, from: from, to: to).map(\.item.id) == Self.tv(.shuffle, items: Self.shows.shuffled(), from: from, to: to).map(\.item.id))
     }
+
+    // MARK: Reshuffle, seed and block lengths
+
+    private static func lineup(_ lineup: ChannelLineup, items: [BaseItem]? = nil, channel: String = "channel-a", from: Date, to: Date) -> [ScheduledProgram] {
+        ChannelSchedule.programs(channelId: channel, items: items ?? movies, lineup: lineup, from: from, to: to, calendar: calendar)
+    }
+
+    /// A channel without the newer tags keeps the schedule it had before
+    /// them, across the end of daylight saving time. Worked out separately
+    /// from the original code, so a change that moves every channel's
+    /// lineup shows up here.
+    @Test func untaggedChannelsKeepTheirSchedule() {
+        let movies = Self.programs(from: Self.date(2026, 10, 31, 18), to: Self.date(2026, 11, 2, 6)).map(\.item.id)
+        #expect(movies == [
+            "m1", "m3", "m0", "m2", "m1", "m3", "m0", "m7", "m5", "m4", "m2", "m6", "m1", "m3", "m0", "m7",
+            "m5", "m0", "m5", "m3"
+        ])
+
+        let series = ["s0", "s1", "s2"].flatMap { name in (1...6).map { Self.episode(name, season: 1, $0) } }
+        let blocks = Self.tv(.blocks, items: series, channel: "channel-b", from: Self.date(2026, 10, 31, 18), to: Self.date(2026, 11, 1, 6)).map(\.item.id)
+        #expect(blocks == [
+            "s2-s1e4", "s1-s1e5", "s1-s1e6", "s0-s1e1", "s0-s1e2", "s0-s1e3", "s2-s1e5", "s2-s1e6",
+            "s1-s1e1", "s1-s1e2", "s0-s1e4", "s0-s1e5", "s0-s1e6", "s0-s1e1", "s2-s1e1", "s2-s1e2",
+            "s2-s1e3", "s1-s1e3", "s1-s1e4", "s1-s1e5", "s1-s1e6", "s2-s1e4", "s2-s1e5", "s0-s1e2",
+            "s0-s1e3", "s0-s1e4", "s1-s1e1", "s1-s1e2", "s1-s1e3", "s2-s1e6", "s2-s1e1", "s0-s1e5",
+            "s0-s1e6", "s0-s1e1", "s1-s1e4", "s1-s1e5"
+        ])
+    }
+
+    /// Within one period the shows go round a single order, so the lineup
+    /// repeats every eight programs (one per movie), midnight or not.
+    @Test(arguments: [
+        (ChannelReshuffle.week, 2026, 10, 13, 2026, 10, 18),
+        (ChannelReshuffle.month, 2026, 10, 2, 2026, 10, 30),
+    ])
+    func aWeekOrMonthKeepsOneOrder(reshuffle: ChannelReshuffle, y1: Int, m1: Int, d1: Int, y2: Int, m2: Int, d2: Int) {
+        let ids = Self.lineup(ChannelLineup(reshuffle: reshuffle), from: Self.date(y1, m1, d1), to: Self.date(y2, m2, d2)).map(\.item.id)
+        #expect(ids.count > 30)
+        for index in 0..<(ids.count - 8) {
+            #expect(ids[index] == ids[index + 8], "program \(index) broke the order")
+        }
+        // A daily channel doesn't: its order changes at midnight.
+        let daily = Self.lineup(ChannelLineup(), from: Self.date(y1, m1, d1), to: Self.date(y2, m2, d2)).map(\.item.id)
+        #expect((0..<(daily.count - 8)).contains { daily[$0] != daily[$0 + 8] })
+    }
+
+    @Test func theNextWeekDealsANewOrder() {
+        /// The week's order, starting from m0 so where the window starts doesn't matter.
+        func order(from: Date) -> [String] {
+            let ids = Self.lineup(ChannelLineup(reshuffle: .week), from: from, to: from.addingTimeInterval(24 * 3600)).map(\.item.id)
+            let cycle = Array(ids.prefix(8))
+            let start = cycle.firstIndex(of: "m0") ?? 0
+            return Array(cycle[start...] + cycle[..<start])
+        }
+        #expect(order(from: Self.date(2026, 10, 14)) != order(from: Self.date(2026, 10, 21)))
+    }
+
+    @Test func aSeedDealsAFreshLineup() {
+        let from = Self.date(2026, 10, 15, 18)
+        let to = Self.date(2026, 10, 16, 6)
+        let original = Self.lineup(ChannelLineup(), from: from, to: to).map(\.item.id)
+        #expect(Self.lineup(ChannelLineup(seed: 0), from: from, to: to).map(\.item.id) == original)
+        let reshuffled = Self.lineup(ChannelLineup(seed: 1), from: from, to: to).map(\.item.id)
+        #expect(reshuffled != original)
+        #expect(Self.lineup(ChannelLineup(seed: 1), from: from, to: to).map(\.item.id) == reshuffled)
+        #expect(Self.lineup(ChannelLineup(seed: 2), from: from, to: to).map(\.item.id) != reshuffled)
+    }
+
+    @Test func blocksFollowTheirLength() {
+        let midnight = Self.date(2026, 10, 16)
+        let programs = Self.lineup(ChannelLineup(mode: .blocks, blocks: 3...6), items: Self.shows, channel: "tv", from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 17))
+        var runs: [(count: Int, crossesMidnight: Bool)] = []
+        for (index, program) in programs.enumerated() {
+            let touchesMidnight = program.start <= midnight && program.end >= midnight
+            if index > 0, programs[index - 1].item.seriesId == program.item.seriesId {
+                runs[runs.count - 1].count += 1
+                runs[runs.count - 1].crossesMidnight = runs[runs.count - 1].crossesMidnight || touchesMidnight
+            } else {
+                runs.append((1, touchesMidnight))
+            }
+        }
+        // The window's ends and midnight can cut a block short.
+        let inner = runs.dropFirst().dropLast().filter { !$0.crossesMidnight }
+        #expect(inner.count > 5)
+        #expect(inner.allSatisfy { (3...6).contains($0.count) }, "runs: \(inner.map(\.count))")
+        #expect(inner.contains { $0.count > 4 }, "runs: \(inner.map(\.count))")
+    }
 }

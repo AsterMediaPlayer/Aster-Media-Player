@@ -46,20 +46,25 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     let playlist: BaseItem
     let number: Int
     let items: [BaseItem]
-    var mode: ChannelMode = .rotation
+    var lineup = ChannelLineup()
     /// The guide shows the playlist's picture as the channel's logo.
     var showsLogo = false
+    /// The players show the playlist's picture in a corner, as a network's bug.
+    var showsBug = false
+    /// From the `channel-name=` tag; nil for the playlist's own name.
+    var customName: String?
 
     var id: String { playlist.id }
-    var name: String { playlist.displayTitle }
+    var name: String { customName ?? playlist.displayTitle }
+    var mode: ChannelMode { lineup.mode }
 
     /// What's on now, and from how far in.
     func airing(at date: Date = Date()) -> ScheduledProgram? {
-        ChannelSchedule.airing(channelId: id, items: items, mode: mode, at: date)
+        ChannelSchedule.airing(channelId: id, items: items, lineup: lineup, at: date)
     }
 
     func programs(from: Date, to: Date) -> [ScheduledProgram] {
-        ChannelSchedule.programs(channelId: id, items: items, mode: mode, from: from, to: to)
+        ChannelSchedule.programs(channelId: id, items: items, lineup: lineup, from: from, to: to)
     }
 }
 
@@ -71,6 +76,10 @@ enum ChannelTuner {
 
     static func register(_ loaded: [PlaylistChannel]) {
         for channel in loaded { channels[channel.id] = channel }
+    }
+
+    static func channel(_ id: String) -> PlaylistChannel? {
+        channels[id]
     }
 
     /// What's on `channelId` at `date`, from as far in as it's got. Just
@@ -106,7 +115,7 @@ final class ChannelsModel {
         errorMessage = nil
         do {
             let tagged = Self.taggedChannels(in: try await client.playlists(mediaType: "Video"))
-            let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.playlist.displayTitle, $0.tags.number) })
+            let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
             let stale = tagged.map(\.playlist).filter { playlist in
                 force || itemCache[playlist.id] == nil || itemCache[playlist.id]?.count != playlist.childCount
             }
@@ -124,7 +133,7 @@ final class ChannelsModel {
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 let items = (itemCache[entry.playlist.id]?.items ?? []).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, mode: entry.tags.mode, showsLogo: entry.tags.showsLogo)
+                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, customName: entry.tags.name)
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built

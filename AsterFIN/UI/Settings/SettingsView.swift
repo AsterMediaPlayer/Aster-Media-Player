@@ -419,8 +419,16 @@ struct ChannelSettingsView: View {
     private var channels: [(playlist: BaseItem, tags: ChannelTags)] {
         let tagged = ChannelsModel.taggedChannels(in: playlists)
         let numbers = self.numbers
-        return tagged.sorted { (numbers[$0.playlist.id] ?? 0, $0.playlist.displayTitle) < (numbers[$1.playlist.id] ?? 0, $1.playlist.displayTitle) }
+        return tagged.sorted { (numbers[$0.playlist.id] ?? 0, Self.name($0)) < (numbers[$1.playlist.id] ?? 0, Self.name($1)) }
     }
+
+    /// The channel's own name, else its playlist's.
+    nonisolated private static func name(_ channel: (playlist: BaseItem, tags: ChannelTags)) -> String {
+        channel.tags.name ?? channel.playlist.displayTitle
+    }
+
+    /// Block lengths offered for Blocks mode, the usual first.
+    private static let blockChoices: [ClosedRange<Int>] = [ChannelLineup.defaultBlocks, 1...2, 1...3, 2...3, 3...4, 3...5, 3...6, 4...6, 4...8, 6...10]
 
     private var others: [BaseItem] {
         playlists.filter { !ChannelTags(tags: $0.tags).isChannel }
@@ -428,14 +436,14 @@ struct ChannelSettingsView: View {
 
     /// Each channel's number in the guide, its own or the next free one.
     private var numbers: [String: Int] {
-        ChannelTags.numbers(for: ChannelsModel.taggedChannels(in: playlists).map { ($0.playlist.id, $0.playlist.displayTitle, $0.tags.number) })
+        ChannelTags.numbers(for: ChannelsModel.taggedChannels(in: playlists).map { ($0.playlist.id, Self.name($0), $0.tags.number) })
     }
 
     /// "Tooniverse and Sitcoms are both channel 3."
     private var clashes: [String] {
         let byNumber = Dictionary(grouping: channels.filter { $0.tags.number != nil }, by: { $0.tags.number! })
         return byNumber.keys.sorted().compactMap { number in
-            guard let names = byNumber[number]?.map(\.playlist.displayTitle), names.count > 1 else { return nil }
+            guard let names = byNumber[number]?.map(Self.name), names.count > 1 else { return nil }
             return "\(names.formatted(.list(type: .and))) are all channel \(number)."
         }
     }
@@ -472,7 +480,7 @@ struct ChannelSettingsView: View {
                         ForEach(others) { playlist in
                             Toggle(isOn: Binding(
                                 get: { false },
-                                set: { on in if on { save(playlist, ChannelTags(tags: playlist.tags).with { $0.isChannel = true }) } }
+                                set: { on in if on { turnOn(playlist) } }
                             )) {
                                 playlistLabel(playlist)
                             }
@@ -481,8 +489,9 @@ struct ChannelSettingsView: View {
                     }
                 }
                 Section {
-                    SettingsNote("Rotation plays one episode of each show in turn, and Blocks two to four in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in a new order each day. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential) and asterfin:logo=on.")
+                    SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on and asterfin:channel-name=Your Name.")
+                    SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
         }
@@ -497,12 +506,15 @@ struct ChannelSettingsView: View {
             )) {
                 playlistLabel(playlist)
             }
+            ChannelNameField(playlistName: playlist.displayTitle, name: tags.name) { name in
+                save(playlist, tags.with { $0.name = name })
+            }
             SettingsChoiceRow(
                 title: "Number",
-                options: [(0, "Automatic (\(numbers[playlist.id] ?? 0))")] + (1...max(99, tags.number ?? 0)).map { ($0, "\($0)") },
+                options: (1...max(99, numbers[playlist.id] ?? 0)).map { ($0, "\($0)") },
                 selection: Binding(
-                    get: { tags.number ?? 0 },
-                    set: { number in save(playlist, tags.with { $0.number = number > 0 ? number : nil }) }
+                    get: { tags.number ?? numbers[playlist.id] ?? 1 },
+                    set: { number in save(playlist, tags.with { $0.number = number }) }
                 )
             )
             SettingsChoiceRow(
@@ -513,9 +525,38 @@ struct ChannelSettingsView: View {
                     set: { mode in save(playlist, tags.with { $0.mode = mode }) }
                 )
             )
+            if tags.mode == .blocks {
+                SettingsChoiceRow(
+                    title: "Episodes in a Row",
+                    options: (Self.blockChoices + (Self.blockChoices.contains(tags.blocks) ? [] : [tags.blocks])).map { range in
+                        (range, range.count == 1 ? "\(range.lowerBound)" : "\(range.lowerBound) to \(range.upperBound)")
+                    },
+                    selection: Binding(
+                        get: { tags.blocks },
+                        set: { blocks in save(playlist, tags.with { $0.blocks = blocks }) }
+                    )
+                )
+            }
+            if tags.mode != .sequential {
+                SettingsChoiceRow(
+                    title: "Reshuffle",
+                    options: ChannelReshuffle.allCases.map { ($0, $0.title) },
+                    selection: Binding(
+                        get: { tags.reshuffle },
+                        set: { reshuffle in save(playlist, tags.with { $0.reshuffle = reshuffle }) }
+                    )
+                )
+                Button("Shuffle Again") {
+                    save(playlist, tags.with { $0.seed += 1 })
+                }
+            }
             Toggle("Playlist Picture as Logo", isOn: Binding(
                 get: { tags.showsLogo },
                 set: { on in save(playlist, tags.with { $0.showsLogo = on }) }
+            ))
+            Toggle("Logo in the Corner While Playing", isOn: Binding(
+                get: { tags.showsBug },
+                set: { on in save(playlist, tags.with { $0.showsBug = on }) }
             ))
         } header: {
             Text("Channel \(numbers[playlist.id] ?? 0)")
@@ -534,10 +575,23 @@ struct ChannelSettingsView: View {
         }
     }
 
-    /// Writes the playlist's tags with these channel settings, keeping its
-    /// other tags; the page shows the change at once, and the Channels tab
-    /// picks it up.
+    /// Makes a playlist a channel, with the next free number and its picture
+    /// as the logo when it has one, unless its tags already say otherwise.
+    private func turnOn(_ playlist: BaseItem) {
+        var tags = ChannelTags(tags: playlist.tags)
+        tags.isChannel = true
+        if tags.number == nil { tags.number = (numbers.values.max() ?? 0) + 1 }
+        if !ChannelTags.sets("logo", in: playlist.tags) { tags.showsLogo = playlist.imageTags?["Primary"] != nil }
+        save(playlist, tags)
+    }
+
+    /// Writes the playlist's tags with these channel settings, every one of
+    /// them, keeping its other tags; the page shows the change at once, and
+    /// the Channels tab picks it up. A channel numbered automatically keeps
+    /// the number it has now, so later channels don't move it.
     private func save(_ playlist: BaseItem, _ tags: ChannelTags) {
+        var tags = tags
+        if tags.number == nil { tags.number = numbers[playlist.id] }
         guard canEdit, let client = session.client, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
         let previous = playlists[index].tags
         let updated = tags.applied(to: previous)
@@ -563,6 +617,32 @@ struct ChannelSettingsView: View {
             errorMessage = error.localizedDescription
         }
         loaded = true
+    }
+}
+
+/// A channel's own name, saved when editing ends; empty goes back to the
+/// playlist's name.
+private struct ChannelNameField: View {
+    let playlistName: String
+    let name: String?
+    var save: (String?) -> Void
+
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Channel Name", text: $draft, prompt: Text(playlistName))
+            .focused($focused)
+            .onAppear { draft = name ?? "" }
+            .onChange(of: name) { _, new in if !focused { draft = new ?? "" } }
+            .onSubmit(commit)
+            .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespaces)
+        let new = trimmed.isEmpty || trimmed == playlistName ? nil : trimmed
+        if new != name { save(new) }
     }
 }
 

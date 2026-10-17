@@ -24,6 +24,7 @@ struct PlayerView: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var coordinator: PlaybackCoordinator?
     #if canImport(UIKit)
     /// The info panel's Audio and Subtitles tabs, made once per playback.
@@ -75,6 +76,15 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+                // Leaving the screen (the TV button, the app switcher) may be
+                // the last chance to save where playback got to.
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase != .active else { return }
+                    #if canImport(AetherEngine)
+                    aether?.saveProgressNow()
+                    #endif
+                    coordinator?.saveProgressNow()
+                }
             #if canImport(AetherEngine)
             if let aether {
                 AetherPlayerView(playback: aether, onFinished: onFinished)
@@ -100,6 +110,11 @@ struct PlayerView: View {
                         } else {
                             SubtitleOverlayView(text: coordinator.subtitleText)
                         }
+                    }
+                }
+                .overlay {
+                    if coordinator.hasStarted, !coordinator.endCardVisible {
+                        ChannelBug(channelId: coordinator.channelId)
                     }
                 }
                 .overlay {

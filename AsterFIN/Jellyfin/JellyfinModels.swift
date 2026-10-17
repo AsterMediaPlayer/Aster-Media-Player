@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Synchronization
 
 // MARK: - Server and users
 
@@ -758,8 +759,24 @@ nonisolated enum JellyfinDate {
         return formatter
     }()
 
+    /// Dates already parsed. The guide reads every programme's start and end
+    /// on each move of the remote, and parsing is far slower than a lookup.
+    private static let parsed = Mutex<[String: Date]>([:])
+    private static let parsedLimit = 50_000
+
     static func parse(_ text: String?) -> Date? {
-        guard var text else { return nil }
+        guard let text else { return nil }
+        if let date = parsed.withLock({ $0[text] }) { return date }
+        guard let date = parseUncached(text) else { return nil }
+        parsed.withLock { cache in
+            if cache.count >= parsedLimit { cache.removeAll(keepingCapacity: true) }
+            cache[text] = date
+        }
+        return date
+    }
+
+    private static func parseUncached(_ original: String) -> Date? {
+        var text = original
         if let dot = text.firstIndex(of: "."), let zone = text[dot...].firstIndex(where: { $0 == "Z" || $0 == "+" || $0 == "-" }) {
             let fraction = text[text.index(after: dot)..<zone]
             let trimmed = String(fraction.prefix(3)).padding(toLength: 3, withPad: "0", startingAt: 0)
@@ -1047,6 +1064,9 @@ nonisolated struct PlaybackReport: Encodable, Sendable {
     var liveStreamId: String?
     var audioStreamIndex: Int?
     var subtitleStreamIndex: Int?
+    /// The title's running time, for the app's own resume-point rules
+    /// (`ResumePoints`); not sent to the server.
+    var runTimeTicks: Int64?
 
     enum CodingKeys: String, CodingKey {
         case itemId = "ItemId"

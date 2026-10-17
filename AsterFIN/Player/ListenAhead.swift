@@ -58,13 +58,17 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
         }
     }
 
-    /// The one download running: a part from a chunk on, filling `buffer`
-    /// until a whole chunk can be saved.
+    /// A download of a part from a chunk on, filling `buffer` until a whole
+    /// chunk can be saved, and stopping at `end` (a chunk it doesn't fetch).
+    /// One fills the stretch ahead; others serve the player's requests, each
+    /// on its own, so reading a file's index and a seek don't fight over one.
     private struct Fetch {
         let part: Int
         var chunk: Int
+        let end: Int
         var buffer = Data()
         let task: URLSessionDataTask
+        let isAhead: Bool
     }
 
     private var bookId: String?
@@ -73,8 +77,10 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     private var aheadSeconds: TimeInterval = 0
     private var playhead: (part: Int, seconds: TimeInterval) = (0, 0)
     private var pending: [AVAssetResourceLoadingRequest] = []
-    private var fetch: Fetch?
+    private var fetches: [Fetch] = []
     private var retry: DispatchWorkItem?
+    /// Downloads for the player's requests running at once, at most.
+    private static let requestFetchLimit = 3
 
     private static var root: URL {
         URL.cachesDirectory.appending(path: "ListenAhead", directoryHint: .isDirectory)
@@ -122,7 +128,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     func pause() {
         queue.async { [self] in
             retry?.cancel()
-            cancelFetch()
+            cancelFetches()
         }
     }
 
@@ -130,7 +136,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     func finished(bookId: String) {
         queue.async { [self] in
             guard bookId == self.bookId else { return }
-            cancelFetch()
+            cancelFetches()
             try? FileManager.default.removeItem(at: Self.root.appending(path: bookId, directoryHint: .isDirectory))
             self.bookId = nil
             parts = []
@@ -154,7 +160,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     /// book's cache is let go.
     private func prepare(bookId id: String, files: [File]) {
         guard id != bookId else { return }
-        cancelFetch()
+        cancelFetches()
         for request in pending { request.finishLoading(with: CocoaError(.userCancelled)) }
         pending = []
         let fileManager = FileManager.default
@@ -275,7 +281,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
             let count = min(data.count - within, Int(limit))
             return data.subdata(in: within..<within + count)
         }
-        if let fetch, fetch.part == index, fetch.chunk == chunk, within < fetch.buffer.count {
+        for fetch in fetches where fetch.part == index && fetch.chunk == chunk && within < fetch.buffer.count {
             let count = min(fetch.buffer.count - within, Int(limit), Int(length - offset))
             return fetch.buffer.subdata(in: within..<within + count)
         }
@@ -284,76 +290,84 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
 
     // MARK: Fetching
 
-    /// Decides what to download: what the player is waiting for first, else
-    /// the next missing chunk within the stretch ahead, else nothing.
+    /// Starts what's needed: a download for each waiting request that's
+    /// missing bytes no download is bringing, and one filling the stretch
+    /// ahead. Downloads nobody needs any more stop.
     private func schedule() {
-        if let wanted = wantedByPlayer() ?? wantedAhead() {
-            startFetch(part: wanted.part, chunk: wanted.chunk)
-        } else {
-            #if DEBUG
-            if fetch != nil { print("DEBUG listen ahead: \(Int(aheadSeconds / 60)) min ahead saved; waiting") }
-            #endif
-            cancelFetch()
-        }
-    }
-
-    /// The first chunk a waiting request needs that isn't here. AVPlayer
-    /// asks for everything to the end of a file and takes what comes, so a
-    /// request is only fetched for near where it starts (opening the file,
-    /// its index, a seek) or within the stretch ahead; beyond that it waits
-    /// for the stretch to reach it, rather than the whole book coming down.
-    private func wantedByPlayer() -> (part: Int, chunk: Int)? {
-        // Newest first: the player's latest request is what it needs now;
-        // an older one (from before a seek) is left over.
+        // The player's requests.
         for request in pending.reversed() {
             guard let index = partIndex(of: request), let part = parts[index] else { continue }
-            let start = request.dataRequest?.requestedOffset ?? 0
             let offset = request.dataRequest?.currentOffset ?? 0
             let chunk = Int(offset / Int64(Self.chunkSize))
-            guard part.length == nil || part.contentType == nil || !part.chunks.contains(chunk) else { continue }
-            if offset - start < Self.startOfRequest || isWithinStretch(part: index, chunk: chunk) { return (index, chunk) }
+            let known = part.length != nil && part.contentType != nil
+            guard !known || !part.chunks.contains(chunk), !isComing(part: index, chunk: chunk) else { continue }
+            guard fetches.filter({ !$0.isAhead }).count < Self.requestFetchLimit else { break }
+            startFetch(part: index, from: chunk, to: requestEnd(of: request, part: index, from: chunk), isAhead: false)
         }
-        return nil
+        // The stretch ahead.
+        if !fetches.contains(where: \.isAhead), let ahead = wantedAhead(), !isComing(part: ahead.part, chunk: ahead.chunk) {
+            startFetch(part: ahead.part, from: ahead.chunk, to: ahead.end, isAhead: true)
+        }
     }
 
-    /// How much of a request is fetched however far ahead it is.
+    /// Whether a download is on its way to `chunk`, near enough to reach it soon.
+    private func isComing(part index: Int, chunk: Int) -> Bool {
+        fetches.contains { $0.part == index && $0.chunk <= chunk && chunk < $0.end && chunk - $0.chunk <= 4 }
+    }
+
+    /// Where a request's download stops: its own end, or for one to the end
+    /// of the file, a few MB on (or the end of the stretch ahead, if further);
+    /// the stretch fills the rest as the book goes on.
+    private func requestEnd(of request: AVAssetResourceLoadingRequest, part index: Int, from chunk: Int) -> Int {
+        let size = Int64(Self.chunkSize)
+        let total = parts[index]?.length.map { Int(($0 + size - 1) / size) } ?? Int.max
+        if let data = request.dataRequest, !data.requestsAllDataToEndOfResource {
+            let last = data.requestedOffset + Int64(data.requestedLength) - 1
+            return min(total, Int(last / size) + 1)
+        }
+        let first = chunk + Int(Self.startOfRequest / size)
+        let stretch = stretchEnd(part: index) ?? 0
+        return min(total, max(first, stretch))
+    }
+
+    /// How much of an open-ended request is fetched however far ahead it is.
     private static let startOfRequest: Int64 = 4 * 1024 * 1024
 
-    /// Whether a chunk lies between the playhead and `aheadSeconds` on.
-    private func isWithinStretch(part target: Int, chunk: Int) -> Bool {
+    /// The chunk the stretch ahead ends before, in `part`; nil when the
+    /// stretch doesn't reach it.
+    private func stretchEnd(part target: Int) -> Int? {
         var remaining = aheadSeconds
         var index = playhead.part
         var from = playhead.seconds
         while remaining > 0, parts.indices.contains(index), index <= target {
-            guard let part = parts[index], let length = part.length, part.duration > 0 else { return index == target }
+            guard let part = parts[index], let length = part.length, part.duration > 0 else { return nil }
             if index == target {
                 let perSecond = Double(length) / part.duration
-                let first = Int64(max(from, 0) * perSecond) / Int64(Self.chunkSize)
-                let last = Int64((from + remaining) * perSecond) / Int64(Self.chunkSize)
-                return Int64(chunk) >= first && Int64(chunk) <= last
+                let lastByte = min(length - 1, Int64((from + remaining) * perSecond))
+                return Int(lastByte / Int64(Self.chunkSize)) + 1
             }
             remaining -= max(part.duration - from, 0)
             index += 1
             from = 0
         }
-        return false
+        return nil
     }
 
     /// The first chunk missing between the playhead and `aheadSeconds` on,
-    /// across the book's files.
-    private func wantedAhead() -> (part: Int, chunk: Int)? {
+    /// across the book's files, and where that file's stretch ends.
+    private func wantedAhead() -> (part: Int, chunk: Int, end: Int)? {
         var remaining = aheadSeconds
         var index = playhead.part
         var from = playhead.seconds
         while remaining > 0, parts.indices.contains(index) {
             guard let part = parts[index] else { return nil }
-            guard let length = part.length, part.duration > 0 else { return (index, 0) }
+            guard let length = part.length, part.duration > 0 else { return (index, 0, 1) }
             let perSecond = Double(length) / part.duration
             let first = Int(Int64(max(from, 0) * perSecond) / Int64(Self.chunkSize))
             let lastByte = min(length - 1, Int64((from + remaining) * perSecond))
             let last = Int(lastByte / Int64(Self.chunkSize))
             if first <= last, let missing = (first...last).first(where: { !part.chunks.contains($0) }) {
-                return (index, missing)
+                return (index, missing, last + 1)
             }
             remaining -= max(part.duration - from, 0)
             index += 1
@@ -362,65 +376,69 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
         return nil
     }
 
-    private func startFetch(part index: Int, chunk: Int) {
-        // Already on its way there: let it run, rather than cancel a chunk
-        // half downloaded.
-        if let fetch, fetch.part == index, fetch.chunk <= chunk, chunk - fetch.chunk <= 4 { return }
-        guard let part = parts[index] else { return }
-        cancelFetch()
+    private func startFetch(part index: Int, from chunk: Int, to end: Int, isAhead: Bool) {
+        guard let part = parts[index], chunk < end else { return }
         retry?.cancel()
         var request = URLRequest(url: part.url)
         request.setValue("bytes=\(Int64(chunk) * Int64(Self.chunkSize))-", forHTTPHeaderField: "Range")
         let task = Self.session.dataTask(with: request)
-        fetch = Fetch(part: index, chunk: chunk, task: task)
+        fetches.append(Fetch(part: index, chunk: chunk, end: end, task: task, isAhead: isAhead))
         task.resume()
         #if DEBUG
-        print("DEBUG listen ahead: fetching part \(index) from chunk \(chunk) (\(part.chunks.count) saved)")
+        print("DEBUG listen ahead: fetching part \(index) chunks \(chunk)..<\(end == Int.max ? -1 : end) for \(isAhead ? "the stretch ahead" : "the player") (\(part.chunks.count) saved)")
         #endif
     }
 
-    private func cancelFetch() {
-        fetch?.task.cancel()
-        fetch = nil
+    private func cancelFetches() {
+        for fetch in fetches { fetch.task.cancel() }
+        fetches = []
     }
 
-    /// Saves every whole chunk in the buffer (and the last, short one at the
-    /// end of the file), then answers the player and decides what's next.
-    private func saveChunks(final: Bool) {
-        guard var current = fetch, let length = parts[current.part]?.length else { return }
+    private func stop(_ task: URLSessionTask) {
+        task.cancel()
+        fetches.removeAll { $0.task === task }
+    }
+
+    /// Saves every whole chunk a download holds (and the last, short one at
+    /// the end of the file), answers the player, and ends the download once
+    /// it has reached its end or the next chunk is already saved.
+    private func saveChunks(of task: URLSessionTask, final: Bool) {
+        guard let position = fetches.firstIndex(where: { $0.task === task }) else { return }
+        var current = fetches[position]
+        guard let part = parts[current.part], let length = part.length else { return }
         let size = Self.chunkSize
+        var finished = false
         while true {
-            let chunkEnd = min(Int64(current.chunk + 1) * Int64(size), length)
-            let needed = Int(chunkEnd - Int64(current.chunk) * Int64(size))
-            guard needed > 0, current.buffer.count >= needed || (final && !current.buffer.isEmpty) else { break }
+            let start = Int64(current.chunk) * Int64(size)
+            guard start < length, current.chunk < current.end else {
+                finished = true
+                break
+            }
+            let needed = Int(min(Int64(size), length - start))
+            guard current.buffer.count >= needed || (final && !current.buffer.isEmpty) else { break }
             let bytes = current.buffer.prefix(needed)
-            let file = parts[current.part]!.directory.appending(path: "c\(current.chunk)")
-            if (try? bytes.write(to: file, options: .atomic)) != nil, bytes.count == needed {
-                parts[current.part]?.chunks.insert(current.chunk)
-                #if DEBUG
-                if current.chunk % 20 == 0 { print("DEBUG listen ahead: saved part \(current.part) chunk \(current.chunk) (\(parts[current.part]?.chunks.count ?? 0) saved)") }
-                #endif
+            if bytes.count == needed, parts[current.part]?.chunks.contains(current.chunk) == false {
+                if (try? bytes.write(to: part.directory.appending(path: "c\(current.chunk)"), options: .atomic)) != nil {
+                    parts[current.part]?.chunks.insert(current.chunk)
+                    #if DEBUG
+                    if current.chunk % 20 == 0 { print("DEBUG listen ahead: saved part \(current.part) chunk \(current.chunk) (\(parts[current.part]?.chunks.count ?? 0) saved)") }
+                    #endif
+                }
             }
             current.buffer.removeFirst(min(needed, current.buffer.count))
             current.chunk += 1
-            if Int64(current.chunk) * Int64(size) >= length { break }
+            // Further on is already here: no need to download it again.
+            if parts[current.part]?.chunks.contains(current.chunk) == true {
+                finished = true
+                break
+            }
         }
-        fetch = current
+        fetches[position] = current
         serve()
-        // On to the next chunk only while it's missing and still wanted;
-        // otherwise schedule picks again.
-        let next = (current.part, current.chunk)
-        let atEnd = Int64(current.chunk) * Int64(size) >= length
-        if atEnd || parts[next.0]?.chunks.contains(next.1) == true || !(isWanted(next)) {
-            cancelFetch()
+        if finished || final {
+            stop(task)
             schedule()
         }
-    }
-
-    private func isWanted(_ target: (part: Int, chunk: Int)) -> Bool {
-        if let wanted = wantedByPlayer(), wanted.part == target.part, wanted.chunk >= target.chunk { return true }
-        guard let ahead = wantedAhead() else { return false }
-        return ahead.part == target.part && ahead.chunk >= target.chunk
     }
 
     // MARK: Letting go
@@ -437,9 +455,14 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
         guard parts.indices.contains(playhead.part), let part = parts[playhead.part], let length = part.length, part.duration > 0 else { return }
         let perSecond = Double(length) / part.duration
         let keepFrom = Int(Int64(max(playhead.seconds - Self.keepBehind, 0) * perSecond) / Int64(Self.chunkSize))
-        for chunk in part.chunks where chunk < keepFrom {
+        for chunk in part.chunks where chunk < keepFrom && chunk > 0 {
+            // The file's first chunk stays: its index is read on every open.
             try? fileManager.removeItem(at: part.directory.appending(path: "c\(chunk)"))
             parts[playhead.part]?.chunks.remove(chunk)
+        }
+        // The stretch ahead moved on past what its download was fetching.
+        for fetch in fetches where fetch.isAhead && fetch.part < playhead.part {
+            stop(fetch.task)
         }
     }
 }
@@ -457,63 +480,62 @@ nonisolated extension ListenAhead: AVAssetResourceLoaderDelegate {
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
         pending.removeAll { $0 === loadingRequest }
-        schedule()
     }
 }
 
-// MARK: - The download
+// MARK: - The downloads
 
 nonisolated extension ListenAhead: URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let current = fetch, current.task === dataTask, let http = response as? HTTPURLResponse else {
+        guard let position = fetches.firstIndex(where: { $0.task === dataTask }), let http = response as? HTTPURLResponse else {
             completionHandler(.cancel)
             return
         }
+        let index = fetches[position].part
         var total: Int64?
         if http.statusCode == 206, let range = http.value(forHTTPHeaderField: "Content-Range"), let slash = range.lastIndex(of: "/") {
             total = Int64(range[range.index(after: slash)...])
         } else if http.statusCode == 200 {
             // The whole file from the start, whatever was asked.
             total = http.expectedContentLength > 0 ? http.expectedContentLength : nil
-            fetch?.chunk = 0
-            fetch?.buffer = Data()
+            fetches[position].chunk = 0
+            fetches[position].buffer = Data()
         } else {
             completionHandler(.cancel)
+            stop(dataTask)
             return
         }
-        if let total, parts[current.part]?.length != total {
-            parts[current.part]?.length = total
-            try? Data(String(total).utf8).write(to: parts[current.part]!.directory.appending(path: "length"))
+        if let total, parts[index]?.length != total {
+            parts[index]?.length = total
+            try? Data(String(total).utf8).write(to: parts[index]!.directory.appending(path: "length"))
         }
-        if parts[current.part]?.contentType == nil {
+        if parts[index]?.contentType == nil {
             let type = http.mimeType.flatMap(Self.type(forMIME:)) ?? "com.apple.m4a-audio"
-            parts[current.part]?.contentType = type
-            try? Data(type.utf8).write(to: parts[current.part]!.directory.appending(path: "type"))
+            parts[index]?.contentType = type
+            try? Data(type.utf8).write(to: parts[index]!.directory.appending(path: "type"))
         }
         completionHandler(.allow)
         serve()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard fetch?.task === dataTask else { return }
-        fetch?.buffer.append(data)
+        guard let position = fetches.firstIndex(where: { $0.task === dataTask }) else { return }
+        fetches[position].buffer.append(data)
         serve()
-        if (fetch?.buffer.count ?? 0) >= Self.chunkSize { saveChunks(final: false) }
+        if fetches[position].buffer.count >= Self.chunkSize { saveChunks(of: dataTask, final: false) }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        guard fetch?.task === task else { return }
+        guard fetches.contains(where: { $0.task === task }) else { return }
         if error == nil {
-            saveChunks(final: true)
-            cancelFetch()
-            schedule()
+            saveChunks(of: task, final: true)
             return
         }
-        // No signal: what's saved plays on, and the download tries again.
+        // No signal: what's saved plays on, and the downloads try again.
         #if DEBUG
         print("DEBUG listen ahead: download stopped (\(error!.localizedDescription)); trying again in 5 s")
         #endif
-        cancelFetch()
+        stop(task)
         let again = DispatchWorkItem { [weak self] in self?.schedule() }
         retry = again
         queue.asyncAfter(deadline: .now() + 5, execute: again)

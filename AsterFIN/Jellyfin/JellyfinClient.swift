@@ -243,6 +243,64 @@ nonisolated final class JellyfinClient: Sendable {
         return try await get(ItemsResult.self, "/Items", query: merged)
     }
 
+    // MARK: Genres (for genre Channels)
+
+    /// The genres of the server's movies and shows, by name.
+    func videoGenres() async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await get(ItemsResult.self, "/Genres", query: [
+            "userId": user,
+            "recursive": "true",
+            "includeItemTypes": "Movie,Series",
+            "sortBy": "SortName",
+        ]).items
+    }
+
+    /// The query for the titles in any of `genreIds` (ids, not names, so a
+    /// name with "&" in it can't break the request), of `types`, under
+    /// `parentId` (a library) or everywhere.
+    private func genreQuery(genreIds: [String], types: String, parentId: String?) throws -> [String: String?] {
+        [
+            "userId": try requireUser(),
+            "recursive": "true",
+            "genreIds": genreIds.joined(separator: "|"),
+            "includeItemTypes": types,
+            "parentId": parentId,
+            "isMissing": "false",
+            "sortBy": "SortName",
+        ]
+    }
+
+    /// How many titles a genre query finds, without fetching them: a cheap
+    /// check whether a genre Channel needs fetching again.
+    func genreItemCount(genreIds: [String], types: String, parentId: String?) async throws -> Int {
+        var query = try genreQuery(genreIds: genreIds, types: types, parentId: parentId)
+        query["limit"] = "0"
+        query["enableTotalRecordCount"] = "true"
+        return try await get(ItemsResult.self, "/Items", query: query).totalRecordCount ?? 0
+    }
+
+    /// Every title a genre query finds, a page at a time, with only what a
+    /// Channel's schedule and menus use (no media streams), so a genre of
+    /// thousands of episodes stays a small download.
+    func genreItems(genreIds: [String], types: String, parentId: String?) async throws -> [BaseItem] {
+        var found: [BaseItem] = []
+        let pageSize = 500
+        while true {
+            var query = try genreQuery(genreIds: genreIds, types: types, parentId: parentId)
+            query["fields"] = "Overview"
+            query["enableImageTypes"] = "Primary,Backdrop,Thumb,Logo"
+            query["imageTypeLimit"] = "1"
+            query["enableUserData"] = "false"
+            query["startIndex"] = String(found.count)
+            query["limit"] = String(pageSize)
+            let page = try await get(ItemsResult.self, "/Items", query: query)
+            found += page.items
+            if page.items.count < pageSize || found.count >= (page.totalRecordCount ?? 0) { break }
+        }
+        return found
+    }
+
     func latest(parentId: String?, limit: Int = 20, includeTypes: String? = nil) async throws -> [BaseItem] {
         let user = try requireUser()
         return try await get([BaseItem].self, "/Items/Latest", query: [
@@ -972,15 +1030,17 @@ nonisolated final class JellyfinClient: Sendable {
     }
 
     /// Creates a playlist holding the items and returns its id.
-    func createPlaylist(name: String, itemIds: [String], mediaType: String) async throws -> String {
+    /// `isPublic` lets every user on the server see it (a genre Channel's).
+    func createPlaylist(name: String, itemIds: [String], mediaType: String, isPublic: Bool? = nil) async throws -> String {
         let user = try requireUser()
         nonisolated struct Body: Encodable, Sendable {
             var Name: String
             var Ids: [String]
             var UserId: String
             var MediaType: String
+            var IsPublic: Bool?
         }
-        return try await post(PlaylistCreationResult.self, "/Playlists", body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType)).id
+        return try await post(PlaylistCreationResult.self, "/Playlists", body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType, IsPublic: isPublic)).id
     }
 
     func addToPlaylist(_ playlistId: String, itemIds: [String]) async throws {

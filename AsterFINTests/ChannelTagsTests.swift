@@ -50,14 +50,14 @@ struct ChannelTagsTests {
         #expect(written == [
             "Family", "asterfin:theme=retro", "Halloween", "asterfin:channel", "asterfin:number=7", "asterfin:mode=blocks",
             "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off",
-            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off",
+            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all",
         ])
         #expect(ChannelTags(tags: written) == ChannelTags(isChannel: true, number: 7, mode: .blocks))
     }
 
     /// Defaults are written too, so every setting shows in Jellyfin.
     @Test func everySettingIsWritten() {
-        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off"]
+        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all"]
         #expect(ChannelTags(isChannel: true).applied(to: []) == ["asterfin:channel"] + defaults)
         #expect(ChannelTags().applied(to: ["asterfin:channel", "Family"]) == ["Family", "asterfin:channel=off"] + defaults)
         #expect(ChannelTags(tags: ChannelTags(isChannel: true).applied(to: [])) == ChannelTags(isChannel: true))
@@ -136,7 +136,7 @@ struct ChannelTagsTests {
         let written = tags.applied(to: ["Family"])
         #expect(written == [
             "Family", "asterfin:channel", "asterfin:mode=blocks", "asterfin:reshuffle=month", "asterfin:blocks=4",
-            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off",
+            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all",
             "asterfin:channel-name=Late Night",
         ])
         #expect(ChannelTags(tags: written) == tags)
@@ -159,11 +159,44 @@ struct ChannelTagsTests {
     @Test func theBugCanHideItself() {
         #expect(ChannelTags(tags: ["asterfin:bug-hide=30"]).bugHideAfter == 30)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=45s"]).bugHideAfter == 45)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=off"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=off", "asterfin:type=all"]).bugHideAfter == 0)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=soon"]).bugHideAfter == 0)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=99999"]).bugHideAfter == 0)
         let written = ChannelTags(isChannel: true).with { $0.bugHideAfter = 30 }.applied(to: [])
         #expect(written.contains("asterfin:bug-hide=30"))
         #expect(ChannelTags(tags: written).bugHideAfter == 30)
+    }
+
+    // MARK: Genre channels
+
+    @Test func genresTypeAndLibrariesAreRead() {
+        let tags = ChannelTags(tags: [
+            "asterfin:channel", "asterfin:genre=Horror", "asterfin:GENRE=Thriller, Mystery", "asterfin:genre=horror",
+            "asterfin:type=Shows", "asterfin:library=TV Shows", "asterfin:library=Anime",
+        ])
+        #expect(tags.genres == ["Horror", "Thriller", "Mystery"])
+        #expect(tags.content == .shows)
+        #expect(tags.libraries == ["TV Shows", "Anime"])
+        #expect(ChannelTags(tags: ["asterfin:type=cartoons"]).content == .all)
+    }
+
+    @Test func genresRoundTrip() {
+        let tags = ChannelTags(isChannel: true).with {
+            $0.genres = ["Action & Adventure", "Comedy"]
+            $0.content = .movies
+            $0.libraries = ["Movies"]
+        }
+        let written = tags.applied(to: ["Family"])
+        #expect(written.contains("asterfin:genre=Action & Adventure"))
+        #expect(written.contains("asterfin:genre=Comedy"))
+        #expect(written.contains("asterfin:type=movies"))
+        #expect(written.contains("asterfin:library=Movies"))
+        #expect(ChannelTags(tags: written) == tags)
+    }
+
+    @Test func genreTitlesJoinThePlaylistsOwnOnce() {
+        func item(_ id: String) -> BaseItem { BaseItem(id: id, name: id, type: ItemKind.movie.rawValue) }
+        let merged = ChannelsModel.merged([item("b"), item("a")], [item("a"), item("c"), item("b"), item("d")])
+        #expect(merged.map(\.id) == ["b", "a", "c", "d"])
     }
 }

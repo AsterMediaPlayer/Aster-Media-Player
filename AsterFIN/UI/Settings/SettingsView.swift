@@ -236,6 +236,86 @@ private struct SettingsChoicePage<Value: Hashable>: View {
     }
 }
 
+/// A row showing the choices made from a list, which opens a page of them to
+/// tick; each tick is applied as it's made. `none` names choosing nothing.
+private struct SettingsMultiChoiceRow: View {
+    let title: String
+    let options: [String]
+    let selection: [String]
+    var none = "None"
+    var apply: ([String]) -> Void
+
+    private var summary: String {
+        selection.isEmpty ? none : selection.joined(separator: ", ")
+    }
+
+    var body: some View {
+        #if os(macOS)
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Toggle(option, isOn: Binding(
+                    get: { selection.contains { $0.caseInsensitiveCompare(option) == .orderedSame } },
+                    set: { on in apply(SettingsMultiChoicePage.toggled(option, on: on, in: selection, order: options)) }
+                ))
+            }
+        } label: {
+            LabeledContent(title, value: summary)
+        }
+        #else
+        NavigationLink {
+            SettingsMultiChoicePage(title: title, options: options, selection: selection, apply: apply)
+        } label: {
+            LabeledContent(title) {
+                Text(summary).lineLimit(1)
+            }
+        }
+        #endif
+    }
+}
+
+/// The page of choices to tick; it stays open, each tick applied at once.
+private struct SettingsMultiChoicePage: View {
+    let title: String
+    let options: [String]
+    var apply: ([String]) -> Void
+    @State private var current: [String]
+
+    init(title: String, options: [String], selection: [String], apply: @escaping ([String]) -> Void) {
+        self.title = title
+        self.options = options
+        self.apply = apply
+        _current = State(initialValue: selection)
+    }
+
+    var body: some View {
+        SettingsPage(title: title) {
+            Section {
+                ForEach(options, id: \.self) { option in
+                    let isOn = current.contains { $0.caseInsensitiveCompare(option) == .orderedSame }
+                    Button {
+                        current = Self.toggled(option, on: !isOn, in: current, order: options)
+                        apply(current)
+                    } label: {
+                        HStack {
+                            Text(option)
+                            Spacer()
+                            if isOn { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `selection` with `option` ticked or not, kept in `order`.
+    static func toggled(_ option: String, on: Bool, in selection: [String], order: [String]) -> [String] {
+        var chosen = selection.filter { $0.caseInsensitiveCompare(option) != .orderedSame }
+        if on { chosen.append(option) }
+        let rank = Dictionary(order.enumerated().map { ($1.lowercased(), $0) }) { first, _ in first }
+        return chosen.sorted { (rank[$0.lowercased()] ?? .max) < (rank[$1.lowercased()] ?? .max) }
+    }
+}
+
 // MARK: - Playback
 
 private struct PlaybackSettingsView: View {
@@ -434,6 +514,12 @@ struct ChannelSettingsView: View {
     /// The channels opened to change their settings; the rest show as a
     /// line each. A playlist just turned on opens.
     @State private var expanded: Set<String> = []
+    /// The server's movie and show genres, and its video libraries, by name,
+    /// for genre channels.
+    @State private var genreNames: [String] = []
+    @State private var libraryNames: [String] = []
+    @State private var newGenreChannelName = ""
+    @State private var isCreating = false
 
     private var canEdit: Bool { session.canEditChannels && !refused }
 
@@ -488,11 +574,14 @@ struct ChannelSettingsView: View {
                 Section {
                     SettingsNote("No video playlists yet. Make one in Jellyfin, or with Add to Playlist on any movie.")
                 }
+                if canEdit { newGenreChannelSection }
             } else {
                 if !canEdit {
                     Section {
                         SettingsNote("Only your server's administrator can set up channels. Ask them to, here or in Jellyfin.")
                     }
+                } else {
+                    newGenreChannelSection
                 }
                 ForEach(channels, id: \.playlist.id) { channel in
                     channelSection(channel.playlist, tags: channel.tags)
@@ -517,7 +606,8 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30) and asterfin:channel-name=Your Name.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30), asterfin:channel-name=Your Name, and for a genre channel asterfin:genre=Horror (once per genre), asterfin:type=movies (or shows, all) and asterfin:library=TV Shows (once per library).")
+                    SettingsNote("A genre channel plays every movie or episode in its genres (any of them), as well as anything in its playlist.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -554,9 +644,25 @@ struct ChannelSettingsView: View {
         }
     }
 
-    /// "Blocks · Weekly · 120 titles · Logo · Bug" for a closed channel.
+    /// A playlist made to be a genre channel: named, then opened to pick
+    /// its genres.
+    private var newGenreChannelSection: some View {
+        Section {
+            TextField("Name, like Horror or Saturday Cartoons", text: $newGenreChannelName)
+                .onSubmit(createGenreChannel)
+            Button("Create Genre Channel") { createGenreChannel() }
+                .disabled(newGenreChannelName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+        } header: {
+            Text("New Genre Channel")
+        } footer: {
+            SettingsNote("Makes a playlist that plays everything in the genres you pick, shared with everyone on your server.")
+        }
+    }
+
+    /// "Horror, Thriller · Blocks · Weekly · 120 titles · Logo · Bug" for a closed channel.
     private func summary(of playlist: BaseItem, tags: ChannelTags) -> String {
         var parts = [tags.mode.title]
+        if !tags.genres.isEmpty { parts.insert(tags.genres.joined(separator: ", "), at: 0) }
         if tags.mode != .sequential, tags.reshuffle != .day { parts.append(tags.reshuffle.title) }
         if let count = playlist.childCount { parts.append(count == 1 ? "1 title" : "\(count) titles") }
         if tags.showsLogo { parts.append("Logo") }
@@ -584,6 +690,22 @@ struct ChannelSettingsView: View {
                 set: { number in save(playlist, tags.with { $0.number = number }) }
             )
         )
+        SettingsMultiChoiceRow(title: "Genres", options: genreNames, selection: tags.genres) { genres in
+            save(playlist, tags.with { $0.genres = genres })
+        }
+        if !tags.genres.isEmpty {
+            SettingsChoiceRow(
+                title: "Content",
+                options: ChannelContent.allCases.map { ($0, $0.title) },
+                selection: Binding(
+                    get: { tags.content },
+                    set: { content in save(playlist, tags.with { $0.content = content }) }
+                )
+            )
+            SettingsMultiChoiceRow(title: "Libraries", options: libraryNames, selection: tags.libraries, none: "All") { libraries in
+                save(playlist, tags.with { $0.libraries = libraries })
+            }
+        }
         SettingsChoiceRow(
             title: "Mode",
             options: ChannelMode.allCases.map { ($0, $0.title) },
@@ -703,13 +825,41 @@ struct ChannelSettingsView: View {
 
     private func load() async {
         guard let client = session.client else { return }
+        async let genres = client.videoGenres()
+        async let views = client.userViews()
         do {
             playlists = try await client.playlists(mediaType: "Video")
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+        genreNames = ((try? await genres) ?? []).map(\.displayTitle)
+        // Video libraries only: a genre channel plays movies and episodes.
+        let skipped: Set<String> = ["music", "books", "livetv", "playlists", "boxsets", "musicvideos"]
+        libraryNames = ((try? await views) ?? []).filter { !skipped.contains($0.collectionType?.lowercased() ?? "") }.map(\.displayTitle)
         loaded = true
+    }
+
+    /// Makes an empty, public video playlist, tags it a channel with the
+    /// next free number, and opens it to pick its genres.
+    private func createGenreChannel() {
+        let name = newGenreChannelName.trimmingCharacters(in: .whitespaces)
+        guard canEdit, !name.isEmpty, !isCreating, let client = session.client else { return }
+        isCreating = true
+        let tags = ChannelTags(isChannel: true, number: (numbers.values.max() ?? 0) + 1).applied(to: [])
+        Task {
+            defer { isCreating = false }
+            do {
+                let id = try await client.createPlaylist(name: name, itemIds: [], mediaType: "Video", isPublic: true)
+                try await client.setTags(tags, onItem: id)
+                newGenreChannelName = ""
+                await load()
+                expanded.insert(id)
+                await session.refreshChannels()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 }
 

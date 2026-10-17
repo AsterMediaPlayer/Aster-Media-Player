@@ -18,6 +18,10 @@
 //    asterfin:bug-location=…  which corner: top-left, top-right, bottom-left, bottom-right
 //    asterfin:bug-size=150%   the bug's size, from 25% to 300% of the usual
 //    asterfin:bug-hide=30     the bug fades after 30 seconds (off: it stays)
+//    asterfin:genre=Horror    also plays every title in this genre; repeat
+//                             (or Horror,Thriller) for more, any of them
+//    asterfin:type=movies     with genres: all (the default), movies or shows
+//    asterfin:library=…       with genres: only this library; repeat for more
 //    asterfin:channel-name=…  the channel's name, in place of the playlist's
 //
 //  "asterfin:" and the keys and values are read whatever their case. A tag
@@ -33,7 +37,7 @@ import Foundation
 nonisolated struct ChannelTags: Equatable, Sendable {
     static let prefix = "asterfin:"
     /// The keys this reads and writes; other `asterfin:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "genre", "type", "library", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -49,6 +53,13 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// Seconds the bug shows after tuning in or a programme starting; 0 for
     /// always.
     var bugHideAfter = 0
+    /// Genres whose titles the channel plays too, any of them; none for a
+    /// channel of just its playlist.
+    var genres: [String] = []
+    /// What a genre channel takes from its genres.
+    var content: ChannelContent = .all
+    /// Libraries, by name, a genre channel takes from; none for every library.
+    var libraries: [String] = []
     /// Nil for the playlist's own name.
     var name: String?
 
@@ -97,6 +108,12 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 bugSize = value.flatMap(Self.percent).flatMap { Self.bugSizes.contains($0) ? $0 : nil } ?? 100
             case "bug-hide":
                 bugHideAfter = value.flatMap(Self.seconds).flatMap { Self.bugHideTimes.contains($0) ? $0 : nil } ?? 0
+            case "genre":
+                Self.collect(value, into: &genres)
+            case "type":
+                content = value.flatMap { ChannelContent(rawValue: $0.lowercased()) } ?? .all
+            case "library":
+                Self.collect(value, into: &libraries)
             case "channel-name":
                 name = value.flatMap { $0.isEmpty ? nil : $0 }
             default:
@@ -126,8 +143,20 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         result.append(Self.prefix + "bug-location=\(bugCorner.rawValue)")
         result.append(Self.prefix + "bug-size=\(bugSize)%")
         result.append(Self.prefix + (bugHideAfter > 0 ? "bug-hide=\(bugHideAfter)" : "bug-hide=off"))
+        for genre in genres { result.append(Self.prefix + "genre=\(genre)") }
+        result.append(Self.prefix + "type=\(content.rawValue)")
+        for library in libraries { result.append(Self.prefix + "library=\(library)") }
         if let name { result.append(Self.prefix + "channel-name=\(name)") }
         return result
+    }
+
+    /// "Horror, Thriller" into the list, once each whatever the case.
+    private static func collect(_ value: String?, into list: inout [String]) {
+        for piece in (value ?? "").split(separator: ",") {
+            let name = piece.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, !list.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+            list.append(name)
+        }
     }
 
     /// Whether `tags` set `key` at all, as opposed to leaving it to its default.
@@ -186,6 +215,30 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             next += 1
         }
         return result
+    }
+}
+
+/// What a genre channel takes from its genres.
+nonisolated enum ChannelContent: String, CaseIterable, Identifiable, Sendable {
+    case all, movies, shows
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "Movies & Shows"
+        case .movies: "Movies"
+        case .shows: "Shows"
+        }
+    }
+
+    /// The item types to ask the server for.
+    var itemTypes: String {
+        switch self {
+        case .all: "Movie,Episode"
+        case .movies: "Movie"
+        case .shows: "Episode"
+        }
     }
 }
 

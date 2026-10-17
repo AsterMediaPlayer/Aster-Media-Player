@@ -457,7 +457,7 @@ struct AetherTVControls: View {
     @ViewBuilder
     private var pauseInfo: some View {
         if let item = playback.item {
-            AetherPauseDetails(item: item, engine: engine)
+            AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
         }
     }
 

@@ -5,7 +5,9 @@
 //  What the AetherEngine player shows over a paused picture, on Apple TV and
 //  the Mac: the title's clear logo in the top left, and above the timeline a
 //  panel of its details, a long description drifting slowly up so it can be
-//  read to the end. Each screen sizes it for how far away it's watched.
+//  read to the end. Paused on a Live TV channel, the channel's logo takes the
+//  clear logo's place and the panel tells of the programme on now. Each
+//  screen sizes it for how far away it's watched.
 //
 
 #if canImport(AetherEngine)
@@ -47,8 +49,8 @@ private enum PauseMetrics {
     #endif
 }
 
-/// The title's clear logo (the series' for an episode), or its name in large
-/// type when there's none.
+/// The title's clear logo (the series' for an episode), or a Live TV
+/// channel's logo; its name in large type when there's none.
 struct AetherPauseLogo: View {
     let item: BaseItem
 
@@ -58,9 +60,14 @@ struct AetherPauseLogo: View {
         item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle
     }
 
+    private var url: URL? {
+        guard let client = session.client else { return nil }
+        return item.kind == .tvChannel ? client.channelLogoURL(item, width: 900) : client.logoURL(for: item, width: 900)
+    }
+
     var body: some View {
         Group {
-            if let url = session.client?.logoURL(for: item, width: 900) {
+            if let url {
                 RemoteImage(url: url, contentMode: .fit) { Color.clear }
                     .frame(maxWidth: PauseMetrics.logo.width, maxHeight: PauseMetrics.logo.height, alignment: .topLeading)
             } else {
@@ -74,19 +81,39 @@ struct AetherPauseLogo: View {
     }
 }
 
-/// What's paused: its description, and what the stream is.
+/// What's paused: its description, and what the stream is. For a Live TV
+/// channel (`item` the channel), the programme on it: its title and episode,
+/// its story, and the channel, time slot and time left.
 struct AetherPauseDetails: View {
     let item: BaseItem
     @ObservedObject var engine: AetherEngine
+    /// What's on, when `item` is a Live TV channel; nil until it's fetched.
+    var program: BaseItem?
+
+    private var isLive: Bool { item.kind == .tvChannel }
+    /// What the description and facts are of.
+    private var subject: BaseItem { isLive ? (program ?? item) : item }
 
     var body: some View {
         VStack(alignment: .leading, spacing: PauseMetrics.spacing) {
-            if let overview = item.overview, !overview.isEmpty {
+            if isLive, let program {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(program.displayTitle)
+                        .font(.title2.weight(.bold))
+                        .lineLimit(1)
+                    if let episode = program.episodeTitle, !episode.isEmpty, episode != program.displayTitle {
+                        Text(episode)
+                            .font(PauseMetrics.facts.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                }
+            }
+            if let overview = subject.overview, !overview.isEmpty {
                 AutoScrollingText(text: overview, font: PauseMetrics.overview, lineHeight: PauseMetrics.overviewLineHeight)
                     .foregroundStyle(.white.opacity(0.75))
             }
             HStack(spacing: PauseMetrics.spacing) {
-                let facts = [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 }
+                let facts = isLive ? liveFacts : [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 }
                 if !facts.isEmpty {
                     Text(facts.joined(separator: " · "))
                         .font(PauseMetrics.facts)
@@ -106,6 +133,23 @@ struct AetherPauseDetails: View {
                 .overlay(shape.fill(.black.opacity(0.4)))
         }
         .foregroundStyle(.white)
+    }
+
+    /// "511 NBC · 8:00 – 9:00 PM · 23 min left · TV-PG".
+    private var liveFacts: [String] {
+        var facts: [String] = []
+        let channel = [item.channelNumber, item.displayTitle].compactMap { $0 }.joined(separator: " ")
+        if !channel.isEmpty { facts.append(channel) }
+        if let program {
+            let slot = LiveTVFormat.timeRange(start: program.start, end: program.end)
+            if !slot.isEmpty { facts.append(slot) }
+            if let end = program.end, end > Date() {
+                let minutes = max(1, Int((end.timeIntervalSinceNow / 60).rounded(.up)))
+                facts.append(Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " left")
+            }
+            if let rating = program.officialRating { facts.append(rating) }
+        }
+        return facts
     }
 
     /// "23 min", "1 hr, 52 min".

@@ -121,6 +121,8 @@ struct AetherPlayerView: View {
             // The end of an episode with one after it holds on Up Next;
             // anything else closes the player.
             if state == .ended, !playback.playbackEnded() { onFinished() }
+            // Paused on a Live TV channel: what's on it now, for the pause screen.
+            if state == .paused { playback.refreshLiveProgram() }
             // Given up partway: the system player carries on from here.
             if case .error(let message) = state { playback.fallBack(message) }
         }
@@ -272,7 +274,7 @@ struct AetherPlayerView: View {
                 .frame(maxWidth: .infinity)
             Spacer()
             if showsPauseInfo, let item = playback.item {
-                AetherPauseDetails(item: item, engine: engine)
+                AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

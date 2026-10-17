@@ -96,6 +96,8 @@ final class AetherPlayback {
     var channelId: String? { entry.channelId }
     /// The Live TV channel playing, if it's one.
     var liveChannelId: String? { isLive ? entry.itemId : nil }
+    /// What's on that channel, from the guide, fetched as playback pauses.
+    private(set) var liveProgram: BaseItem?
     private let preferences: PlaybackPreferences
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -439,6 +441,7 @@ final class AetherPlayback {
         liveRetunes = []
         liveStartRetried = false
         timedTask?.cancel()
+        liveProgram = nil
         item = channel
         entry = PlaybackQueueItem(itemId: channel.id)
         tuningName = nil
@@ -459,6 +462,18 @@ final class AetherPlayback {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             self?.tuneMessage = nil
+        }
+    }
+
+    /// Fetches what's on the Live TV channel now, for the pause screen.
+    func refreshLiveProgram() {
+        guard let channelId = liveChannelId else { return }
+        let client = client
+        Task { [weak self] in
+            let now = Date()
+            let programs = (try? await client.programs(channelId: channelId, from: now, to: now.addingTimeInterval(60))) ?? []
+            guard let self, self.liveChannelId == channelId else { return }
+            self.liveProgram = programs.first { $0.isAiringNow } ?? programs.first
         }
     }
 
@@ -743,6 +758,7 @@ final class AetherPlayback {
         clearStyledSubtitles()
         clearCues()
         hasStarted = false
+        liveProgram = nil
         // Its artwork covers the screen until it starts.
         item = next
         self.entry = entry

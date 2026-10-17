@@ -279,11 +279,14 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
             }
             guard within < data.count else { return nil }
             let count = min(data.count - within, Int(limit))
-            return data.subdata(in: within..<within + count)
+            let start = data.startIndex + within
+            return data.subdata(in: start..<start + count)
         }
         for fetch in fetches where fetch.part == index && fetch.chunk == chunk && within < fetch.buffer.count {
             let count = min(fetch.buffer.count - within, Int(limit), Int(length - offset))
-            return fetch.buffer.subdata(in: within..<within + count)
+            // Relative to where the buffer starts, which may not be 0.
+            let start = fetch.buffer.startIndex + within
+            return fetch.buffer.subdata(in: start..<start + count)
         }
         return nil
     }
@@ -425,7 +428,8 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
                     #endif
                 }
             }
-            current.buffer.removeFirst(min(needed, current.buffer.count))
+            // A fresh Data, so the bytes left start at index 0 again.
+            current.buffer = Data(current.buffer.dropFirst(min(needed, current.buffer.count)))
             current.chunk += 1
             // Further on is already here: no need to download it again.
             if parts[current.part]?.chunks.contains(current.chunk) == true {

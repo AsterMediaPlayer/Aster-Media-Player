@@ -73,6 +73,8 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
 /// or episode ends, so a channel stays with its schedule.
 enum ChannelTuner {
     private static var channels: [String: PlaylistChannel] = [:]
+    /// Seconds before a programme's end that tuning in starts the next one.
+    static let tooLateToJoin: TimeInterval = 60
     /// The channels as last loaded, in channel-number order.
     private static var order: [String] = []
 
@@ -98,7 +100,11 @@ enum ChannelTuner {
     static func live(channelId: String, at date: Date = Date(), after finishedItemId: String? = nil) -> (item: BaseItem, entry: PlaybackQueueItem)? {
         guard let channel = channels[channelId], var program = channel.airing(at: date) else { return nil }
         var offset = program.offset(at: date)
-        if let finishedItemId, program.item.id == finishedItemId,
+        // Joining with under a minute left starts what's next instead: the
+        // last seconds can fall after the file's final keyframe, with
+        // nothing to start the picture from.
+        let almostOver = program.end.timeIntervalSince(date) < Self.tooLateToJoin
+        if almostOver || (finishedItemId != nil && program.item.id == finishedItemId),
            let next = channel.programs(from: program.end, to: program.end.addingTimeInterval(1)).first {
             program = next
             offset = 0

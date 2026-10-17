@@ -159,7 +159,7 @@ final class ChannelFlickModel {
                 )
             }
             let picture = channel.playlist.imageTags?["Primary"].map {
-                client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: $0, maxWidth: 300)
+                client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: $0, maxWidth: 560)
             }
             return FlickChannel(
                 id: channel.id,

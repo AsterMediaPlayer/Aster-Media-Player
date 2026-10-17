@@ -77,7 +77,7 @@ private struct ChannelFlickDetail: View {
                     if let bug = channel.bugURL {
                         Spacer(minLength: 0)
                         RemoteImage(url: bug, contentMode: .fit) { EmptyView() }
-                            .frame(width: 140, height: 90, alignment: .trailing)
+                            .frame(width: 280, height: 180, alignment: .trailing)
                     }
                 }
                 if let subtitle = channel.now?.subtitle {

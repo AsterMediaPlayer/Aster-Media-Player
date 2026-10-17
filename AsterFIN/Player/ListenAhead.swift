@@ -31,15 +31,17 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     private static let keepBehind: TimeInterval = 60
 
     /// Everything below happens on this queue.
-    private let queue = DispatchQueue(label: "app.asterfin.listen-ahead")
-    private lazy var session: URLSession = {
+    private static let workQueue = DispatchQueue(label: "app.asterfin.listen-ahead")
+    private var queue: DispatchQueue { Self.workQueue }
+    /// Downloads report on the same queue.
+    private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         let delegateQueue = OperationQueue()
-        delegateQueue.underlyingQueue = queue
+        delegateQueue.underlyingQueue = workQueue
         delegateQueue.maxConcurrentOperationCount = 1
-        return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+        return URLSession(configuration: configuration, delegate: shared, delegateQueue: delegateQueue)
     }()
 
     private struct Part {
@@ -82,6 +84,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
 
     /// The part to play through the cache, or nil when Listen Ahead is off or
     /// the file can't be opened as it is (it then streams as before).
+    @MainActor
     func asset(book: Audiobook, part: Int, client: JellyfinClient) -> AVURLAsset? {
         let minutes = AppSettings.listenAheadMinutes
         guard minutes > 0, book.parts.indices.contains(part) else { return nil }
@@ -368,7 +371,7 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
         retry?.cancel()
         var request = URLRequest(url: part.url)
         request.setValue("bytes=\(Int64(chunk) * Int64(Self.chunkSize))-", forHTTPHeaderField: "Range")
-        let task = session.dataTask(with: request)
+        let task = Self.session.dataTask(with: request)
         fetch = Fetch(part: index, chunk: chunk, task: task)
         task.resume()
         #if DEBUG

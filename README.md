@@ -107,6 +107,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
 - **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays two to four in a row; **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
+- **A week ahead:** the guide covers the next 7 days, with a day picker at the top.
 - **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
 - **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
 

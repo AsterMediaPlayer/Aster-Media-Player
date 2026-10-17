@@ -8,7 +8,7 @@ A native Jellyfin client for Apple TV, iPhone, iPad and the Mac, written in Swif
 
 AsterFIN covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
 
-> AsterFIN is in beta (0.4). Expect rough edges, and please report what you find.
+> AsterFIN is in beta (0.5). Expect rough edges, and please report what you find.
 
 ## Get AsterFIN
 

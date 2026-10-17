@@ -70,6 +70,10 @@ final class AudiobookPlayer {
     private var lastReport = Date.distantPast
     private var hasStarted = false
     private var commandsInstalled = false
+    /// The part is playing through Listen Ahead's cache; and whether that
+    /// failed this time, so the book streams as before instead.
+    private var playsThroughCache = false
+    private var cacheFailed = false
     private var artworkTask: Task<Void, Never>?
 
     // MARK: Starting
@@ -91,6 +95,7 @@ final class AudiobookPlayer {
         finishCurrent()
         self.client = client
         self.book = book
+        cacheFailed = false
         rate = AudiobookRates.rate(for: book.id)
         installRemoteCommands()
         RemoteCommandLayout.useForAudiobooks()
@@ -240,12 +245,13 @@ final class AudiobookPlayer {
         // on, through its cache of what's coming up.
         if let saved = AudiobookDownloads.shared.fileURL(forPart: item.id) {
             url = saved
-        } else if let asset = ListenAhead.shared.asset(book: book, part: part, client: client) {
+        } else if !cacheFailed, let asset = ListenAhead.shared.asset(book: book, part: part, client: client) {
             cachedItem = AVPlayerItem(asset: asset)
             // The stretch ahead starts from where this part will play.
             ListenAhead.shared.update(bookId: book.id, part: part, seconds: seconds, force: true)
         }
         #endif
+        playsThroughCache = cachedItem != nil
         let playerItem = cachedItem ?? AVPlayerItem(url: url)
         // Keeps voices natural when sped up or slowed down.
         playerItem.audioTimePitchAlgorithm = .timeDomain
@@ -348,6 +354,12 @@ final class AudiobookPlayer {
                     // Debug builds only: the error can include the stream URL and its token.
                     print("DEBUG audiobook: failed \(String(describing: observed.error))")
                     #endif
+                    // Through the cache, it tries again streaming as before.
+                    if self.playsThroughCache {
+                        self.cacheFailed = true
+                        self.load(part: self.partIndex, at: self.currentTime, playing: self.playWhenReady)
+                        return
+                    }
                     self.errorMessage = observed.error?.localizedDescription ?? "This book can't be played."
                     self.isPlaying = false
                 default:

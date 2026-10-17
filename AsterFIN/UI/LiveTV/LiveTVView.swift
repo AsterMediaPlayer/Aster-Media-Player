@@ -300,13 +300,26 @@ struct LiveTVView: View {
             return
         }
         #endif
+        let request = PlaybackRequest(itemId: channelId)
         if let live {
+            #if canImport(AetherEngine)
+            // The system player took over a channel AetherEngine couldn't
+            // play; another channel gets AetherEngine again.
+            if AetherPlayback.canPlay(request) {
+                live.stop()
+                self.live = nil
+            } else {
+                live.tune(channelId)
+                liveFullScreen = true
+                return
+            }
+            #else
             live.tune(channelId)
             liveFullScreen = true
             return
+            #endif
         }
         guard let client = session.client else { return }
-        let request = PlaybackRequest(itemId: channelId)
         #if canImport(AetherEngine)
         if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
             // A channel the engine can't play carries on in the system player.

@@ -137,6 +137,12 @@ final class AetherPlayback {
     /// When the live source was last reopened, to give up on a channel that
     /// keeps dropping rather than retry for ever.
     private var liveRetunes: [Date] = []
+    /// The last channel's stream, still being closed. The tuner has only so
+    /// many streams, so the next one opens once it's gone.
+    @ObservationIgnored private var closingLiveStream: Task<Void, Never>?
+    /// This channel failed to start once and was given a second go before
+    /// going to the system player.
+    private var liveStartRetried = false
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -274,6 +280,8 @@ final class AetherPlayback {
     /// Opens the channel's live stream on the server, the way the system
     /// player does, and plays its HLS stream through the engine as live.
     private func loadLive() async throws {
+        await closingLiveStream?.value
+        closingLiveStream = nil
         let info = try await client.playbackInfo(
             itemId: entry.itemId,
             startTicks: 0,
@@ -309,6 +317,7 @@ final class AetherPlayback {
         endServerSession()
         closeLiveStream()
         liveRetunes = []
+        liveStartRetried = false
         play(item ?? BaseItem(id: channelId, name: nil, type: ItemKind.tvChannel.rawValue), entry: PlaybackQueueItem(itemId: channelId))
     }
 
@@ -363,7 +372,7 @@ final class AetherPlayback {
         guard let liveStreamId else { return }
         self.liveStreamId = nil
         let client = client
-        Task { await client.closeLiveStream(liveStreamId) }
+        closingLiveStream = Task { await client.closeLiveStream(liveStreamId) }
     }
 
     /// Asks the server for a converted stream (at `qualityCap`, or the
@@ -403,6 +412,19 @@ final class AetherPlayback {
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
         guard !stopped, !fellBack else { return }
+        // A live channel's stream can be briefly missing on the server (a
+        // tuner still being let go, an encode not ready): one fresh try in
+        // this player before handing it over.
+        if isLive, !liveStartRetried, let item {
+            liveStartRetried = true
+            #if DEBUG
+            print("DEBUG playback: live channel failed (\(reason)); trying a fresh stream once")
+            #endif
+            endServerSession()
+            closeLiveStream()
+            play(item, entry: entry)
+            return
+        }
         if isConverted, entry.fallback != .mostCompatible {
             #if DEBUG
             print("DEBUG playback: converted stream failed (\(reason)); trying a plain H.264 encode")

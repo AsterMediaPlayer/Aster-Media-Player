@@ -94,6 +94,7 @@ final class AppSession {
         case .liveTV: hasLiveTV
         case .audiobooks: !bookLibraries.isEmpty
         case .upcoming: hasUpcoming
+        case .channels: hasChannels
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false
@@ -154,10 +155,23 @@ final class AppSession {
 
     /// Whether the server lets this user download media; false until known.
     private(set) var canDownload = false
+    /// Whether this user can change playlists' tags, which is how channels
+    /// are set up (an administrator); false until known.
+    private(set) var canEditChannels = false
+    /// Whether any playlist on the server is tagged as a channel, which the
+    /// Channels tab needs. Checked when the main screen loads, on returning
+    /// to the app, and after Edit Channels changes something.
+    private(set) var hasChannels = false
+
+    func refreshChannels() async {
+        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        hasChannels = !ChannelsModel.taggedChannels(in: playlists).isEmpty
+    }
 
     func refreshUserConfiguration() async {
         guard let client, let me = try? await client.me() else { return }
         canDownload = me.policy?.enableContentDownloading ?? false
+        canEditChannels = me.policy?.isAdministrator ?? false
         if let config = me.configuration {
             userConfiguration = config
         }
@@ -281,6 +295,8 @@ enum AppSettings {
     static let useSystemPlayerKey = "AsterFIN.useSystemPlayer"
     /// The video playlists made into Channels, in channel order, comma-joined
     /// (see `PlaylistChannelList`). Kept on this device.
+    /// Where channels were kept before they moved to playlist tags; read once
+    /// by `ChannelMigration`.
     static let playlistChannelsKey = "AsterFIN.playlistChannels"
     static let playlistChannelModesKey = "AsterFIN.playlistChannelModes"
     /// Channels showing their playlist's picture as their logo, comma-joined.

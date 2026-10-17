@@ -11,13 +11,8 @@ import SwiftUI
 struct ChannelsView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.openItem) private var openItem
-    @AppStorage(AppSettings.playlistChannelsKey) private var stored = ""
-    @AppStorage(AppSettings.playlistChannelModesKey) private var storedModes = ""
-    @AppStorage(AppSettings.playlistChannelLogosKey) private var storedLogos = ""
     @State private var model = ChannelsModel()
     @State private var guide: ChannelGuideSource?
-
-    private var ids: [String] { PlaylistChannelList.ids(from: stored) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,26 +47,26 @@ struct ChannelsView: View {
                     channels: guide.channels,
                     select: select,
                     playChannel: tuneIn(channelId:),
-                    emptyDetail: "Pick video playlists with movies or episodes in Edit Channels."
+                    emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it asterfin:channel in Jellyfin."
                 )
                 // A new guide (other channels, or the next day) starts afresh.
                 .id(ObjectIdentifier(guide))
             }
         }
-        .task(id: [stored, storedModes, storedLogos]) {
-            guard let client = session.client else { return }
-            await model.load(
-                ids: ids,
-                modes: PlaylistChannelList.modes(from: storedModes),
-                logos: Set(PlaylistChannelList.ids(from: storedLogos)),
-                client: client
-            )
-            rebuildGuide()
-        }
+        // On showing, and again on coming back (from Edit Channels, say):
+        // the channels are whatever the server's playlists are tagged as now.
+        // Only playlists whose contents changed are fetched again.
         .onAppear {
-            // The guide covers a day from when it was made; move it on once
-            // it's an hour behind.
-            if let guide, Date().timeIntervalSince(guide.guideStart) > 3600 { rebuildGuide() }
+            Task {
+                guard let client = session.client else { return }
+                let before = model.channels
+                await model.load(client: client)
+                // The guide covers a day from when it was made: it's made
+                // again when the channels changed, or once it's an hour behind.
+                if guide == nil || model.channels != before || guide.map({ Date().timeIntervalSince($0.guideStart) > 3600 }) == true {
+                    rebuildGuide()
+                }
+            }
         }
     }
 

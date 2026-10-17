@@ -150,7 +150,7 @@ struct ChannelScheduleTests {
         ((item.parentIndexNumber ?? 1) - 1) * 6 + (item.indexNumber ?? 1) - 1
     }
 
-    @Test(arguments: ChannelMode.allCases)
+    @Test(arguments: [ChannelMode.rotation, .blocks])
     func episodesComeInOrderAcrossDays(mode: ChannelMode) {
         let programs = Self.tv(mode, from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 18))
         for series in ["alpha", "bravo", "charlie"] {
@@ -162,7 +162,7 @@ struct ChannelScheduleTests {
         }
     }
 
-    @Test(arguments: ChannelMode.allCases)
+    @Test(arguments: [ChannelMode.rotation, .blocks])
     func specialsAreLeftOut(mode: ChannelMode) {
         let programs = Self.tv(mode, from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 17))
         #expect(!programs.isEmpty)
@@ -203,7 +203,7 @@ struct ChannelScheduleTests {
         #expect(programs.contains { $0.item.kind == .episode })
     }
 
-    @Test(arguments: ChannelMode.allCases)
+    @Test(arguments: [ChannelMode.rotation, .blocks])
     func tvScheduleIsTheSameEveryTime(mode: ChannelMode) {
         let from = Self.date(2026, 10, 15, 18)
         let to = Self.date(2026, 10, 16, 6)
@@ -227,5 +227,42 @@ struct ChannelScheduleTests {
         #expect(first.map(\.id) == second.map(\.id))
         #expect(full < .seconds(1))
         #expect(resumed < full)
+    }
+
+    // MARK: Shuffle and In Order
+
+    @Test func inOrderFollowsThePlaylistAndWraps() {
+        // The playlist's own order (here the reverse of the episode order),
+        // specials included, round and round across days.
+        let order = Self.shows.map(\.id)
+        let programs = Self.tv(.sequential, from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 18))
+        #expect(programs.count > order.count)
+        for (earlier, later) in zip(programs, programs.dropFirst()) {
+            let index = order.firstIndex(of: earlier.item.id)!
+            #expect(later.item.id == order[(index + 1) % order.count])
+        }
+    }
+
+    @Test func inOrderDependsOnThePlaylistOrder() {
+        let from = Self.date(2026, 10, 15, 18)
+        let to = Self.date(2026, 10, 16, 6)
+        let asListed = Self.tv(.sequential, from: from, to: to).map(\.item.id)
+        let reversed = Self.tv(.sequential, items: Self.shows.reversed(), from: from, to: to).map(\.item.id)
+        #expect(asListed != reversed)
+    }
+
+    @Test func shuffleMixesSeriesAndLeavesSpecialsOut() {
+        let programs = Self.tv(.shuffle, from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 17))
+        #expect(programs.allSatisfy { $0.item.parentIndexNumber != 0 })
+        // Not each show's episodes in order, as Rotation would play them.
+        let alpha = programs.filter { $0.item.seriesId == "alpha" }.map { Self.position($0.item) }
+        let inOrder = zip(alpha, alpha.dropFirst()).allSatisfy { $1 == ($0 + 1) % 12 }
+        #expect(!inOrder)
+    }
+
+    @Test func shuffleIsTheSameEveryTime() {
+        let from = Self.date(2026, 10, 15, 18)
+        let to = Self.date(2026, 10, 16, 6)
+        #expect(Self.tv(.shuffle, from: from, to: to).map(\.item.id) == Self.tv(.shuffle, items: Self.shows.shuffled(), from: from, to: to).map(\.item.id))
     }
 }

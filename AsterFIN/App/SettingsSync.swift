@@ -14,11 +14,8 @@ import Foundation
 
 enum SettingsSync {
     /// The synced settings: their key on the device, and on the server.
-    private static let synced: [(local: String, server: String)] = [
-        (AppSettings.playlistChannelsKey, "playlistChannels"),
-        (AppSettings.playlistChannelModesKey, "playlistChannelModes"),
-        (AppSettings.playlistChannelLogosKey, "playlistChannelLogos"),
-    ]
+    /// (Channels used to be here; they're playlist tags now, see `ChannelTags`.)
+    private static let synced: [(local: String, server: String)] = []
 
     /// What the server last held for the signed-in user, so a value just
     /// fetched isn't sent straight back.
@@ -33,7 +30,7 @@ enum SettingsSync {
     /// up from this device, if it has one, so the first device with
     /// channels sets them.
     static func pull(client: JellyfinClient) async {
-        guard let remote = try? await client.appSettings() else { return }
+        guard !synced.isEmpty, let remote = try? await client.appSettings() else { return }
         let defaults = UserDefaults.standard
         serverValuesOwner = owner(of: client)
         serverValues = [:]

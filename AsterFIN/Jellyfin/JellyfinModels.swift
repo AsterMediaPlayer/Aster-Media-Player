@@ -48,9 +48,12 @@ nonisolated struct JellyfinUser: Codable, Sendable, Identifiable, Hashable {
 nonisolated struct UserPolicy: Codable, Sendable, Hashable {
     /// "Allow media downloading" in the user's settings on the server.
     var enableContentDownloading: Bool?
+    /// An administrator can edit any item's metadata, a playlist's tags included.
+    var isAdministrator: Bool?
 
     enum CodingKeys: String, CodingKey {
         case enableContentDownloading = "EnableContentDownloading"
+        case isAdministrator = "IsAdministrator"
     }
 }
 
@@ -416,6 +419,9 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     /// Trickplay images for scrubbing, by file (media source) id and then
     /// by width; only on a title the server has made them for.
     var trickplay: [String: [String: TrickplayInfo]]?
+    /// The item's tags in Jellyfin; a playlist's say whether it's a channel
+    /// (see `ChannelTags`).
+    var tags: [String]?
     var mediaSources: [MediaSourceInfo]?
     var mediaStreams: [MediaStream]?
     var providerIds: [String: String]?
@@ -502,6 +508,7 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
         case userData = "UserData"
         case chapters = "Chapters"
         case trickplay = "Trickplay"
+        case tags = "Tags"
         case mediaSources = "MediaSources"
         case mediaStreams = "MediaStreams"
         case providerIds = "ProviderIds"

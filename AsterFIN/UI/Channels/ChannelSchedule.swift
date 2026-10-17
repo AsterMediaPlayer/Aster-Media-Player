@@ -20,10 +20,14 @@ import Synchronization
 
 /// How a channel's shows take turns.
 nonisolated enum ChannelMode: String, CaseIterable, Identifiable, Sendable {
-    /// One episode per turn.
+    /// Shows take turns, one episode each.
     case rotation
-    /// Two to four episodes in a row per turn.
+    /// Shows take turns, two to four episodes in a row each.
     case blocks
+    /// Every movie and episode on its own, in a new order each day.
+    case shuffle
+    /// The playlist's own order, straight through and round again.
+    case sequential
 
     var id: String { rawValue }
 
@@ -31,6 +35,8 @@ nonisolated enum ChannelMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .rotation: "Rotation"
         case .blocks: "Blocks"
+        case .shuffle: "Shuffle"
+        case .sequential: "In Order"
         }
     }
 }
@@ -97,7 +103,26 @@ nonisolated enum ChannelSchedule {
     /// The items grouped into shows, sorted by id so devices that list the
     /// playlist in another order still shuffle the same list. Specials
     /// (season 0), missing episodes and items without a runtime are left out.
-    private static func shows(from items: [BaseItem]) -> [Show] {
+    private static func shows(from items: [BaseItem], mode: ChannelMode) -> [Show] {
+        switch mode {
+        case .sequential:
+            // One "show": the whole playlist in its own order, specials and all,
+            // as whoever arranged it chose.
+            var seen = Set<String>()
+            let entries = items.compactMap { item -> Entry? in
+                let length = TimeInterval(item.runTimeTicks ?? 0) / 10_000_000
+                guard length >= minimumLength, item.locationType != "Virtual", seen.insert(item.id).inserted else { return nil }
+                return Entry(item: item, length: length)
+            }
+            return entries.isEmpty ? [] : [Show(id: "playlist", episodes: entries)]
+        case .shuffle:
+            // Every item its own "show", so episodes mix across series.
+            return shows(from: items, mode: .rotation)
+                .flatMap { show in show.episodes.map { Show(id: $0.item.id, episodes: [$0]) } }
+                .sorted { $0.id < $1.id }
+        case .rotation, .blocks:
+            break
+        }
         var seen = Set<String>()
         var series: [String: [Entry]] = [:]
         var shows: [Show] = []
@@ -145,7 +170,7 @@ nonisolated enum ChannelSchedule {
     /// Lays the timeline out up to `end`, handing each program to `visit`
     /// as it goes. Programs before `from` may be skipped.
     private static func walk(channelId: String, items: [BaseItem], mode: ChannelMode, from: Date, until end: Date, calendar: Calendar, visit: (ScheduledProgram) -> Void) {
-        let shows = shows(from: items)
+        let shows = shows(from: items, mode: mode)
         guard !shows.isEmpty else { return }
 
         let base = seed(of: channelId)

@@ -2,9 +2,10 @@
 //  ChannelBug.swift
 //  AsterFIN
 //
-//  A Channel's logo, faint in the bottom corner while it plays, as a TV
-//  network's bug. Shown for a channel tagged asterfin:bug=on whose playlist
-//  has a picture. It sits in the corner of the picture itself, so a 4:3
+//  A Channel's logo, faint in a corner while it plays, as a TV network's
+//  bug. Shown for a channel tagged asterfin:bug=on whose playlist has a
+//  picture, in the corner and at the size its bug-location= and bug-size=
+//  tags ask for. It sits in the corner of the picture itself, so a 4:3
 //  show between black bars (or a wide film between bars above and below)
 //  keeps it on the picture rather than out in the bars.
 //
@@ -30,27 +31,41 @@ struct ChannelBug: View {
     private static let insetX: CGFloat = 0.094
     private static let insetY: CGFloat = 0.12
 
-    private var imageURL: URL? {
-        guard let channelId, let channel = ChannelTuner.channel(channelId), channel.showsBug,
-              let tag = channel.playlist.imageTags?["Primary"], let client = session.client else { return nil }
-        return client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: tag, maxWidth: Int(Self.width * 2))
+    private var channel: PlaylistChannel? {
+        guard let channelId, let channel = ChannelTuner.channel(channelId), channel.showsBug else { return nil }
+        return channel
     }
 
     var body: some View {
-        if let imageURL {
+        if let channel, let tag = channel.playlist.imageTags?["Primary"], let client = session.client {
+            let corner = channel.bugCorner
+            let width = Self.width * CGFloat(channel.bugSize) / 100
+            let url = client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: tag, maxWidth: Int(width * 2))
             GeometryReader { proxy in
                 let picture = Self.pictureRect(in: proxy.size, aspect: videoAspect)
-                RemoteImage(url: imageURL, contentMode: .fit) { EmptyView() }
-                    .frame(width: Self.width, height: Self.width, alignment: .bottomTrailing)
+                let insetX = picture.width * Self.insetX + width / 2
+                let insetY = picture.height * Self.insetY + width / 2
+                RemoteImage(url: url, contentMode: .fit) { EmptyView() }
+                    .frame(width: width, height: width, alignment: Self.alignment(for: corner))
                     .opacity(0.45)
                     .position(
-                        x: picture.maxX - picture.width * Self.insetX - Self.width / 2,
-                        y: picture.maxY - picture.height * Self.insetY - Self.width / 2
+                        x: corner.isLeft ? picture.minX + insetX : picture.maxX - insetX,
+                        y: corner.isTop ? picture.minY + insetY : picture.maxY - insetY
                     )
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+        }
+    }
+
+    /// The logo hugs the corner it's in, whatever its shape.
+    private static func alignment(for corner: BugCorner) -> Alignment {
+        switch corner {
+        case .topLeft: .topLeading
+        case .topRight: .topTrailing
+        case .bottomLeft: .bottomLeading
+        case .bottomRight: .bottomTrailing
         }
     }
 

@@ -51,6 +51,9 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var showsLogo = false
     /// The players show the playlist's picture in a corner, as a network's bug.
     var showsBug = false
+    var bugCorner: BugCorner = .bottomRight
+    /// The bug's size, as a percentage of the usual.
+    var bugSize = 100
     /// From the `channel-name=` tag; nil for the playlist's own name.
     var customName: String?
 
@@ -148,7 +151,7 @@ final class ChannelsModel {
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 let items = (itemCache[entry.playlist.id]?.items ?? []).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, customName: entry.tags.name)
+                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, customName: entry.tags.name)
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built

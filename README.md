@@ -107,6 +107,8 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `asterfin:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
   | `asterfin:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
   | `asterfin:bug=on` | The logo, faint in the corner while the channel plays | off |
+  | `asterfin:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
+  | `asterfin:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
   | `asterfin:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
   Turning a playlist on in AsterFIN writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `asterfin:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.

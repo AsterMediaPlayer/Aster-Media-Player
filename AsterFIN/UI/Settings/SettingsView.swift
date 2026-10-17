@@ -427,6 +427,9 @@ struct ChannelSettingsView: View {
         channel.tags.name ?? channel.playlist.displayTitle
     }
 
+    /// Bug sizes offered, in percent of the usual.
+    private static let bugSizeChoices = [50, 75, 100, 125, 150, 200, 250, 300]
+
     /// Block lengths offered for Blocks mode, the usual first.
     private static let blockChoices: [ClosedRange<Int>] = [ChannelLineup.defaultBlocks, 1...2, 1...3, 2...3, 3...4, 3...5, 3...6, 4...6, 4...8, 6...10]
 
@@ -490,7 +493,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on and asterfin:channel-name=Your Name.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, and asterfin:bug-size=150%) and asterfin:channel-name=Your Name.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -558,6 +561,24 @@ struct ChannelSettingsView: View {
                 get: { tags.showsBug },
                 set: { on in save(playlist, tags.with { $0.showsBug = on }) }
             ))
+            if tags.showsBug {
+                SettingsChoiceRow(
+                    title: "Corner",
+                    options: BugCorner.allCases.map { ($0, $0.title) },
+                    selection: Binding(
+                        get: { tags.bugCorner },
+                        set: { corner in save(playlist, tags.with { $0.bugCorner = corner }) }
+                    )
+                )
+                SettingsChoiceRow(
+                    title: "Logo Size",
+                    options: (Self.bugSizeChoices + (Self.bugSizeChoices.contains(tags.bugSize) ? [] : [tags.bugSize])).sorted().map { ($0, "\($0)%") },
+                    selection: Binding(
+                        get: { tags.bugSize },
+                        set: { size in save(playlist, tags.with { $0.bugSize = size }) }
+                    )
+                )
+            }
         } header: {
             Text("Channel \(numbers[playlist.id] ?? 0)")
         }

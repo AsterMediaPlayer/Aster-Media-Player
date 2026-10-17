@@ -537,6 +537,9 @@ struct ChannelSettingsView: View {
     /// How long the bug can stay up, in seconds; 0 for always.
     private static let bugHideChoices = [0, 10, 30, 60, 120, 300]
 
+    /// Bug opacities offered, in percent.
+    private static let bugOpacityChoices = [25, 35, 45, 60, 75, 90, 100]
+
     /// Bug sizes offered, in percent of the usual.
     private static let bugSizeChoices = [50, 75, 100, 125, 150, 200, 250, 300]
 
@@ -606,7 +609,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30), asterfin:channel-name=Your Name, and for a genre channel asterfin:genre=Horror (once per genre), asterfin:type=movies (or shows, all) and asterfin:library=TV Shows (once per library).")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150%, asterfin:bug-hide=30 and asterfin:bug-opacity=60%), asterfin:channel-name=Your Name, and for a genre channel asterfin:genre=Horror (once per genre), asterfin:type=movies (or shows, all) and asterfin:library=TV Shows (once per library).")
                     SettingsNote("A genre channel plays every movie or episode in its genres (any of them), as well as anything in its playlist.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
@@ -764,6 +767,14 @@ struct ChannelSettingsView: View {
                 selection: Binding(
                     get: { tags.bugHideAfter },
                     set: { seconds in save(playlist, tags.with { $0.bugHideAfter = seconds }) }
+                )
+            )
+            SettingsChoiceRow(
+                title: "Opacity",
+                options: (Self.bugOpacityChoices + (Self.bugOpacityChoices.contains(tags.bugOpacity) ? [] : [tags.bugOpacity])).sorted().map { ($0, "\($0)%") },
+                selection: Binding(
+                    get: { tags.bugOpacity },
+                    set: { opacity in save(playlist, tags.with { $0.bugOpacity = opacity }) }
                 )
             )
             SettingsChoiceRow(

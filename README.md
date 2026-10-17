@@ -110,6 +110,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `asterfin:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
   | `asterfin:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
   | `asterfin:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
+  | `asterfin:bug-opacity=60%` | How solid the bug is, 5% to 100% | `45%` |
   | `asterfin:genre=Horror` | Also plays every movie and episode in this genre; repeat the tag for more genres (any of them) | none |
   | `asterfin:type=movies` | With genres: `all`, `movies` or `shows` | `all` |
   | `asterfin:library=TV Shows` | With genres: only from this library; repeat for more | every library |

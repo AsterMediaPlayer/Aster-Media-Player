@@ -18,6 +18,7 @@
 //    asterfin:bug-location=…  which corner: top-left, top-right, bottom-left, bottom-right
 //    asterfin:bug-size=150%   the bug's size, from 25% to 300% of the usual
 //    asterfin:bug-hide=30     the bug fades after 30 seconds (off: it stays)
+//    asterfin:bug-opacity=60% how solid the bug is, 5% to 100% (45% by default)
 //    asterfin:genre=Horror    also plays every title in this genre; repeat
 //                             (or Horror,Thriller) for more, any of them
 //    asterfin:type=movies     with genres: all (the default), movies or shows
@@ -37,7 +38,7 @@ import Foundation
 nonisolated struct ChannelTags: Equatable, Sendable {
     static let prefix = "asterfin:"
     /// The keys this reads and writes; other `asterfin:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "genre", "type", "library", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -53,6 +54,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// Seconds the bug shows after tuning in or a programme starting; 0 for
     /// always.
     var bugHideAfter = 0
+    /// How solid the bug is, in percent.
+    var bugOpacity = ChannelTags.defaultBugOpacity
     /// Genres whose titles the channel plays too, any of them; none for a
     /// channel of just its playlist.
     var genres: [String] = []
@@ -67,6 +70,9 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     static let longestBlock = 20
     /// The sizes `bug-size=` can ask for, in percent.
     static let bugSizes = 25...300
+    /// The bug's opacity unless `bug-opacity=` says otherwise, and its range.
+    static let defaultBugOpacity = 45
+    static let bugOpacities = 5...100
     /// How long `bug-hide=` can keep the bug up, in seconds.
     static let bugHideTimes = 1...3600
 
@@ -106,6 +112,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 bugCorner = value.flatMap { BugCorner(rawValue: $0.lowercased()) } ?? .bottomRight
             case "bug-size":
                 bugSize = value.flatMap(Self.percent).flatMap { Self.bugSizes.contains($0) ? $0 : nil } ?? 100
+            case "bug-opacity":
+                bugOpacity = value.flatMap(Self.percent).flatMap { Self.bugOpacities.contains($0) ? $0 : nil } ?? Self.defaultBugOpacity
             case "bug-hide":
                 bugHideAfter = value.flatMap(Self.seconds).flatMap { Self.bugHideTimes.contains($0) ? $0 : nil } ?? 0
             case "genre":
@@ -143,6 +151,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         result.append(Self.prefix + "bug-location=\(bugCorner.rawValue)")
         result.append(Self.prefix + "bug-size=\(bugSize)%")
         result.append(Self.prefix + (bugHideAfter > 0 ? "bug-hide=\(bugHideAfter)" : "bug-hide=off"))
+        result.append(Self.prefix + "bug-opacity=\(bugOpacity)%")
         for genre in genres { result.append(Self.prefix + "genre=\(genre)") }
         result.append(Self.prefix + "type=\(content.rawValue)")
         for library in libraries { result.append(Self.prefix + "library=\(library)") }

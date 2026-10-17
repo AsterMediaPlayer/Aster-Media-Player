@@ -52,7 +52,7 @@ struct ChannelBug: View {
                 let insetY = picture.height * Self.insetY + width / 2
                 RemoteImage(url: url, contentMode: .fit) { EmptyView() }
                     .frame(width: width, height: width, alignment: Self.alignment(for: corner))
-                    .opacity(faded ? 0 : 0.45)
+                    .opacity(faded ? 0 : Double(channel.bugOpacity) / 100)
                     .position(
                         x: corner.isLeft ? picture.minX + insetX : picture.maxX - insetX,
                         y: corner.isTop ? picture.minY + insetY : picture.maxY - insetY

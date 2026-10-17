@@ -50,14 +50,14 @@ struct ChannelTagsTests {
         #expect(written == [
             "Family", "asterfin:theme=retro", "Halloween", "asterfin:channel", "asterfin:number=7", "asterfin:mode=blocks",
             "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off",
-            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all",
+            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all",
         ])
         #expect(ChannelTags(tags: written) == ChannelTags(isChannel: true, number: 7, mode: .blocks))
     }
 
     /// Defaults are written too, so every setting shows in Jellyfin.
     @Test func everySettingIsWritten() {
-        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all"]
+        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all"]
         #expect(ChannelTags(isChannel: true).applied(to: []) == ["asterfin:channel"] + defaults)
         #expect(ChannelTags().applied(to: ["asterfin:channel", "Family"]) == ["Family", "asterfin:channel=off"] + defaults)
         #expect(ChannelTags(tags: ChannelTags(isChannel: true).applied(to: [])) == ChannelTags(isChannel: true))
@@ -136,7 +136,7 @@ struct ChannelTagsTests {
         let written = tags.applied(to: ["Family"])
         #expect(written == [
             "Family", "asterfin:channel", "asterfin:mode=blocks", "asterfin:reshuffle=month", "asterfin:blocks=4",
-            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:type=all",
+            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all",
             "asterfin:channel-name=Late Night",
         ])
         #expect(ChannelTags(tags: written) == tags)
@@ -159,7 +159,7 @@ struct ChannelTagsTests {
     @Test func theBugCanHideItself() {
         #expect(ChannelTags(tags: ["asterfin:bug-hide=30"]).bugHideAfter == 30)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=45s"]).bugHideAfter == 45)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=off", "asterfin:type=all"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all"]).bugHideAfter == 0)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=soon"]).bugHideAfter == 0)
         #expect(ChannelTags(tags: ["asterfin:bug-hide=99999"]).bugHideAfter == 0)
         let written = ChannelTags(isChannel: true).with { $0.bugHideAfter = 30 }.applied(to: [])
@@ -198,5 +198,15 @@ struct ChannelTagsTests {
         func item(_ id: String) -> BaseItem { BaseItem(id: id, name: id, type: ItemKind.movie.rawValue) }
         let merged = ChannelsModel.merged([item("b"), item("a")], [item("a"), item("c"), item("b"), item("d")])
         #expect(merged.map(\.id) == ["b", "a", "c", "d"])
+    }
+
+    @Test func theBugsOpacityIsRead() {
+        #expect(ChannelTags(tags: ["asterfin:bug-opacity=60%"]).bugOpacity == 60)
+        #expect(ChannelTags(tags: ["asterfin:bug-opacity=100"]).bugOpacity == 100)
+        #expect(ChannelTags(tags: ["asterfin:bug-opacity=0%"]).bugOpacity == 45)
+        #expect(ChannelTags(tags: ["asterfin:bug-opacity=solid"]).bugOpacity == 45)
+        let written = ChannelTags(isChannel: true).with { $0.bugOpacity = 75 }.applied(to: [])
+        #expect(written.contains("asterfin:bug-opacity=75%"))
+        #expect(ChannelTags(tags: written).bugOpacity == 75)
     }
 }

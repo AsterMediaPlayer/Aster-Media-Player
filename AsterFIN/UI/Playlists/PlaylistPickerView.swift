@@ -7,6 +7,15 @@
 
 import SwiftUI
 
+/// What to add, handed to the picker as it opens. Presenting the picker with
+/// this as its item, rather than ids kept beside a flag, means it opens with
+/// the ids just chosen: with a flag, SwiftUI could build it from the ids as
+/// they were before (none), and the add went through with nothing in it.
+struct PlaylistRequest: Identifiable {
+    let id = UUID()
+    let itemIds: [String]
+}
+
 struct PlaylistPickerView: View {
     let itemIds: [String]
     /// "Audio" or "Video"; only playlists of this type are offered.
@@ -159,6 +168,10 @@ struct PlaylistPickerView: View {
 
     private func add(to playlist: BaseItem) {
         guard let client = session.client else { return }
+        guard !itemIds.isEmpty else {
+            errorMessage = "There's nothing to add."
+            return
+        }
         isWorking = true
         Task {
             defer { isWorking = false }

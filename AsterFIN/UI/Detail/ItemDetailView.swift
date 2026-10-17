@@ -262,8 +262,7 @@ struct ItemDetailView: View {
     @State private var showDiscMenu = false
     @State private var message: String?
     @State private var notice: String?
-    @State private var showPlaylistPicker = false
-    @State private var playlistTargets: [String] = []
+    @State private var playlistRequest: PlaylistRequest?
     @State private var confirmDeleteRecording = false
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedAction: String?
@@ -492,8 +491,8 @@ struct ItemDetailView: View {
         } message: {
             Text("The recording is removed from the server and cannot be recovered.")
         }
-        .appCover(isPresented: $showPlaylistPicker) {
-            PlaylistPickerView(itemIds: playlistTargets, mediaType: "Video") { name in
+        .appCover(item: $playlistRequest) { request in
+            PlaylistPickerView(itemIds: request.itemIds, mediaType: "Video") { name in
                 notice = "Added to \(name)."
             }
         }
@@ -927,19 +926,20 @@ struct ItemDetailView: View {
     private func addToPlaylist() {
         guard let client = session.client else { return }
         Task {
+            let ids: [String]
             switch detail.kind {
             case .series:
-                playlistTargets = ((try? await client.episodes(seriesId: detail.id, seasonId: nil)) ?? []).map(\.id)
+                ids = ((try? await client.episodes(seriesId: detail.id, seasonId: nil)) ?? []).map(\.id)
             case .season:
-                playlistTargets = model.episodes.map(\.id)
+                ids = model.episodes.map(\.id)
             default:
-                playlistTargets = [detail.id]
+                ids = [detail.id]
             }
-            guard !playlistTargets.isEmpty else {
+            guard !ids.isEmpty else {
                 notice = "There is nothing to add yet."
                 return
             }
-            showPlaylistPicker = true
+            playlistRequest = PlaylistRequest(itemIds: ids)
         }
     }
 

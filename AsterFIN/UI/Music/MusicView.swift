@@ -397,8 +397,7 @@ struct SongsList: View {
 
     @Environment(AppSession.self) private var session
     @State private var model = GridModel()
-    @State private var showPlaylistPicker = false
-    @State private var playlistTargets: [String] = []
+    @State private var playlistRequest: PlaylistRequest?
     @State private var notice: String?
 
     private var query: [String: String?] {
@@ -434,8 +433,7 @@ struct SongsList: View {
                         isCurrent: session.music.current?.id == song.id,
                         contextActions: [
                             TrackAction(title: "Add to Playlist", systemImage: "text.badge.plus") {
-                                playlistTargets = [song.id]
-                                showPlaylistPicker = true
+                                playlistRequest = PlaylistRequest(itemIds: [song.id])
                             },
                         ]
                     ) {
@@ -457,8 +455,8 @@ struct SongsList: View {
         Color.clear
             .frame(height: 1)
             .task { await load(reset: true) }
-            .appCover(isPresented: $showPlaylistPicker) {
-                PlaylistPickerView(itemIds: playlistTargets, mediaType: "Audio") { name in
+            .appCover(item: $playlistRequest) { request in
+                PlaylistPickerView(itemIds: request.itemIds, mediaType: "Audio") { name in
                     notice = "Added to \(name)."
                 }
             }
@@ -687,8 +685,7 @@ struct AlbumView: View {
     @State private var tracks: [BaseItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var showPlaylistPicker = false
-    @State private var playlistTargets: [String] = []
+    @State private var playlistRequest: PlaylistRequest?
     @State private var notice: String?
 
     private var current: BaseItem { detail ?? item }
@@ -744,8 +741,8 @@ struct AlbumView: View {
             .scrollClipDisabled()
         }
         .task(id: item.id) { await load() }
-        .appCover(isPresented: $showPlaylistPicker) {
-            PlaylistPickerView(itemIds: playlistTargets, mediaType: "Audio") { name in
+        .appCover(item: $playlistRequest) { request in
+            PlaylistPickerView(itemIds: request.itemIds, mediaType: "Audio") { name in
                 notice = "Added to \(name)."
             }
         }
@@ -809,8 +806,7 @@ struct AlbumView: View {
                     }
                     Menu {
                         Button {
-                            playlistTargets = tracks.map(\.id)
-                            showPlaylistPicker = true
+                            playlistRequest = PlaylistRequest(itemIds: tracks.map(\.id))
                         } label: {
                             Label("Add to Playlist", systemImage: "text.badge.plus")
                         }
@@ -859,8 +855,7 @@ struct AlbumView: View {
     private func rowActions(for song: BaseItem, at position: Int) -> [TrackAction] {
         var actions = [
             TrackAction(title: "Add to Playlist", systemImage: "text.badge.plus") {
-                playlistTargets = [song.id]
-                showPlaylistPicker = true
+                playlistRequest = PlaylistRequest(itemIds: [song.id])
             },
         ]
         guard isPlaylist, song.playlistItemId != nil else { return actions }

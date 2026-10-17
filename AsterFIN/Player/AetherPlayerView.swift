@@ -51,7 +51,7 @@ struct AetherPlayerView: View {
             }
             // Under the controls, so they draw over it.
             if playback.hasStarted, !playback.endCardVisible {
-                ChannelBug(channelId: playback.channelId)
+                ChannelBug(channelId: playback.channelId, videoAspect: videoAspect)
             }
             // An anime episode's opening or ending gets its song card, as it
             // does in the system player.
@@ -129,6 +129,13 @@ struct AetherPlayerView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    /// The picture's shape as shown: its size, with any non-square pixels
+    /// (a DVD's) accounted for; nil until it's known.
+    private var videoAspect: CGFloat? {
+        guard engine.sourceVideoWidth > 0, engine.sourceVideoHeight > 0 else { return nil }
+        return CGFloat(engine.sourceVideoWidth) * CGFloat(engine.sourceVideoPixelAspectRatio) / CGFloat(engine.sourceVideoHeight)
     }
 
     /// The load failing, or the engine giving up partway, when there's no

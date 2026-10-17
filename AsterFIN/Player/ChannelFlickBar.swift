@@ -85,14 +85,14 @@ private struct ChannelFlickDetail: View {
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                 }
-                if let program = channel.now {
-                    ChannelFlickTime(program: program)
-                }
                 if let overview = channel.now?.overview {
                     Text(overview)
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(3)
+                }
+                if let program = channel.now {
+                    ChannelFlickTime(program: program)
                 }
                 Label(isCurrent ? "Watching" : "Press to watch", systemImage: isCurrent ? "play.tv" : "arrow.right.circle")
                     .font(.callout.weight(.semibold))
@@ -105,7 +105,7 @@ private struct ChannelFlickDetail: View {
     }
 }
 
-/// "8:00 – 8:30 PM" with how far into it the channel is.
+/// "8:00 – 8:30 PM", how far into it the channel is, and the time left.
 private struct ChannelFlickTime: View {
     let program: FlickProgram
 
@@ -119,8 +119,20 @@ private struct ChannelFlickTime: View {
                     ChannelFlickProgress(fraction: progress)
                         .frame(width: 220, height: 6)
                 }
+                if let left = timeLeft(at: context.date) {
+                    Text(left)
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.75))
+                }
             }
         }
+    }
+
+    /// "12 min left", "1 hr, 5 min left"; nil once it's over.
+    private func timeLeft(at date: Date) -> String? {
+        guard let end = program.end, end > date else { return nil }
+        let minutes = max(1, Int((end.timeIntervalSince(date) / 60).rounded(.up)))
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " left"
     }
 }
 

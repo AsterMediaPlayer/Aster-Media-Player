@@ -132,7 +132,11 @@ final class ChannelsModel {
     /// Each genre channel's genre titles as last fetched: what was asked
     /// (genres, type, libraries) and how many the server had, so they're
     /// fetched again only when either changes.
-    private var genreCache: [String: (query: String, count: Int, items: [BaseItem])] = [:]
+    /// Each source channel's titles (movies and series) and what it plays
+    /// from them, by playlist id, with the query that found them.
+    private var sourceCache: [String: (query: String, titleIds: [String], items: [BaseItem])] = [:]
+    /// Each series' episodes, by series id, shared by every channel playing it.
+    private var episodeCache: [String: [BaseItem]] = [:]
 
     /// Finds the playlists tagged as channels and loads their movies and
     /// episodes, in channel-number order. A tagged playlist with neither is
@@ -156,11 +160,11 @@ final class ChannelsModel {
             for playlist in stale {
                 if let items = fetched[playlist.id] { itemCache[playlist.id] = (playlist.childCount, items) }
             }
-            await loadGenres(for: tagged, client: client, force: force)
+            await loadSources(for: tagged, client: client, force: force)
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 let own = itemCache[entry.playlist.id]?.items ?? []
-                let fromGenres = entry.tags.genres.isEmpty ? [] : (genreCache[entry.playlist.id]?.items ?? [])
-                let items = Self.merged(own, fromGenres).filter { $0.kind == .movie || $0.kind == .episode }
+                let fromSources = entry.tags.hasSources ? (sourceCache[entry.playlist.id]?.items ?? []) : []
+                let items = Self.merged(own, fromSources).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
                 return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, bugHideAfter: entry.tags.bugHideAfter, bugOpacity: entry.tags.bugOpacity, customName: entry.tags.name, seriesLogo: PlaylistChannel.seriesLogo(of: items))
             }
@@ -173,50 +177,117 @@ final class ChannelsModel {
         hasLoaded = true
     }
 
-    /// Fetches the titles of each channel's genres, where it has any: by the
-    /// genres' ids, in its libraries (or all), of its type. A channel whose
-    /// query and count haven't changed keeps what it had.
-    private func loadGenres(for tagged: [(playlist: BaseItem, tags: ChannelTags)], client: JellyfinClient, force: Bool) async {
-        let genreChannels = tagged.filter { !$0.tags.genres.isEmpty }
-        guard !genreChannels.isEmpty else { return }
-        async let genreList = client.videoGenres()
-        async let libraryList = client.userViews()
-        let genreIds = Self.idsByName((try? await genreList) ?? [])
-        let libraryIds = Self.idsByName((try? await libraryList) ?? [])
-        let cached = genreCache
-        let results = await withTaskGroup(of: (String, (query: String, count: Int, items: [BaseItem])?).self) { group in
-            for entry in genreChannels {
-                let ids = entry.tags.genres.compactMap { genreIds[$0.lowercased()] }
+    /// Fetches what each channel's genres, networks and collections hold,
+    /// where it has any: their movies and series (any of them), narrowed by
+    /// its years, ratings and type, and its libraries for genres and
+    /// networks. A series brings all its episodes. A channel whose titles
+    /// haven't changed keeps what it had.
+    private func loadSources(for tagged: [(playlist: BaseItem, tags: ChannelTags)], client: JellyfinClient, force: Bool) async {
+        let sourceChannels = tagged.filter { $0.tags.hasSources }
+        guard !sourceChannels.isEmpty else { return }
+        if force { episodeCache = [:] }
+        let needs = (genres: sourceChannels.contains { !$0.tags.genres.isEmpty },
+                     networks: sourceChannels.contains { !$0.tags.networks.isEmpty },
+                     collections: sourceChannels.contains { !$0.tags.collections.isEmpty })
+        async let genreList = needs.genres ? (try? await client.videoGenres()) ?? [] : []
+        async let studioList = needs.networks ? (try? await client.videoStudios()) ?? [] : []
+        async let collectionList = needs.collections ? (try? await client.collections()) ?? [] : []
+        async let libraryList = (try? await client.userViews()) ?? []
+        let genreIds = Self.idsByName(await genreList)
+        let studioIds = Self.idsByName(await studioList)
+        let collectionIds = Self.idsByName(await collectionList)
+        let libraryIds = Self.idsByName(await libraryList)
+
+        // First the titles of every channel, which is quick.
+        let titles = await withTaskGroup(of: (String, [BaseItem]?).self) { group in
+            for entry in sourceChannels {
+                let tags = entry.tags
+                let genres = tags.genres.compactMap { genreIds[$0.lowercased()] }
+                let studios = tags.networks.compactMap { studioIds[$0.lowercased()] }
+                let collections = tags.collections.compactMap { collectionIds[$0.lowercased()] }
                 // Libraries the server doesn't know are ignored; none left means all.
-                let chosen = entry.tags.libraries.compactMap { libraryIds[$0.lowercased()] }
+                let chosen = tags.libraries.compactMap { libraryIds[$0.lowercased()] }
                 let parents: [String?] = chosen.isEmpty ? [nil] : chosen
-                let types = entry.tags.content.itemTypes
-                let query = "\(ids.joined(separator: "|"))/\(types)/\(chosen.joined(separator: "|"))"
-                let previous = cached[entry.playlist.id]
+                let types = tags.content.itemTypes
                 group.addTask {
-                    guard !ids.isEmpty else { return (entry.playlist.id, (query, 0, [])) }
-                    var count = 0
-                    for parent in parents {
-                        guard let found = try? await client.genreItemCount(genreIds: ids, types: types, parentId: parent) else { return (entry.playlist.id, nil) }
-                        count += found
+                    var found: [BaseItem] = []
+                    do {
+                        for parent in parents {
+                            if !genres.isEmpty {
+                                found = ChannelsModel.merged(found, try await client.sourceTitles(genreIds: genres, types: types, parentId: parent, years: tags.years, ratings: tags.ratings))
+                            }
+                            if !studios.isEmpty {
+                                found = ChannelsModel.merged(found, try await client.sourceTitles(studioIds: studios, types: types, parentId: parent, years: tags.years, ratings: tags.ratings))
+                            }
+                        }
+                        // A collection is filtered here, as Jellyfin's filters don't reach into it.
+                        for collection in collections {
+                            let held = try await client.collectionTitles(collection)
+                            found = ChannelsModel.merged(found, held.filter { ChannelsModel.passes($0, tags) })
+                        }
+                    } catch {
+                        return (entry.playlist.id, nil)
                     }
-                    if !force, let previous, previous.query == query, previous.count == count {
-                        return (entry.playlist.id, previous)
-                    }
-                    var items: [BaseItem] = []
-                    for parent in parents {
-                        guard let found = try? await client.genreItems(genreIds: ids, types: types, parentId: parent) else { return (entry.playlist.id, nil) }
-                        items = ChannelsModel.merged(items, found)
-                    }
-                    return (entry.playlist.id, (query, count, items))
+                    return (entry.playlist.id, found)
                 }
             }
-            var found: [String: (query: String, count: Int, items: [BaseItem])] = [:]
-            for await (id, result) in group { if let result { found[id] = result } }
-            return found
+            var all: [String: [BaseItem]] = [:]
+            for await (id, found) in group { if let found { all[id] = found } }
+            return all
         }
-        // A fetch that failed keeps what was there.
-        genreCache.merge(results) { _, new in new }
+
+        // Then the episodes of each series not already known, a few at a time.
+        let wanted = Set(titles.values.joined().filter { $0.kind == .series }.map(\.id))
+        let missing = Array(wanted.subtracting(episodeCache.keys))
+        let fetched = await withTaskGroup(of: (String, [BaseItem]?).self) { group in
+            var all: [String: [BaseItem]] = [:]
+            var next = missing.makeIterator()
+            for _ in 0..<6 {
+                guard let id = next.next() else { break }
+                group.addTask { (id, try? await client.seriesEpisodes(id)) }
+            }
+            for await (id, episodes) in group {
+                if let episodes { all[id] = episodes }
+                if let id = next.next() { group.addTask { (id, try? await client.seriesEpisodes(id)) } }
+            }
+            return all
+        }
+        episodeCache.merge(fetched) { _, new in new }
+
+        for entry in sourceChannels {
+            // A fetch that failed keeps what was there.
+            guard let found = titles[entry.playlist.id] else { continue }
+            let tags = entry.tags
+            let query = [tags.genres, tags.networks, tags.collections, tags.libraries, tags.ratings,
+                         [tags.content.itemTypes, tags.years.map { "\($0.lowerBound)-\($0.upperBound)" } ?? ""]]
+                .map { $0.joined(separator: "|") }.joined(separator: "/")
+            let ids = found.map(\.id)
+            if let previous = sourceCache[entry.playlist.id], previous.query == query, previous.titleIds == ids,
+               !found.contains(where: { $0.kind == .series && fetched[$0.id] != nil }) {
+                continue
+            }
+            let items = found.flatMap { title -> [BaseItem] in
+                title.kind == .series ? (episodeCache[title.id] ?? []) : [title]
+            }
+            sourceCache[entry.playlist.id] = (query, ids, items)
+        }
+    }
+
+    /// Whether a title from a collection fits a channel's years, ratings and type.
+    nonisolated static func passes(_ item: BaseItem, _ tags: ChannelTags) -> Bool {
+        switch item.kind {
+        case .movie: if tags.content == .shows { return false }
+        case .series: if tags.content == .movies { return false }
+        default: return false
+        }
+        if let years = tags.years {
+            guard let year = item.productionYear, years.contains(year) else { return false }
+        }
+        if !tags.ratings.isEmpty {
+            guard let rating = item.officialRating?.lowercased(),
+                  tags.ratings.contains(where: { $0.lowercased() == rating }) else { return false }
+        }
+        return true
     }
 
     /// Lower-cased names to ids, the first of any name used twice.
@@ -229,7 +300,7 @@ final class ChannelsModel {
         return ids
     }
 
-    /// A channel's own playlist items, then its genres' titles that aren't
+    /// A channel's own playlist items, then its sources' titles that aren't
     /// already among them.
     nonisolated static func merged(_ own: [BaseItem], _ extra: [BaseItem]) -> [BaseItem] {
         var seen = Set(own.map(\.id))

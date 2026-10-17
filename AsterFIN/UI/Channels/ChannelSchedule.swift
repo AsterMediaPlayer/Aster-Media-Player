@@ -29,6 +29,8 @@ nonisolated enum ChannelMode: String, CaseIterable, Identifiable, Sendable {
     case shuffle
     /// The playlist's own order, straight through and round again.
     case sequential
+    /// Everything in the order it first aired, across every show.
+    case airdate
 
     var id: String { rawValue }
 
@@ -38,8 +40,12 @@ nonisolated enum ChannelMode: String, CaseIterable, Identifiable, Sendable {
         case .blocks: "Blocks"
         case .shuffle: "Shuffle"
         case .sequential: "In Order"
+        case .airdate: "Air Date"
         }
     }
+
+    /// Whether the order is dealt again each period; the two fixed orders aren't.
+    var reshuffles: Bool { self != .sequential && self != .airdate }
 }
 
 /// How long a channel keeps one shuffled order before dealing a new one.
@@ -72,6 +78,16 @@ nonisolated struct ChannelLineup: Hashable, Sendable {
     var seed = 0
     /// How many episodes a show plays in a row in Blocks mode.
     var blocks: ClosedRange<Int> = defaultBlocks
+    /// Shows, by lower-cased name, that take this many turns each round.
+    var weights: [String: Int] = [:]
+    /// Titles shorter or longer than these, in seconds, are left out.
+    var minLength: TimeInterval?
+    var maxLength: TimeInterval?
+
+    /// Whether `length` seconds is within the channel's limits.
+    func allows(length: TimeInterval) -> Bool {
+        (minLength.map { length >= $0 } ?? true) && (maxLength.map { length <= $0 } ?? true)
+    }
 }
 
 nonisolated struct ScheduledProgram: Identifiable, Hashable, Sendable {
@@ -139,6 +155,12 @@ nonisolated enum ChannelSchedule {
     private struct Show {
         let id: String
         let episodes: [Entry]
+
+        /// The series' or movie's name, for `weight=`.
+        var name: String {
+            guard let item = episodes.first?.item else { return "" }
+            return item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle
+        }
     }
 
     /// The items grouped into shows, sorted by id so devices that list the
@@ -161,6 +183,18 @@ nonisolated enum ChannelSchedule {
             return shows(from: items, mode: .rotation)
                 .flatMap { show in show.episodes.map { Show(id: $0.item.id, episodes: [$0]) } }
                 .sorted { $0.id < $1.id }
+        case .airdate:
+            // One "show": everything by when it first aired, specials left
+            // out as in Rotation; undated titles last, in a fixed order.
+            let entries = shows(from: items, mode: .rotation).flatMap(\.episodes).sorted { a, b in
+                let left = a.item.premiereDate ?? "~", right = b.item.premiereDate ?? "~"
+                if left != right { return left < right }
+                let leftEpisode = (a.item.seriesName ?? "", a.item.parentIndexNumber ?? 0, a.item.indexNumber ?? 0)
+                let rightEpisode = (b.item.seriesName ?? "", b.item.parentIndexNumber ?? 0, b.item.indexNumber ?? 0)
+                if leftEpisode != rightEpisode { return leftEpisode < rightEpisode }
+                return a.item.id < b.item.id
+            }
+            return entries.isEmpty ? [] : [Show(id: "airdate", episodes: entries)]
         case .rotation, .blocks:
             break
         }
@@ -213,8 +247,13 @@ nonisolated enum ChannelSchedule {
     /// Lays the timeline out up to `end`, handing each program to `visit`
     /// as it goes. Programs before `from` may be skipped.
     private static func walk(channelId: String, items: [BaseItem], lineup: ChannelLineup, from: Date, until end: Date, calendar local: Calendar, visit: (ScheduledProgram) -> Void) {
-        let shows = shows(from: items, mode: lineup.mode)
+        let limited = lineup.minLength == nil && lineup.maxLength == nil ? items : items.filter {
+            lineup.allows(length: TimeInterval($0.runTimeTicks ?? 0) / 10_000_000)
+        }
+        let shows = shows(from: limited, mode: lineup.mode)
         guard !shows.isEmpty else { return }
+        // How many turns each show takes a round: 1 unless `weight=` says.
+        let turns = lineup.weights.isEmpty ? [] : shows.map { max(1, lineup.weights[$0.name.lowercased()] ?? 1) }
 
         // Gregorian whatever calendar the device uses, so every device
         // counts its days, weeks and months from the same start.
@@ -227,6 +266,8 @@ nonisolated enum ChannelSchedule {
         let key = [
             channelId, lineup.mode.rawValue, lineup.reshuffle.rawValue, "\(lineup.seed)",
             "\(blocks.lowerBound)-\(blocks.upperBound)", calendar.timeZone.identifier,
+            lineup.weights.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ","),
+            "\(lineup.minLength ?? 0)-\(lineup.maxLength ?? 0)",
             "\(seed(of: shows.flatMap { $0.episodes.map(\.item.id) }.joined(separator: ",")))"
         ].joined(separator: "|")
         let start = epoch(calendar: calendar)
@@ -240,6 +281,9 @@ nonisolated enum ChannelSchedule {
             if state.time <= from { latest = state }
             let periodSeed = base ^ (state.period &* 0x9E37_79B9_7F4A_7C15)
             var order = shuffled(Array(shows.indices), seed: periodSeed)
+            if turns.contains(where: { $0 > 1 }) {
+                order = weighted(order, turns: turns, seed: periodSeed)
+            }
             // A new period never opens with the show that just played.
             if order.count > 1, order[0] == state.lastShow {
                 order.swapAt(0, order.count - 1)
@@ -289,6 +333,19 @@ nonisolated enum ChannelSchedule {
         case .month:
             calendar.nextDate(after: start, matching: DateComponents(day: 1, hour: 0, minute: 0, second: 0), matchingPolicy: .nextTime)
         }
+    }
+
+    /// The round with each show as many times as its turns, shuffled again
+    /// and spread so a show never follows itself where that can be helped.
+    private static func weighted(_ order: [Int], turns: [Int], seed: UInt64) -> [Int] {
+        var round = shuffled(order.flatMap { Array(repeating: $0, count: turns[$0]) }, seed: mix(seed ^ 0xA076_1D64_78BD_642F))
+        guard round.count > 2 else { return round }
+        for index in 1..<round.count where round[index] == round[index - 1] {
+            if let swap = (index + 1..<round.count).first(where: { round[$0] != round[index - 1] }) {
+                round.swapAt(index, swap)
+            }
+        }
+        return round
     }
 
     // MARK: Shuffling the same way everywhere

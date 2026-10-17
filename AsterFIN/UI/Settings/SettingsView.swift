@@ -518,6 +518,10 @@ struct ChannelSettingsView: View {
     /// for genre channels.
     @State private var genreNames: [String] = []
     @State private var libraryNames: [String] = []
+    /// The server's studios and networks, collections and content ratings.
+    @State private var networkNames: [String] = []
+    @State private var collectionNames: [String] = []
+    @State private var ratingNames: [String] = []
     @State private var newGenreChannelName = ""
     @State private var isCreating = false
 
@@ -542,6 +546,12 @@ struct ChannelSettingsView: View {
 
     /// Bug sizes offered, in percent of the usual.
     private static let bugSizeChoices = [50, 75, 100, 125, 150, 200, 250, 300]
+
+    /// Year spans offered: any year, or a decade.
+    private static let yearChoices: [ClosedRange<Int>?] = [nil] + stride(from: 1950, through: 2020, by: 10).map { $0...($0 + 9) }
+
+    /// Programme length limits offered, in minutes.
+    private static let lengthChoices: [Int?] = [nil, 5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180]
 
     /// Block lengths offered for Blocks mode, the usual first.
     private static let blockChoices: [ClosedRange<Int>] = [ChannelLineup.defaultBlocks, 1...2, 1...3, 2...3, 3...4, 3...5, 3...6, 4...6, 4...8, 6...10]
@@ -609,8 +619,8 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150%, asterfin:bug-hide=30 and asterfin:bug-opacity=60%), asterfin:channel-name=Your Name, and for a genre channel asterfin:genre=Horror (once per genre), asterfin:type=movies (or shows, all) and asterfin:library=TV Shows (once per library).")
-                    SettingsNote("A genre channel plays every movie or episode in its genres (any of them), as well as anything in its playlist.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential, airdate), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150%, asterfin:bug-hide=30 and asterfin:bug-opacity=60%), asterfin:channel-name=Your Name, asterfin:min-length=20 and asterfin:max-length=60 (in minutes), asterfin:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel asterfin:genre=Horror, asterfin:network=NBC and asterfin:collection=Star Wars (once each), narrowed by asterfin:type=movies (or shows, all), asterfin:years=1980-1989, asterfin:rating=TV-PG,PG and asterfin:library=TV Shows (once per library, for genres and networks).")
+                    SettingsNote("A channel with genres, networks or collections plays every movie and every episode of every show in them (any of them), as well as anything in its playlist. Air Date plays them all in the order they first aired.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -653,20 +663,21 @@ struct ChannelSettingsView: View {
         Section {
             TextField("Name, like Horror or Saturday Cartoons", text: $newGenreChannelName)
                 .onSubmit(createGenreChannel)
-            Button("Create Genre Channel") { createGenreChannel() }
+            Button("Create Channel") { createGenreChannel() }
                 .disabled(newGenreChannelName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
         } header: {
-            Text("New Genre Channel")
+            Text("New Channel")
         } footer: {
-            SettingsNote("Makes a playlist that plays everything in the genres you pick, shared with everyone on your server.")
+            SettingsNote("Makes a playlist that plays everything in the genres, networks or collections you pick, shared with everyone on your server.")
         }
     }
 
     /// "Horror, Thriller · Blocks · Weekly · 120 titles · Logo · Bug" for a closed channel.
     private func summary(of playlist: BaseItem, tags: ChannelTags) -> String {
         var parts = [tags.mode.title]
-        if !tags.genres.isEmpty { parts.insert(tags.genres.joined(separator: ", "), at: 0) }
-        if tags.mode != .sequential, tags.reshuffle != .day { parts.append(tags.reshuffle.title) }
+        let sources = tags.genres + tags.networks + tags.collections
+        if !sources.isEmpty { parts.insert(sources.joined(separator: ", "), at: 0) }
+        if tags.mode.reshuffles, tags.reshuffle != .day { parts.append(tags.reshuffle.title) }
         if let count = playlist.childCount { parts.append(count == 1 ? "1 title" : "\(count) titles") }
         if tags.showsLogo { parts.append("Logo") }
         if tags.showsBug { parts.append("Bug") }
@@ -696,7 +707,13 @@ struct ChannelSettingsView: View {
         SettingsMultiChoiceRow(title: "Genres", options: genreNames, selection: tags.genres) { genres in
             save(playlist, tags.with { $0.genres = genres })
         }
-        if !tags.genres.isEmpty {
+        SettingsMultiChoiceRow(title: "Networks", options: networkNames, selection: tags.networks) { networks in
+            save(playlist, tags.with { $0.networks = networks })
+        }
+        SettingsMultiChoiceRow(title: "Collections", options: collectionNames, selection: tags.collections) { collections in
+            save(playlist, tags.with { $0.collections = collections })
+        }
+        if tags.hasSources {
             SettingsChoiceRow(
                 title: "Content",
                 options: ChannelContent.allCases.map { ($0, $0.title) },
@@ -705,10 +722,39 @@ struct ChannelSettingsView: View {
                     set: { content in save(playlist, tags.with { $0.content = content }) }
                 )
             )
-            SettingsMultiChoiceRow(title: "Libraries", options: libraryNames, selection: tags.libraries, none: "All") { libraries in
-                save(playlist, tags.with { $0.libraries = libraries })
+            if !tags.genres.isEmpty || !tags.networks.isEmpty {
+                SettingsMultiChoiceRow(title: "Libraries", options: libraryNames, selection: tags.libraries, none: "All") { libraries in
+                    save(playlist, tags.with { $0.libraries = libraries })
+                }
+            }
+            SettingsChoiceRow(
+                title: "Years",
+                options: (Self.yearChoices + (Self.yearChoices.contains(tags.years) ? [] : [tags.years])).map { ($0, Self.yearsTitle($0)) },
+                selection: Binding(
+                    get: { tags.years },
+                    set: { years in save(playlist, tags.with { $0.years = years }) }
+                )
+            )
+            SettingsMultiChoiceRow(title: "Ratings", options: ratingNames, selection: tags.ratings, none: "Any") { ratings in
+                save(playlist, tags.with { $0.ratings = ratings })
             }
         }
+        SettingsChoiceRow(
+            title: "Shortest",
+            options: (Self.lengthChoices + (Self.lengthChoices.contains(tags.minLength) ? [] : [tags.minLength])).sorted { ($0 ?? 0) < ($1 ?? 0) }.map { ($0, Self.lengthTitle($0)) },
+            selection: Binding(
+                get: { tags.minLength },
+                set: { minutes in save(playlist, tags.with { $0.minLength = minutes }) }
+            )
+        )
+        SettingsChoiceRow(
+            title: "Longest",
+            options: (Self.lengthChoices + (Self.lengthChoices.contains(tags.maxLength) ? [] : [tags.maxLength])).sorted { ($0 ?? 0) < ($1 ?? 0) }.map { ($0, Self.lengthTitle($0)) },
+            selection: Binding(
+                get: { tags.maxLength },
+                set: { minutes in save(playlist, tags.with { $0.maxLength = minutes }) }
+            )
+        )
         SettingsChoiceRow(
             title: "Mode",
             options: ChannelMode.allCases.map { ($0, $0.title) },
@@ -729,7 +775,7 @@ struct ChannelSettingsView: View {
                 )
             )
         }
-        if tags.mode != .sequential {
+        if tags.mode.reshuffles {
             SettingsChoiceRow(
                 title: "Reshuffle",
                 options: ChannelReshuffle.allCases.map { ($0, $0.title) },
@@ -788,6 +834,20 @@ struct ChannelSettingsView: View {
         }
     }
 
+    /// "Any Year", "1980s", "1985–1999" or "1994".
+    private static func yearsTitle(_ years: ClosedRange<Int>?) -> String {
+        guard let years else { return "Any Year" }
+        if years.count == 1 { return "\(years.lowerBound)" }
+        if years.lowerBound % 10 == 0, years.count == 10 { return "\(years.lowerBound)s" }
+        return "\(years.lowerBound)–\(years.upperBound)"
+    }
+
+    /// "Any Length" or "30 min".
+    private static func lengthTitle(_ minutes: Int?) -> String {
+        guard let minutes else { return "Any Length" }
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+
     private func playlistLabel(_ playlist: BaseItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(playlist.displayTitle)
@@ -838,6 +898,9 @@ struct ChannelSettingsView: View {
         guard let client = session.client else { return }
         async let genres = client.videoGenres()
         async let views = client.userViews()
+        async let studios = client.videoStudios()
+        async let boxSets = client.collections()
+        async let ratings = client.videoRatings()
         do {
             playlists = try await client.playlists(mediaType: "Video")
             errorMessage = nil
@@ -848,6 +911,10 @@ struct ChannelSettingsView: View {
         // Video libraries only: a genre channel plays movies and episodes.
         let skipped: Set<String> = ["music", "books", "livetv", "playlists", "boxsets", "musicvideos"]
         libraryNames = ((try? await views) ?? []).filter { !skipped.contains($0.collectionType?.lowercased() ?? "") }.map(\.displayTitle)
+        networkNames = ((try? await studios) ?? []).map(\.displayTitle)
+        // Empty collections (book series often are, to video) are left out.
+        collectionNames = ((try? await boxSets) ?? []).filter { ($0.childCount ?? 1) > 0 }.map(\.displayTitle)
+        ratingNames = (try? await ratings) ?? []
         loaded = true
     }
 

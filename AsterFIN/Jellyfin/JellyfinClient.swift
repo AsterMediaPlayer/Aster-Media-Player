@@ -243,7 +243,7 @@ nonisolated final class JellyfinClient: Sendable {
         return try await get(ItemsResult.self, "/Items", query: merged)
     }
 
-    // MARK: Genres (for genre Channels)
+    // MARK: Sources (for genre, network and collection Channels)
 
     /// The genres of the server's movies and shows, by name.
     func videoGenres() async throws -> [BaseItem] {
@@ -256,49 +256,105 @@ nonisolated final class JellyfinClient: Sendable {
         ]).items
     }
 
-    /// The query for the titles in any of `genreIds` (ids, not names, so a
-    /// name with "&" in it can't break the request), of `types`, under
-    /// `parentId` (a library) or everywhere.
-    private func genreQuery(genreIds: [String], types: String, parentId: String?) throws -> [String: String?] {
-        [
-            "userId": try requireUser(),
+    /// The studios and networks of the server's movies and shows, by name.
+    func videoStudios() async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await get(ItemsResult.self, "/Studios", query: [
+            "userId": user,
             "recursive": "true",
-            "genreIds": genreIds.joined(separator: "|"),
-            "includeItemTypes": types,
-            "parentId": parentId,
-            "isMissing": "false",
+            "includeItemTypes": "Movie,Series",
             "sortBy": "SortName",
-        ]
+        ]).items
     }
 
-    /// How many titles a genre query finds, without fetching them: a cheap
-    /// check whether a genre Channel needs fetching again.
-    func genreItemCount(genreIds: [String], types: String, parentId: String?) async throws -> Int {
-        var query = try genreQuery(genreIds: genreIds, types: types, parentId: parentId)
-        query["limit"] = "0"
-        query["enableTotalRecordCount"] = "true"
-        return try await get(ItemsResult.self, "/Items", query: query).totalRecordCount ?? 0
+    /// The server's collections.
+    func collections() async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await get(ItemsResult.self, "/Users/\(user)/Items", query: [
+            "includeItemTypes": "BoxSet",
+            "recursive": "true",
+            "sortBy": "SortName",
+            "fields": "ChildCount",
+        ]).items
     }
 
-    /// Every title a genre query finds, a page at a time, with only what a
-    /// Channel's schedule and menus use (no media streams), so a genre of
-    /// thousands of episodes stays a small download.
-    func genreItems(genreIds: [String], types: String, parentId: String?) async throws -> [BaseItem] {
+    /// The content ratings the server's movies and shows carry, most used first.
+    func videoRatings() async throws -> [String] {
+        let user = try requireUser()
+        let items = try await get(ItemsResult.self, "/Items", query: [
+            "userId": user,
+            "recursive": "true",
+            "includeItemTypes": "Movie,Series",
+            "fields": "OfficialRating",
+            "enableImages": "false",
+            "enableUserData": "false",
+        ]).items
+        var counts: [String: Int] = [:]
+        for rating in items.compactMap(\.officialRating) where !rating.isEmpty { counts[rating, default: 0] += 1 }
+        return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.map(\.key)
+    }
+
+    /// What a Channel's schedule and menus use of each title, and no more
+    /// (no media streams), so thousands of episodes stay a small download.
+    private static let channelItemQuery: [String: String?] = [
+        "fields": "Overview",
+        "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
+        "imageTypeLimit": "1",
+        "enableUserData": "false",
+    ]
+
+    /// Every item `query` finds, 500 at a time.
+    private func allItems(_ query: [String: String?]) async throws -> [BaseItem] {
         var found: [BaseItem] = []
         let pageSize = 500
         while true {
-            var query = try genreQuery(genreIds: genreIds, types: types, parentId: parentId)
-            query["fields"] = "Overview"
-            query["enableImageTypes"] = "Primary,Backdrop,Thumb,Logo"
-            query["imageTypeLimit"] = "1"
-            query["enableUserData"] = "false"
-            query["startIndex"] = String(found.count)
-            query["limit"] = String(pageSize)
-            let page = try await get(ItemsResult.self, "/Items", query: query)
-            found += page.items
-            if page.items.count < pageSize || found.count >= (page.totalRecordCount ?? 0) { break }
+            var page = query
+            page["startIndex"] = String(found.count)
+            page["limit"] = String(pageSize)
+            let result = try await get(ItemsResult.self, "/Items", query: page)
+            found += result.items
+            if result.items.count < pageSize || found.count >= (result.totalRecordCount ?? 0) { break }
         }
         return found
+    }
+
+    /// The movies and series in any of `genreIds`, or from any of
+    /// `studioIds` (ids, not names, so a name with "&" in it can't break the
+    /// request), of `types`, under `parentId` (a library) or everywhere,
+    /// from `years` and with `ratings` when given.
+    func sourceTitles(genreIds: [String] = [], studioIds: [String] = [], types: String, parentId: String?, years: ClosedRange<Int>?, ratings: [String]) async throws -> [BaseItem] {
+        var query = Self.channelItemQuery
+        query["userId"] = try requireUser()
+        query["recursive"] = "true"
+        query["includeItemTypes"] = types
+        query["parentId"] = parentId
+        query["isMissing"] = "false"
+        query["sortBy"] = "SortName"
+        if !genreIds.isEmpty { query["genreIds"] = genreIds.joined(separator: "|") }
+        if !studioIds.isEmpty { query["studioIds"] = studioIds.joined(separator: "|") }
+        if let years { query["years"] = years.map(String.init).joined(separator: ",") }
+        if !ratings.isEmpty { query["officialRatings"] = ratings.joined(separator: "|") }
+        return try await allItems(query)
+    }
+
+    /// What a collection holds: its movies and series.
+    func collectionTitles(_ collectionId: String) async throws -> [BaseItem] {
+        var query = Self.channelItemQuery
+        query["userId"] = try requireUser()
+        query["parentId"] = collectionId
+        query["fields"] = "Overview,OfficialRating"
+        return try await allItems(query)
+    }
+
+    /// A series' episodes, as a Channel plays them (missing ones left out).
+    func seriesEpisodes(_ seriesId: String) async throws -> [BaseItem] {
+        var query = Self.channelItemQuery
+        query["userId"] = try requireUser()
+        query["parentId"] = seriesId
+        query["recursive"] = "true"
+        query["includeItemTypes"] = "Episode"
+        query["isMissing"] = "false"
+        return try await allItems(query)
     }
 
     func latest(parentId: String?, limit: Int = 20, includeTypes: String? = nil) async throws -> [BaseItem] {

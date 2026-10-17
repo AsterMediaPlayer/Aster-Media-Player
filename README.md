@@ -101,7 +101,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | --- | --- | --- |
   | `asterfin:channel` | This playlist is a channel | not a channel |
   | `asterfin:number=101` | Its channel number | numbered after the rest, by name |
-  | `asterfin:mode=blocks` | `rotation`, `blocks`, `shuffle` or `sequential` | `rotation` |
+  | `asterfin:mode=blocks` | `rotation`, `blocks`, `shuffle`, `sequential` or `airdate` (everything in the order it first aired) | `rotation` |
   | `asterfin:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
   | `asterfin:reshuffle=week` | How long one order of shows lasts: `day`, `week` (Monday to Monday) or `month` | `day` |
   | `asterfin:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
@@ -112,12 +112,19 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `asterfin:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
   | `asterfin:bug-opacity=60%` | How solid the bug is, 5% to 100% | `45%` |
   | `asterfin:genre=Horror` | Also plays every movie and episode in this genre; repeat the tag for more genres (any of them) | none |
-  | `asterfin:type=movies` | With genres: `all`, `movies` or `shows` | `all` |
-  | `asterfin:library=TV Shows` | With genres: only from this library; repeat for more | every library |
+  | `asterfin:network=NBC` | Also plays every movie and episode from this studio or network; repeat for more | none |
+  | `asterfin:collection=Star Wars Collection` | Also plays everything in this collection; repeat for more | none |
+  | `asterfin:type=movies` | With genres, networks or collections: `all`, `movies` or `shows` | `all` |
+  | `asterfin:years=1980-1989` | With genres, networks or collections: only titles from these years (or one year, `1994`) | any year |
+  | `asterfin:rating=TV-PG,PG` | With genres, networks or collections: only titles with these content ratings | any rating |
+  | `asterfin:library=TV Shows` | With genres or networks: only from this library; repeat for more | every library |
+  | `asterfin:weight=Friends:2` | This show takes two turns (up to 5) to every other show's one; repeat for more shows | 1 each |
+  | `asterfin:min-length=20` | Leaves out anything shorter, in minutes | none |
+  | `asterfin:max-length=60` | Leaves out anything longer, in minutes | none |
   | `asterfin:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
   Turning a playlist on in AsterFIN writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `asterfin:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
-- **Genre channels:** New Genre Channel in Edit Channels makes a channel that fills itself from genres (Horror, Comedy, …), optionally only movies or only shows, from chosen libraries, along with anything added to its playlist by hand. It's shared with everyone on the server.
+- **Genre, network and collection channels:** New Channel in Edit Channels makes a channel that fills itself from genres (Horror, Comedy, …), networks (NBC, Cartoon Network, …) and collections, narrowed to movies or shows, years, content ratings and libraries if you like, along with anything added to its playlist by hand. A show brings every one of its episodes. It's shared with everyone on the server.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
 - **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
 - **A week ahead:** the guide covers the next 7 days, with a day picker at the top.

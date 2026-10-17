@@ -352,4 +352,58 @@ struct ChannelScheduleTests {
         #expect(inner.allSatisfy { (3...6).contains($0.count) }, "runs: \(inner.map(\.count))")
         #expect(inner.contains { $0.count > 4 }, "runs: \(inner.map(\.count))")
     }
+
+    // MARK: Weights, lengths and air date
+
+    @Test func aWeightedShowPlaysMoreOftenButNotBackToBack() {
+        let programs = Self.lineup(ChannelLineup(weights: ["alpha": 2]), items: Self.shows, channel: "tv", from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 18))
+        let counts = Dictionary(grouping: programs, by: { $0.item.seriesId ?? "" }).mapValues(\.count)
+        let alpha = Double(counts["alpha"] ?? 0)
+        let others = Double((counts["bravo"] ?? 0) + (counts["charlie"] ?? 0)) / 2
+        #expect(alpha > others * 1.6, "counts: \(counts)")
+        #expect(alpha < others * 2.4, "counts: \(counts)")
+        // Three shows, one of them twice: a round can always be spread out.
+        // Only where two rounds meet (or a new day starts) can alpha repeat.
+        let repeats = zip(programs, programs.dropFirst()).filter { $0.item.seriesId == $1.item.seriesId }.count
+        #expect(Double(repeats) < Double(programs.count) * 0.15, "repeats: \(repeats) of \(programs.count)")
+        // Episodes still come in order.
+        let alphas = programs.filter { $0.item.seriesId == "alpha" }.map { Self.position($0.item) }
+        for (a, b) in zip(alphas, alphas.dropFirst()) { #expect(b == (a + 1) % 12) }
+    }
+
+    @Test func weightsOfOneChangeNothing() {
+        let from = Self.date(2026, 10, 15, 18)
+        let to = Self.date(2026, 10, 16, 6)
+        let plain = Self.lineup(ChannelLineup(), items: Self.shows, channel: "tv", from: from, to: to).map(\.item.id)
+        let weighted = Self.lineup(ChannelLineup(weights: ["alpha": 1, "nobody": 3]), items: Self.shows, channel: "tv", from: from, to: to).map(\.item.id)
+        #expect(plain == weighted)
+    }
+
+    @Test func lengthLimitsLeaveTitlesOut() {
+        let programs = Self.lineup(ChannelLineup(minLength: 100 * 60, maxLength: 130 * 60), from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 16))
+        // m2 to m4 are 105, 115 and 125 minutes.
+        #expect(Set(programs.map(\.item.id)) == ["m2", "m3", "m4"])
+        #expect(Self.lineup(ChannelLineup(maxLength: 60), from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 16)).isEmpty)
+    }
+
+    @Test func airDatePlaysEverythingInTheOrderItAired() throws {
+        var items: [BaseItem] = []
+        for (series, season, number, aired) in [
+            ("bravo", 1, 1, "1990-09-10T00:00:00.0000000Z"),
+            ("alpha", 1, 2, "1989-02-01T00:00:00.0000000Z"),
+            ("alpha", 1, 1, "1989-01-01T00:00:00.0000000Z"),
+            ("bravo", 1, 2, "1990-09-17T00:00:00.0000000Z"),
+        ] {
+            var item = Self.episode(series, season: season, number)
+            item.premiereDate = aired
+            items.append(item)
+        }
+        var movie = Self.movie("film", minutes: 90)
+        movie.premiereDate = "1990-01-01T00:00:00.0000000Z"
+        items.append(movie)
+        let ids = Self.lineup(ChannelLineup(mode: .airdate), items: items, channel: "tv", from: Self.date(2026, 10, 15), to: Self.date(2026, 10, 15, 12)).map(\.item.id)
+        let cycle = ["alpha-s1e1", "alpha-s1e2", "film", "bravo-s1e1", "bravo-s1e2"]
+        let start = try #require(ids.firstIndex(of: "alpha-s1e1"))
+        #expect(Array(ids[start...].prefix(5)) == cycle)
+    }
 }

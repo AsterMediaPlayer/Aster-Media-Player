@@ -209,4 +209,76 @@ struct ChannelTagsTests {
         #expect(written.contains("asterfin:bug-opacity=75%"))
         #expect(ChannelTags(tags: written).bugOpacity == 75)
     }
+
+    @Test func networksCollectionsYearsAndRatingsAreRead() {
+        let tags = ChannelTags(tags: [
+            "asterfin:channel", "asterfin:network=NBC", "asterfin:network=Cartoon Network, Inc.",
+            "asterfin:collection=Star Wars Collection", "asterfin:years=1985-1999", "asterfin:rating=TV-PG, PG",
+        ])
+        #expect(tags.networks == ["NBC", "Cartoon Network, Inc."])
+        #expect(tags.collections == ["Star Wars Collection"])
+        #expect(tags.years == 1985...1999)
+        #expect(tags.ratings == ["TV-PG", "PG"])
+        #expect(tags.hasSources)
+        #expect(ChannelTags(tags: ["asterfin:years=1994"]).years == 1994...1994)
+        #expect(ChannelTags(tags: ["asterfin:years=1999-1985"]).years == 1985...1999)
+        #expect(ChannelTags(tags: ["asterfin:years=eighties"]).years == nil)
+        #expect(!ChannelTags(tags: ["asterfin:channel", "asterfin:years=1994"]).hasSources)
+    }
+
+    @Test func weightsAndLengthsAreRead() {
+        let tags = ChannelTags(tags: [
+            "asterfin:weight=Friends:2", "asterfin:weight=Star Trek: The Next Generation:3", "asterfin:weight=Cheers:9",
+            "asterfin:weight=Frasier", "asterfin:min-length=20", "asterfin:max-length=60",
+        ])
+        #expect(tags.weights.map(\.show) == ["Friends", "Star Trek: The Next Generation", "Cheers"])
+        #expect(tags.weights.map(\.weight) == [2, 3, 5])
+        #expect(tags.minLength == 20)
+        #expect(tags.maxLength == 60)
+        #expect(tags.lineup.weights == ["friends": 2, "star trek: the next generation": 3, "cheers": 5])
+        #expect(tags.lineup.minLength == 1200)
+        #expect(tags.lineup.maxLength == 3600)
+        #expect(ChannelTags(tags: ["asterfin:min-length=0"]).minLength == nil)
+    }
+
+    @Test func theNewTagsRoundTrip() {
+        let tags = ChannelTags(isChannel: true).with {
+            $0.networks = ["NBC"]
+            $0.collections = ["Cars Collection"]
+            $0.years = 1980...1989
+            $0.ratings = ["TV-PG", "PG"]
+            $0.weights = [ChannelTags.ShowWeight(show: "Friends", weight: 2)]
+            $0.minLength = 15
+            $0.maxLength = 45
+        }
+        let written = tags.applied(to: ["Family"])
+        #expect(written.contains("asterfin:network=NBC"))
+        #expect(written.contains("asterfin:collection=Cars Collection"))
+        #expect(written.contains("asterfin:years=1980-1989"))
+        #expect(written.contains("asterfin:weight=Friends:2"))
+        #expect(written.contains("asterfin:min-length=15"))
+        #expect(written.contains("asterfin:max-length=45"))
+        #expect(written.contains("Family"))
+        #expect(ChannelTags(tags: written) == tags)
+        // Unset, they aren't written.
+        let plain = ChannelTags(isChannel: true).applied(to: [])
+        #expect(!plain.contains { $0.hasPrefix("asterfin:years") || $0.hasPrefix("asterfin:min-length") || $0.hasPrefix("asterfin:max-length") })
+    }
+
+    @Test func aCollectionsTitlesAreFiltered() {
+        func item(_ kind: ItemKind, year: Int?, rating: String?) -> BaseItem {
+            var item = BaseItem(id: "\(kind.rawValue)-\(year ?? 0)-\(rating ?? "")", name: "x", type: kind.rawValue)
+            item.productionYear = year
+            item.officialRating = rating
+            return item
+        }
+        let tags = ChannelTags(tags: ["asterfin:collection=x", "asterfin:years=1980-1989", "asterfin:rating=pg", "asterfin:type=movies"])
+        #expect(ChannelsModel.passes(item(.movie, year: 1984, rating: "PG"), tags))
+        #expect(!ChannelsModel.passes(item(.movie, year: 1994, rating: "PG"), tags))
+        #expect(!ChannelsModel.passes(item(.movie, year: 1984, rating: "R"), tags))
+        #expect(!ChannelsModel.passes(item(.movie, year: nil, rating: "PG"), tags))
+        #expect(!ChannelsModel.passes(item(.series, year: 1984, rating: "PG"), tags))
+        #expect(ChannelsModel.passes(item(.series, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
+        #expect(!ChannelsModel.passes(item(.audioBook, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
+    }
 }

@@ -403,31 +403,47 @@ private struct DiscMenuSettingsView: View {
 
 /// Which video playlists are Channels, and in what order. Reached from
 /// Settings and from the Channels tab's Edit button.
+/// Channels are playlists tagged as one in Jellyfin (see `ChannelTags`).
+/// This edits those tags, which an administrator can also do in Jellyfin's
+/// web interface; for anyone else it shows them, read-only.
 struct ChannelSettingsView: View {
     @Environment(AppSession.self) private var session
-    @AppStorage(AppSettings.playlistChannelsKey) private var stored = ""
-    @AppStorage(AppSettings.playlistChannelModesKey) private var storedModes = ""
-    @AppStorage(AppSettings.playlistChannelLogosKey) private var storedLogos = ""
     @State private var playlists: [BaseItem] = []
     @State private var loaded = false
     @State private var errorMessage: String?
+    /// A save the server refused; the page turns read-only.
+    @State private var refused = false
 
-    private var chosenIds: [String] { PlaylistChannelList.ids(from: stored) }
+    private var canEdit: Bool { session.canEditChannels && !refused }
 
-    /// Chosen playlists in channel order; any gone from the server are skipped.
-    private var chosen: [BaseItem] {
-        chosenIds.compactMap { id in playlists.first { $0.id == id } }
+    private var channels: [(playlist: BaseItem, tags: ChannelTags)] {
+        let tagged = ChannelsModel.taggedChannels(in: playlists)
+        let numbers = self.numbers
+        return tagged.sorted { (numbers[$0.playlist.id] ?? 0, $0.playlist.displayTitle) < (numbers[$1.playlist.id] ?? 0, $1.playlist.displayTitle) }
     }
 
     private var others: [BaseItem] {
-        let ids = Set(chosenIds)
-        return playlists.filter { !ids.contains($0.id) }
+        playlists.filter { !ChannelTags(tags: $0.tags).isChannel }
+    }
+
+    /// Each channel's number in the guide, its own or the next free one.
+    private var numbers: [String: Int] {
+        ChannelTags.numbers(for: ChannelsModel.taggedChannels(in: playlists).map { ($0.playlist.id, $0.playlist.displayTitle, $0.tags.number) })
+    }
+
+    /// "Tooniverse and Sitcoms are both channel 3."
+    private var clashes: [String] {
+        let byNumber = Dictionary(grouping: channels.filter { $0.tags.number != nil }, by: { $0.tags.number! })
+        return byNumber.keys.sorted().compactMap { number in
+            guard let names = byNumber[number]?.map(\.playlist.displayTitle), names.count > 1 else { return nil }
+            return "\(names.formatted(.list(type: .and))) are all channel \(number)."
+        }
     }
 
     var body: some View {
         SettingsPage(title: "Channels (Beta)") {
             Section {
-                SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, in a new shuffled order every day and the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once one is on.")
+                SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once there is one.")
             }
             if let errorMessage, playlists.isEmpty {
                 Section { Text(errorMessage).foregroundStyle(.secondary) }
@@ -438,139 +454,104 @@ struct ChannelSettingsView: View {
                     SettingsNote("No video playlists yet. Make one in Jellyfin, or with Add to Playlist on any movie.")
                 }
             } else {
-                if !chosen.isEmpty {
-                    Section("Channels") {
-                        ForEach(Array(chosen.enumerated()), id: \.element.id) { index, playlist in
-                            row(playlist, number: index + 1)
-                        }
-                        #if !os(tvOS)
-                        .onMove { from, to in
-                            var ids = chosen.map(\.id)
-                            ids.move(fromOffsets: from, toOffset: to)
-                            stored = PlaylistChannelList.encode(ids)
-                        }
-                        #endif
+                if !canEdit {
+                    Section {
+                        SettingsNote("Only your server's administrator can set up channels. Ask them to, here or in Jellyfin.")
                     }
                 }
-                if !chosen.isEmpty {
-                    Section("Shows Take Turns") {
-                        ForEach(chosen) { playlist in
-                            SettingsChoiceRow(
-                                title: playlist.displayTitle,
-                                options: ChannelMode.allCases.map { ($0, $0.title) },
-                                selection: modeBinding(for: playlist.id)
-                            )
-                        }
-                        SettingsNote("Rotation plays one episode of each show in turn; Blocks plays two to four in a row. Either way a show's episodes come in order and pick up where they left off, and each movie takes a turn of its own. Specials are left out.")
-                    }
-                    Section("Logos") {
-                        ForEach(chosen) { playlist in
-                            Toggle(playlist.displayTitle, isOn: logoBinding(for: playlist.id))
-                        }
-                        SettingsNote("Shows the playlist's picture in the guide in place of the channel's name. Set a picture for the playlist in Jellyfin first.")
+                ForEach(channels, id: \.playlist.id) { channel in
+                    channelSection(channel.playlist, tags: channel.tags)
+                }
+                if !clashes.isEmpty {
+                    Section {
+                        SettingsNote(clashes.joined(separator: " ") + " Give each its own number.")
                     }
                 }
                 if !others.isEmpty {
-                    Section(chosen.isEmpty ? "Video Playlists" : "More Playlists") {
+                    Section(channels.isEmpty ? "Video Playlists" : "More Playlists") {
                         ForEach(others) { playlist in
-                            row(playlist, number: nil)
+                            Toggle(isOn: Binding(
+                                get: { false },
+                                set: { on in if on { save(playlist, ChannelTags(tags: playlist.tags).with { $0.isChannel = true }) } }
+                            )) {
+                                playlistLabel(playlist)
+                            }
+                            .disabled(!canEdit)
                         }
                     }
                 }
                 Section {
-                    SettingsNote("Touch and hold a channel (or right-click it) to move it up or down. Your channels are saved on your Jellyfin server, so they follow you to your other devices when you open Settings there.")
+                    SettingsNote("Rotation plays one episode of each show in turn, and Blocks two to four in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in a new order each day. In Order plays the playlist as it's arranged, round and round.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential) and asterfin:logo=on.")
                 }
             }
         }
-        .task {
-            // Edit Channels on the Channels tab opens this page directly.
-            if let client = session.client { await SettingsSync.pull(client: client) }
-            await load()
-        }
-        // Changes go to the server, so the user's other devices pick them up.
-        .onChange(of: stored) {
-            guard let client = session.client else { return }
-            Task { await SettingsSync.push(AppSettings.playlistChannelsKey, client: client) }
-        }
-        .onChange(of: storedModes) {
-            guard let client = session.client else { return }
-            Task { await SettingsSync.push(AppSettings.playlistChannelModesKey, client: client) }
-        }
-        .onChange(of: storedLogos) {
-            guard let client = session.client else { return }
-            Task { await SettingsSync.push(AppSettings.playlistChannelLogosKey, client: client) }
-        }
+        .task { await load() }
     }
 
-    private func row(_ playlist: BaseItem, number: Int?) -> some View {
-        Toggle(isOn: Binding(
-            get: { chosenIds.contains(playlist.id) },
-            set: { setChannel(playlist.id, on: $0) }
-        )) {
-            HStack(spacing: 14) {
-                if let number {
-                    Text("\(number)")
-                        .font(.callout.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 28, alignment: .trailing)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(playlist.displayTitle)
-                    if let count = playlist.childCount {
-                        Text(count == 1 ? "1 title" : "\(count) titles")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+    private func channelSection(_ playlist: BaseItem, tags: ChannelTags) -> some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { true },
+                set: { on in if !on { save(playlist, tags.with { $0.isChannel = false }) } }
+            )) {
+                playlistLabel(playlist)
             }
+            SettingsChoiceRow(
+                title: "Number",
+                options: [(0, "Automatic (\(numbers[playlist.id] ?? 0))")] + (1...max(99, tags.number ?? 0)).map { ($0, "\($0)") },
+                selection: Binding(
+                    get: { tags.number ?? 0 },
+                    set: { number in save(playlist, tags.with { $0.number = number > 0 ? number : nil }) }
+                )
+            )
+            SettingsChoiceRow(
+                title: "Mode",
+                options: ChannelMode.allCases.map { ($0, $0.title) },
+                selection: Binding(
+                    get: { tags.mode },
+                    set: { mode in save(playlist, tags.with { $0.mode = mode }) }
+                )
+            )
+            Toggle("Playlist Picture as Logo", isOn: Binding(
+                get: { tags.showsLogo },
+                set: { on in save(playlist, tags.with { $0.showsLogo = on }) }
+            ))
+        } header: {
+            Text("Channel \(numbers[playlist.id] ?? 0)")
         }
-        .contextMenu {
-            if let number {
-                Button("Move Up", systemImage: "arrow.up") { move(playlist.id, by: -1) }
-                    .disabled(number == 1)
-                Button("Move Down", systemImage: "arrow.down") { move(playlist.id, by: 1) }
-                    .disabled(number == chosen.count)
+        .disabled(!canEdit)
+    }
+
+    private func playlistLabel(_ playlist: BaseItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(playlist.displayTitle)
+            if let count = playlist.childCount {
+                Text(count == 1 ? "1 title" : "\(count) titles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func modeBinding(for id: String) -> Binding<ChannelMode> {
-        Binding(
-            get: { PlaylistChannelList.modes(from: storedModes)[id] ?? .rotation },
-            set: { mode in
-                var modes = PlaylistChannelList.modes(from: storedModes)
-                modes[id] = mode
-                storedModes = PlaylistChannelList.encode(modes)
+    /// Writes the playlist's tags with these channel settings, keeping its
+    /// other tags; the page shows the change at once, and the Channels tab
+    /// picks it up.
+    private func save(_ playlist: BaseItem, _ tags: ChannelTags) {
+        guard canEdit, let client = session.client, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        let previous = playlists[index].tags
+        let updated = tags.applied(to: previous)
+        playlists[index].tags = updated
+        Task {
+            do {
+                try await client.setTags(updated, onItem: playlist.id)
+                await session.refreshChannels()
+            } catch {
+                if let current = playlists.firstIndex(where: { $0.id == playlist.id }) { playlists[current].tags = previous }
+                if case JellyfinError.http(let code, _) = error, code == 401 || code == 403 { refused = true }
+                errorMessage = error.localizedDescription
             }
-        )
-    }
-
-    private func logoBinding(for id: String) -> Binding<Bool> {
-        Binding(
-            get: { PlaylistChannelList.ids(from: storedLogos).contains(id) },
-            set: { on in
-                var ids = PlaylistChannelList.ids(from: storedLogos).filter { $0 != id }
-                if on { ids.append(id) }
-                storedLogos = PlaylistChannelList.encode(ids)
-            }
-        )
-    }
-
-    private func setChannel(_ id: String, on: Bool) {
-        var ids = chosen.map(\.id)
-        if on, !ids.contains(id) {
-            ids.append(id)
-        } else if !on {
-            ids.removeAll { $0 == id }
         }
-        stored = PlaylistChannelList.encode(ids)
-    }
-
-    private func move(_ id: String, by step: Int) {
-        var ids = chosen.map(\.id)
-        guard let index = ids.firstIndex(of: id), ids.indices.contains(index + step) else { return }
-        ids.swapAt(index, index + step)
-        stored = PlaylistChannelList.encode(ids)
     }
 
     private func load() async {

@@ -916,11 +916,31 @@ nonisolated final class JellyfinClient: Sendable {
         try await postRaw("/DisplayPreferences/\(Self.settingsRecord)", query: ["userId": try requireUser(), "client": Self.settingsClient], body: body)
     }
 
+    // MARK: Tags
+
+    /// The fields an item update writes back. Each is asked for when reading
+    /// the item first, since one left out of the update would be cleared.
+    private static let editableFields = "Tags,Overview,Genres,Studios,People,ProviderIds,DateCreated,Taglines,SortName,PremiereDate,ProductionYear,OfficialRating,CustomRating,LockedFields,LockData,ChildCount"
+
+    /// Replaces an item's tags, leaving the rest of its metadata as it was:
+    /// the full record is read and written back with only the tags changed.
+    /// Needs a user allowed to edit metadata (an administrator).
+    func setTags(_ tags: [String], onItem itemId: String) async throws {
+        let user = try requireUser()
+        let data = try await rawGet("/Users/\(user)/Items/\(itemId)", query: ["fields": Self.editableFields])
+        guard var record = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw JellyfinError.decoding("The item's record wasn't readable")
+        }
+        record["Tags"] = tags
+        try await postRaw("/Items/\(itemId)", body: try JSONSerialization.data(withJSONObject: record))
+    }
+
     // MARK: Playlists
 
     /// The user's playlists of one media type ("Audio" or "Video").
     func playlists(mediaType: String) async throws -> [BaseItem] {
         try await items([
+            "fields": Self.listFields + ",Tags",
             "includeItemTypes": "Playlist",
             "mediaTypes": mediaType,
             "recursive": "true",

@@ -2,16 +2,18 @@
 //  PlaylistChannels.swift
 //  AsterFIN
 //
-//  The Channels tab's channels: Jellyfin video playlists picked in Settings ›
-//  Channels, in the order chosen there, saved on this device with each one's
-//  mode. Each plays its movies and episodes on a schedule worked out from the
-//  clock (see `ChannelSchedule`).
+//  The Channels tab's channels: Jellyfin video playlists tagged as channels
+//  (see `ChannelTags`), so every device finds the same ones. Each plays its
+//  movies and episodes on a schedule worked out from the clock (see
+//  `ChannelSchedule`).
 //
 
 import Foundation
 import Observation
 
-/// The chosen playlists' ids, in channel order, stored comma-joined.
+/// How channels were stored before they moved to playlist tags: the chosen
+/// playlists' ids in order, comma-joined, with each one's mode and logo.
+/// Read once, to move them to tags (`ChannelMigration`).
 nonisolated enum PlaylistChannelList {
     static func ids(from stored: String) -> [String] {
         var seen = Set<String>()
@@ -93,50 +95,51 @@ final class ChannelsModel {
     private(set) var channels: [PlaylistChannel] = []
     private(set) var hasLoaded = false
     private(set) var errorMessage: String?
-    private var loadedFor: [String] = []
+    /// Each channel's items as last fetched, with the playlist's item count
+    /// then, so a big playlist isn't fetched again unless it changed.
+    private var itemCache: [String: (count: Int?, items: [BaseItem])] = [:]
 
-    /// Loads the chosen playlists and their movies and episodes, in channel
-    /// order. A playlist that's gone from the server, or has neither, is left out.
-    func load(ids: [String], modes: [String: ChannelMode], logos: Set<String>, client: JellyfinClient, force: Bool = false) async {
-        guard force || ids != loadedFor || !hasLoaded else {
-            // Only the modes or logos changed: no need to fetch again.
-            let updated = channels.map { channel in
-                var changed = channel
-                changed.mode = modes[channel.id] ?? .rotation
-                changed.showsLogo = logos.contains(channel.id)
-                return changed
-            }
-            if updated != channels {
-                channels = updated
-                ChannelTuner.register(channels)
-            }
-            return
-        }
+    /// Finds the playlists tagged as channels and loads their movies and
+    /// episodes, in channel-number order. A tagged playlist with neither is
+    /// left out.
+    func load(client: JellyfinClient, force: Bool = false) async {
         errorMessage = nil
         do {
-            let playlists = try await client.playlists(mediaType: "Video")
-            let byId = Dictionary(playlists.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let chosen = ids.compactMap { byId[$0] }
-            let contents = await withTaskGroup(of: (String, [BaseItem]).self) { group in
-                for playlist in chosen {
-                    group.addTask { (playlist.id, (try? await client.playlistItems(playlistId: playlist.id)) ?? []) }
+            let tagged = Self.taggedChannels(in: try await client.playlists(mediaType: "Video"))
+            let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.playlist.displayTitle, $0.tags.number) })
+            let stale = tagged.map(\.playlist).filter { playlist in
+                force || itemCache[playlist.id] == nil || itemCache[playlist.id]?.count != playlist.childCount
+            }
+            let fetched = await withTaskGroup(of: (String, [BaseItem]?).self) { group in
+                for playlist in stale {
+                    group.addTask { (playlist.id, try? await client.playlistItems(playlistId: playlist.id)) }
                 }
                 var found: [String: [BaseItem]] = [:]
-                for await (id, items) in group { found[id] = items }
+                for await (id, items) in group { if let items { found[id] = items } }
                 return found
             }
-            var built: [PlaylistChannel] = []
-            for playlist in chosen {
-                let items = (contents[playlist.id] ?? []).filter { $0.kind == .movie || $0.kind == .episode }
-                guard !items.isEmpty else { continue }
-                built.append(PlaylistChannel(playlist: playlist, number: built.count + 1, items: items, mode: modes[playlist.id] ?? .rotation, showsLogo: logos.contains(playlist.id)))
+            for playlist in stale {
+                if let items = fetched[playlist.id] { itemCache[playlist.id] = (playlist.childCount, items) }
             }
+            let built = tagged.compactMap { entry -> PlaylistChannel? in
+                let items = (itemCache[entry.playlist.id]?.items ?? []).filter { $0.kind == .movie || $0.kind == .episode }
+                guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
+                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, mode: entry.tags.mode, showsLogo: entry.tags.showsLogo)
+            }
+            .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built
             ChannelTuner.register(built)
-            loadedFor = ids
         } catch {
             if channels.isEmpty { errorMessage = error.localizedDescription }
         }
         hasLoaded = true
+    }
+
+    /// The playlists among `playlists` tagged as channels, with their tags.
+    static func taggedChannels(in playlists: [BaseItem]) -> [(playlist: BaseItem, tags: ChannelTags)] {
+        playlists.compactMap { playlist in
+            let tags = ChannelTags(tags: playlist.tags)
+            return tags.isChannel ? (playlist, tags) : nil
+        }
     }
 }

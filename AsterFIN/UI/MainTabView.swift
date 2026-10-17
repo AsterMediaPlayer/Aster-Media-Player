@@ -90,8 +90,6 @@ struct MainTabView: View {
     @AppStorage(AppSettings.tabOrderKey) private var tabOrder = ""
     @AppStorage(AppSettings.hiddenTabsKey) private var hiddenTabs = ""
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
-    /// Channels show once a playlist is made into one (Settings › Channels).
-    @AppStorage(AppSettings.playlistChannelsKey) private var playlistChannels = ""
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var linkedPlayback: PlaybackRequest?
@@ -114,7 +112,6 @@ struct MainTabView: View {
         return order.filter {
             !hidden.contains($0) && session.hasContent(for: $0)
                 && ($0 != .downloads || downloadsEnabled)
-                && ($0 != .channels || !PlaylistChannelList.ids(from: playlistChannels).isEmpty)
         }
     }
 
@@ -188,10 +185,15 @@ struct MainTabView: View {
                     PlayerView(request: request) { linkedPlayback = nil }
                 }
         }
-        // Settings that follow the user (their channels), alongside the
-        // loading below rather than holding it up.
+        // Settings that follow the user, and whether the server has any
+        // channels (playlists tagged as one), alongside the loading below
+        // rather than holding it up. The first time, channels kept the old
+        // way are moved to tags.
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            guard let client = session.client else { return }
+            await SettingsSync.pull(client: client)
+            await ChannelMigration.runIfNeeded(client: client)
+            await session.refreshChannels()
         }
         .task {
             guard let client = session.client else { return }
@@ -205,7 +207,10 @@ struct MainTabView: View {
         // Back from the background: changes made on another device since.
         .onChange(of: scenePhase) { old, phase in
             guard phase == .active, old == .background, let client = session.client else { return }
-            Task { await SettingsSync.pull(client: client) }
+            Task {
+                await SettingsSync.pull(client: client)
+                await session.refreshChannels()
+            }
         }
         .onChange(of: session.router.pendingItemId) { _, _ in
             Task { await followPendingLinks() }

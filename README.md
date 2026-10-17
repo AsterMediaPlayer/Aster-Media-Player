@@ -95,11 +95,19 @@ Taken on Apple TV.
 
 ### Channels (Beta)
 Your Jellyfin video playlists become TV-style channels on a Channels tab, laid out in the same guide as Live TV. Tune in and you join whatever is on, partway through, and when it ends the channel carries on to what's on next.
-- **Setup:** pick playlists and their order in Settings ▸ Channels (Beta). A channel can show its playlist's picture as its logo. The Channels tab appears once a channel is on.
+- **Set up in Jellyfin:** a playlist becomes a channel through its tags, so your server is the one place channels live and every device finds the same ones. Tag a playlist in Jellyfin's web interface (the playlist's Edit Metadata ▸ Tags), or use **Edit Channels** on the Channels tab or in Settings ▸ Channels (Beta), which writes the same tags. Only a server administrator can change them; everyone else sees the channels read-only. The Channels tab appears once a playlist is tagged.
+
+  | Tag | Meaning | Default |
+  | --- | --- | --- |
+  | `asterfin:channel` | This playlist is a channel | not a channel |
+  | `asterfin:number=101` | Its channel number | numbered after the rest, by name |
+  | `asterfin:mode=blocks` | `rotation`, `blocks`, `shuffle` or `sequential` | `rotation` |
+  | `asterfin:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
+
+  Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
-- **Two modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays two to four in a row. Either way the order is reshuffled every day.
+- **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays two to four in a row; **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
 - **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
-- **Synced settings:** your channels, modes and logos are saved in AsterFIN's own settings on your Jellyfin server (its display preferences), so they follow your Jellyfin account to your other devices.
 - **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
 
 ### Disc menus

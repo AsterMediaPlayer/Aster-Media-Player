@@ -104,10 +104,10 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
 
     /// Where the book is: what's ahead is saved from here, what's well
     /// behind let go.
-    func update(bookId: String, part: Int, seconds: TimeInterval) {
+    func update(bookId: String, part: Int, seconds: TimeInterval, force: Bool = false) {
         queue.async { [self] in
             guard bookId == self.bookId else { return }
-            let moved = part != playhead.part || abs(seconds - playhead.seconds) >= 5
+            let moved = force || part != playhead.part || abs(seconds - playhead.seconds) >= 5
             guard moved else { return }
             playhead = (part, seconds)
             prune()
@@ -300,7 +300,9 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     /// its index, a seek) or within the stretch ahead; beyond that it waits
     /// for the stretch to reach it, rather than the whole book coming down.
     private func wantedByPlayer() -> (part: Int, chunk: Int)? {
-        for request in pending {
+        // Newest first: the player's latest request is what it needs now;
+        // an older one (from before a seek) is left over.
+        for request in pending.reversed() {
             guard let index = partIndex(of: request), let part = parts[index] else { continue }
             let start = request.dataRequest?.requestedOffset ?? 0
             let offset = request.dataRequest?.currentOffset ?? 0
@@ -358,8 +360,9 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
     }
 
     private func startFetch(part index: Int, chunk: Int) {
-        // Already on its way there.
-        if let fetch, fetch.part == index, fetch.chunk <= chunk, chunk - fetch.chunk <= 2 { return }
+        // Already on its way there: let it run, rather than cancel a chunk
+        // half downloaded.
+        if let fetch, fetch.part == index, fetch.chunk <= chunk, chunk - fetch.chunk <= 4 { return }
         guard let part = parts[index] else { return }
         cancelFetch()
         retry?.cancel()
@@ -391,6 +394,9 @@ nonisolated final class ListenAhead: NSObject, @unchecked Sendable {
             let file = parts[current.part]!.directory.appending(path: "c\(current.chunk)")
             if (try? bytes.write(to: file, options: .atomic)) != nil, bytes.count == needed {
                 parts[current.part]?.chunks.insert(current.chunk)
+                #if DEBUG
+                if current.chunk % 20 == 0 { print("DEBUG listen ahead: saved part \(current.part) chunk \(current.chunk) (\(parts[current.part]?.chunks.count ?? 0) saved)") }
+                #endif
             }
             current.buffer.removeFirst(min(needed, current.buffer.count))
             current.chunk += 1

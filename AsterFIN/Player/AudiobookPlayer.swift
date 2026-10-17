@@ -242,6 +242,8 @@ final class AudiobookPlayer {
             url = saved
         } else if let asset = ListenAhead.shared.asset(book: book, part: part, client: client) {
             cachedItem = AVPlayerItem(asset: asset)
+            // The stretch ahead starts from where this part will play.
+            ListenAhead.shared.update(bookId: book.id, part: part, seconds: seconds, force: true)
         }
         #endif
         let playerItem = cachedItem ?? AVPlayerItem(url: url)

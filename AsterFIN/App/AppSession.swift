@@ -296,6 +296,9 @@ enum AppSettings {
     /// Mac: videos play full screen, the window going back as they close.
     /// On by default.
     static let fullScreenPlaybackKey = "AsterFIN.fullScreenPlayback"
+    /// iPhone and iPad: minutes of an audiobook kept saved ahead of where
+    /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
+    static let listenAheadKey = "AsterFIN.listenAhead"
 
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)
@@ -303,6 +306,10 @@ enum AppSettings {
     }
 
     /// Start the next episode when one ends. On by default.
+    static var listenAheadMinutes: Int {
+        UserDefaults.standard.object(forKey: listenAheadKey) as? Int ?? 30
+    }
+
     static var autoplayNext: Bool {
         UserDefaults.standard.object(forKey: autoplayNextKey) as? Bool ?? true
     }

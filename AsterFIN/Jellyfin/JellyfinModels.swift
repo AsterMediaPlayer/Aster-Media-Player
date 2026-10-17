@@ -410,6 +410,9 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     var parentThumbImageTag: String?
     var parentLogoItemId: String?
     var parentLogoImageTag: String?
+    /// The file's container, as the server probed it ("mp3", "flac",
+    /// "mov,mp4,m4a,…"); not given for every kind of item.
+    var container: String?
     var parentPrimaryImageItemId: String?
     var parentPrimaryImageTag: String?
     var seriesPrimaryImageTag: String?
@@ -501,6 +504,7 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
         case parentThumbImageTag = "ParentThumbImageTag"
         case parentLogoItemId = "ParentLogoItemId"
         case parentLogoImageTag = "ParentLogoImageTag"
+        case container = "Container"
         case parentPrimaryImageItemId = "ParentPrimaryImageItemId"
         case parentPrimaryImageTag = "ParentPrimaryImageTag"
         case seriesPrimaryImageTag = "SeriesPrimaryImageTag"

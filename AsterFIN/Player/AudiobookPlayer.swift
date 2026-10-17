@@ -197,6 +197,9 @@ final class AudiobookPlayer {
     /// Stops and lets go of the book, reporting where it got to.
     func stop() {
         guard book != nil else { return }
+        #if os(iOS)
+        ListenAhead.shared.pause()
+        #endif
         finishCurrent()
         removeObservers()
         player.replaceCurrentItem(with: nil)
@@ -231,13 +234,17 @@ final class AudiobookPlayer {
         // The universal URL always starts at the beginning, so the resume
         // point is sought once the file is ready.
         var url = client.universalAudioURL(itemId: item.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate)
+        var cachedItem: AVPlayerItem?
         #if os(iOS)
-        // A downloaded book plays from the device.
+        // A downloaded book plays from the device; else, with Listen Ahead
+        // on, through its cache of what's coming up.
         if let saved = AudiobookDownloads.shared.fileURL(forPart: item.id) {
             url = saved
+        } else if let asset = ListenAhead.shared.asset(book: book, part: part, client: client) {
+            cachedItem = AVPlayerItem(asset: asset)
         }
         #endif
-        let playerItem = AVPlayerItem(url: url)
+        let playerItem = cachedItem ?? AVPlayerItem(url: url)
         // Keeps voices natural when sped up or slowed down.
         playerItem.audioTimePitchAlgorithm = .timeDomain
         installObservers(for: playerItem)
@@ -283,6 +290,9 @@ final class AudiobookPlayer {
             load(part: partIndex + 1, at: 0, playing: true)
         } else {
             // The end of the book: report it finished and stop there.
+            #if os(iOS)
+            ListenAhead.shared.finished(bookId: book.id)
+            #endif
             finishCurrent()
             player.pause()
             isPlaying = false
@@ -355,6 +365,11 @@ final class AudiobookPlayer {
                 guard let self, self.hasStarted else { return }
                 let seconds = time.seconds
                 if seconds.isFinite { self.currentTime = seconds }
+                #if os(iOS)
+                if let book = self.book {
+                    ListenAhead.shared.update(bookId: book.id, part: self.partIndex, seconds: self.currentTime)
+                }
+                #endif
                 if Date().timeIntervalSince(self.lastReport) >= 10 {
                     self.lastReport = Date()
                     self.report(paused: !self.isPlaying)

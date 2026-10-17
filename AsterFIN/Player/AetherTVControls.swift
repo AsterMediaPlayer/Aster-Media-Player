@@ -13,6 +13,9 @@
 //    the timeline.
 //  - A swipe or click down opens the panel: Chapters, Audio, Subtitles and
 //    Quality, the choices below them. It closes on Menu, or after a while left alone.
+//  - On a Live TV channel or a Channels-tab channel, Up opens the channel
+//    row (`ChannelFlickBar`): left and right go round the channels, a click
+//    changes to the one picked, Down or Menu closes it.
 //  - Menu always backs out one step: scrub, panel, controls, then the player.
 //
 //  Focus never goes missing: one invisible view holds it while the panel is
@@ -36,7 +39,7 @@ struct AetherTVControls: View {
     @Environment(AppSession.self) private var session
 
     private enum Mode: Hashable {
-        case hidden, transport, panel
+        case hidden, transport, panel, channels
     }
 
     private enum Tab: Hashable {
@@ -79,6 +82,8 @@ struct AetherTVControls: View {
     @State private var scrubFrom: Double?
     /// Counts presses and moves, so each one restarts the fade.
     @State private var activity = 0
+    /// The channel row, while it's open (or last open).
+    @State private var flick: ChannelFlickModel?
     @FocusState private var focus: Focus?
 
     private var tabs: [Tab] {
@@ -92,11 +97,16 @@ struct AetherTVControls: View {
 
     var body: some View {
         ZStack {
-            RemoteSwipeCatcher(isEnabled: mode != .panel) { moved, ended in swiped(moved, ended: ended) }
+            RemoteSwipeCatcher(isEnabled: mode != .panel && mode != .channels) { moved, ended in swiped(moved, ended: ended) }
                 .allowsHitTesting(false)
             surface
             layout
-                .opacity(mode == .hidden ? 0 : 1)
+                .opacity(mode == .hidden || mode == .channels ? 0 : 1)
+            if mode == .channels, let flick {
+                ChannelFlickBar(model: flick)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
             if showsSkip, let action = skipAction {
                 // A click takes it, as with the system player's Skip Intro;
                 // Play/Pause still pauses.
@@ -148,10 +158,19 @@ struct AetherTVControls: View {
             .focusEffectDisabled()
             .onTapGesture { select() }
             .onMoveCommand { direction in
+                if mode == .channels {
+                    switch direction {
+                    case .left: flickMove(-1)
+                    case .right: flickMove(1)
+                    case .down: closeChannels()
+                    default: activity += 1
+                    }
+                    return
+                }
                 switch direction {
                 case .left: jump(-10)
                 case .right: jump(10)
-                case .up: show()
+                case .up: if playsChannels { openChannels() } else { show() }
                 case .down: openPanel()
                 @unknown default: show()
                 }
@@ -173,11 +192,16 @@ struct AetherTVControls: View {
     /// The skip shows for its first 5 seconds, then again whenever the
     /// controls are up; never over the panel.
     private var showsSkip: Bool {
-        skipAction != nil && mode != .panel && (playback.skipOfferIsFresh || mode == .transport)
+        skipAction != nil && mode != .panel && mode != .channels && (playback.skipOfferIsFresh || mode == .transport)
     }
 
-    /// A click: plays from a scrub, takes the skip on screen, or pauses.
+    /// A click: changes channel in the channel row, plays from a scrub,
+    /// takes the skip on screen, or pauses.
     private func select() {
+        if mode == .channels {
+            changeChannel()
+            return
+        }
         if scrubTarget == nil, showsSkip, let action = skipAction {
             action.perform()
             return
@@ -196,7 +220,9 @@ struct AetherTVControls: View {
 
     /// Menu: one step back at a time.
     private func back() {
-        if mode == .panel {
+        if mode == .channels {
+            closeChannels()
+        } else if mode == .panel {
             closePanel()
         } else if scrubTarget != nil {
             scrubTarget = nil
@@ -209,7 +235,7 @@ struct AetherTVControls: View {
     }
 
     private func swiped(_ moved: CGSize, ended: Bool) {
-        guard mode != .panel else { return }
+        guard mode != .panel, mode != .channels else { return }
         let x = moved.width / Self.screen.width
         let y = moved.height / Self.screen.height
         if scrubFrom == nil {
@@ -303,7 +329,50 @@ struct AetherTVControls: View {
             guard !Task.isCancelled else { return }
             mode = engine.state == .playing ? .hidden : .transport
             refocusSurface()
+        case .channels:
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled { closeChannels() }
         }
+    }
+
+    // MARK: Channels
+
+    /// Playing a Live TV channel or one of the Channels tab's, which Up
+    /// flicks through.
+    private var playsChannels: Bool {
+        playback.liveChannelId != nil || playback.channelId != nil
+    }
+
+    private func openChannels() {
+        guard let client = session.client,
+              let model = ChannelFlickModel(currentLiveChannel: playback.liveChannelId, currentChannel: playback.channelId, client: client) else {
+            show()
+            return
+        }
+        scrubTarget = nil
+        scrubFrom = nil
+        flick = model
+        mode = .channels
+        activity += 1
+        Task { await model.refresh(client: client) }
+    }
+
+    private func flickMove(_ step: Int) {
+        flick?.move(by: step)
+        activity += 1
+    }
+
+    /// Changes to the picked channel, or just closes on the one playing.
+    private func changeChannel() {
+        if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId {
+            playback.switchChannel(to: picked.id)
+        }
+        closeChannels()
+    }
+
+    private func closeChannels() {
+        guard mode == .channels else { return }
+        mode = .hidden
     }
 
     /// Focus on nothing (a view it was on went away): put it back where the

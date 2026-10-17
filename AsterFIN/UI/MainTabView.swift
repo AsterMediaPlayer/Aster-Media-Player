@@ -187,12 +187,9 @@ struct MainTabView: View {
         }
         // Settings that follow the user, and whether the server has any
         // channels (playlists tagged as one), alongside the loading below
-        // rather than holding it up. The first time, channels kept the old
-        // way are moved to tags.
+        // rather than holding it up.
         .task {
-            guard let client = session.client else { return }
-            await SettingsSync.pull(client: client)
-            await ChannelMigration.runIfNeeded(client: client)
+            if let client = session.client { await SettingsSync.pull(client: client) }
             await session.refreshChannels()
         }
         .task {

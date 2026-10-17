@@ -707,7 +707,8 @@ nonisolated final class JellyfinClient: Sendable {
         return try await get(ItemsResult.self, "/Playlists/\(playlistId)/Items", query: [
             "userId": user,
             "fields": Self.listFields,
-            "enableImageTypes": "Primary",
+            // Logo too, so an episode carries its series' clear logo.
+            "enableImageTypes": "Primary,Logo",
             "imageTypeLimit": "1",
         ]).items
     }
@@ -870,6 +871,15 @@ nonisolated final class JellyfinClient: Sendable {
 
     func deleteRecording(_ recordingId: String) async throws {
         try await delete("/LiveTv/Recordings/\(recordingId)")
+    }
+
+    /// The text at a stream address (an HLS playlist), signed in; for checking
+    /// a stream is serving video before switching to it.
+    func playlistText(at url: URL) async throws -> String {
+        var request = authorizedRequest(url)
+        request.timeoutInterval = 10
+        let (data, _) = try await send(request)
+        return String(decoding: data, as: UTF8.self)
     }
 
     func closeLiveStream(_ liveStreamId: String) async {

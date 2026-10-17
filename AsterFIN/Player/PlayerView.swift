@@ -114,7 +114,11 @@ struct PlayerView: View {
                 }
                 .overlay {
                     if coordinator.hasStarted, !coordinator.endCardVisible {
-                        ChannelBug(channelId: coordinator.channelId)
+                        ChannelBug(
+                            channelId: coordinator.channelId,
+                            videoAspect: coordinator.videoSize.height > 0 ? coordinator.videoSize.width / coordinator.videoSize.height : nil,
+                            playingId: coordinator.currentItem?.id
+                        )
                     }
                 }
                 .overlay {

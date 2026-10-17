@@ -293,14 +293,6 @@ enum AppSettings {
     /// player (see `AetherPlayback`). Off by default. (Replaces the old
     /// "AsterFIN.useAetherEngine" test switch, which is no longer read.)
     static let useSystemPlayerKey = "AsterFIN.useSystemPlayer"
-    /// The video playlists made into Channels, in channel order, comma-joined
-    /// (see `PlaylistChannelList`). Kept on this device.
-    /// Where channels were kept before they moved to playlist tags; read once
-    /// by `ChannelMigration`.
-    static let playlistChannelsKey = "AsterFIN.playlistChannels"
-    static let playlistChannelModesKey = "AsterFIN.playlistChannelModes"
-    /// Channels showing their playlist's picture as their logo, comma-joined.
-    static let playlistChannelLogosKey = "AsterFIN.playlistChannelLogos"
     /// Mac: videos play full screen, the window going back as they close.
     /// On by default.
     static let fullScreenPlaybackKey = "AsterFIN.fullScreenPlayback"

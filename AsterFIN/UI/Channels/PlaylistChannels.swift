@@ -11,35 +11,6 @@
 import Foundation
 import Observation
 
-/// How channels were stored before they moved to playlist tags: the chosen
-/// playlists' ids in order, comma-joined, with each one's mode and logo.
-/// Read once, to move them to tags (`ChannelMigration`).
-nonisolated enum PlaylistChannelList {
-    static func ids(from stored: String) -> [String] {
-        var seen = Set<String>()
-        return stored.split(separator: ",").map(String.init).filter { !$0.isEmpty && seen.insert($0).inserted }
-    }
-
-    static func encode(_ ids: [String]) -> String {
-        ids.joined(separator: ",")
-    }
-
-    /// Each channel's mode, stored as `id=blocks,…`; a channel missing from
-    /// it uses Rotation.
-    static func modes(from stored: String) -> [String: ChannelMode] {
-        var modes: [String: ChannelMode] = [:]
-        for pair in stored.split(separator: ",") {
-            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
-            if parts.count == 2, let mode = ChannelMode(rawValue: parts[1]) { modes[parts[0]] = mode }
-        }
-        return modes
-    }
-
-    static func encode(_ modes: [String: ChannelMode]) -> String {
-        modes.filter { $0.value != .rotation }.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.rawValue)" }.joined(separator: ",")
-    }
-}
-
 /// A playlist as a channel: its number and name, the movies and episodes it
 /// plays, and how its shows take turns.
 nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
@@ -51,10 +22,44 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var showsLogo = false
     /// The players show the playlist's picture in a corner, as a network's bug.
     var showsBug = false
+    var bugCorner: BugCorner = .bottomRight
+    /// The bug's size, as a percentage of the usual.
+    var bugSize = 100
+    /// Seconds the bug shows after tuning in or a programme starting; 0 for always.
+    var bugHideAfter = 0
     /// From the `channel-name=` tag; nil for the playlist's own name.
     var customName: String?
+    /// The series' clear logo, when the playlist is all one series' episodes:
+    /// the channel's logo and bug then, rather than the playlist's picture.
+    var seriesLogo: SeriesLogo?
+
+    nonisolated struct SeriesLogo: Hashable, Sendable {
+        let itemId: String
+        let tag: String
+    }
 
     var id: String { playlist.id }
+
+    /// The picture the channel's logo and bug show: its one series' clear
+    /// logo, else the playlist's picture; nil with neither.
+    func logoURL(client: JellyfinClient, maxWidth: Int) -> URL? {
+        if let seriesLogo {
+            return client.imageURL(itemId: seriesLogo.itemId, kind: .logo, tag: seriesLogo.tag, maxWidth: maxWidth)
+        }
+        return playlist.imageTags?["Primary"].map {
+            client.imageURL(itemId: playlist.id, kind: .primary, tag: $0, maxWidth: maxWidth)
+        }
+    }
+
+    /// The clear logo of the one series `items` are all episodes of; nil for
+    /// a playlist with movies, several series, or a series without a logo.
+    static func seriesLogo(of items: [BaseItem]) -> SeriesLogo? {
+        guard let first = items.first, let seriesId = first.seriesId,
+              items.allSatisfy({ $0.kind == .episode && $0.seriesId == seriesId }),
+              let logoItem = items.lazy.compactMap(\.parentLogoItemId).first,
+              let tag = items.lazy.compactMap(\.parentLogoImageTag).first else { return nil }
+        return SeriesLogo(itemId: logoItem, tag: tag)
+    }
     var name: String { customName ?? playlist.displayTitle }
     var mode: ChannelMode { lineup.mode }
 
@@ -73,9 +78,20 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
 /// or episode ends, so a channel stays with its schedule.
 enum ChannelTuner {
     private static var channels: [String: PlaylistChannel] = [:]
+    /// Seconds before a programme's end that tuning in starts the next one.
+    static let tooLateToJoin: TimeInterval = 60
+    /// The channels as last loaded, in channel-number order.
+    private static var order: [String] = []
 
+    /// Takes the full list the Channels tab loaded, in order.
     static func register(_ loaded: [PlaylistChannel]) {
         for channel in loaded { channels[channel.id] = channel }
+        order = loaded.map(\.id)
+    }
+
+    /// The channels in number order, for flicking through them.
+    static var orderedChannels: [PlaylistChannel] {
+        order.compactMap { channels[$0] }
     }
 
     static func channel(_ id: String) -> PlaylistChannel? {
@@ -89,7 +105,11 @@ enum ChannelTuner {
     static func live(channelId: String, at date: Date = Date(), after finishedItemId: String? = nil) -> (item: BaseItem, entry: PlaybackQueueItem)? {
         guard let channel = channels[channelId], var program = channel.airing(at: date) else { return nil }
         var offset = program.offset(at: date)
-        if let finishedItemId, program.item.id == finishedItemId,
+        // Joining with under a minute left starts what's next instead: the
+        // last seconds can fall after the file's final keyframe, with
+        // nothing to start the picture from.
+        let almostOver = program.end.timeIntervalSince(date) < Self.tooLateToJoin
+        if almostOver || (finishedItemId != nil && program.item.id == finishedItemId),
            let next = channel.programs(from: program.end, to: program.end.addingTimeInterval(1)).first {
             program = next
             offset = 0
@@ -133,7 +153,7 @@ final class ChannelsModel {
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 let items = (itemCache[entry.playlist.id]?.items ?? []).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, customName: entry.tags.name)
+                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, bugHideAfter: entry.tags.bugHideAfter, customName: entry.tags.name, seriesLogo: PlaylistChannel.seriesLogo(of: items))
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built

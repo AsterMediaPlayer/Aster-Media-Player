@@ -413,6 +413,9 @@ struct ChannelSettingsView: View {
     @State private var errorMessage: String?
     /// A save the server refused; the page turns read-only.
     @State private var refused = false
+    /// The channels opened to change their settings; the rest show as a
+    /// line each. A playlist just turned on opens.
+    @State private var expanded: Set<String> = []
 
     private var canEdit: Bool { session.canEditChannels && !refused }
 
@@ -426,6 +429,12 @@ struct ChannelSettingsView: View {
     nonisolated private static func name(_ channel: (playlist: BaseItem, tags: ChannelTags)) -> String {
         channel.tags.name ?? channel.playlist.displayTitle
     }
+
+    /// How long the bug can stay up, in seconds; 0 for always.
+    private static let bugHideChoices = [0, 10, 30, 60, 120, 300]
+
+    /// Bug sizes offered, in percent of the usual.
+    private static let bugSizeChoices = [50, 75, 100, 125, 150, 200, 250, 300]
 
     /// Block lengths offered for Blocks mode, the usual first.
     private static let blockChoices: [ClosedRange<Int>] = [ChannelLineup.defaultBlocks, 1...2, 1...3, 2...3, 3...4, 3...5, 3...6, 4...6, 4...8, 6...10]
@@ -490,7 +499,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on and asterfin:channel-name=Your Name.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30) and asterfin:channel-name=Your Name.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -499,69 +508,133 @@ struct ChannelSettingsView: View {
     }
 
     private func channelSection(_ playlist: BaseItem, tags: ChannelTags) -> some View {
-        Section {
-            Toggle(isOn: Binding(
-                get: { true },
-                set: { on in if !on { save(playlist, tags.with { $0.isChannel = false }) } }
-            )) {
-                playlistLabel(playlist)
-            }
-            ChannelNameField(playlistName: playlist.displayTitle, name: tags.name) { name in
-                save(playlist, tags.with { $0.name = name })
-            }
-            SettingsChoiceRow(
-                title: "Number",
-                options: (1...max(99, numbers[playlist.id] ?? 0)).map { ($0, "\($0)") },
-                selection: Binding(
-                    get: { tags.number ?? numbers[playlist.id] ?? 1 },
-                    set: { number in save(playlist, tags.with { $0.number = number }) }
-                )
-            )
-            SettingsChoiceRow(
-                title: "Mode",
-                options: ChannelMode.allCases.map { ($0, $0.title) },
-                selection: Binding(
-                    get: { tags.mode },
-                    set: { mode in save(playlist, tags.with { $0.mode = mode }) }
-                )
-            )
-            if tags.mode == .blocks {
-                SettingsChoiceRow(
-                    title: "Episodes in a Row",
-                    options: (Self.blockChoices + (Self.blockChoices.contains(tags.blocks) ? [] : [tags.blocks])).map { range in
-                        (range, range.count == 1 ? "\(range.lowerBound)" : "\(range.lowerBound) to \(range.upperBound)")
-                    },
-                    selection: Binding(
-                        get: { tags.blocks },
-                        set: { blocks in save(playlist, tags.with { $0.blocks = blocks }) }
-                    )
-                )
-            }
-            if tags.mode != .sequential {
-                SettingsChoiceRow(
-                    title: "Reshuffle",
-                    options: ChannelReshuffle.allCases.map { ($0, $0.title) },
-                    selection: Binding(
-                        get: { tags.reshuffle },
-                        set: { reshuffle in save(playlist, tags.with { $0.reshuffle = reshuffle }) }
-                    )
-                )
-                Button("Shuffle Again") {
-                    save(playlist, tags.with { $0.seed += 1 })
+        let isExpanded = expanded.contains(playlist.id)
+        return Section {
+            Button {
+                withAnimation {
+                    if isExpanded { expanded.remove(playlist.id) } else { expanded.insert(playlist.id) }
+                }
+            } label: {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tags.name ?? playlist.displayTitle)
+                        Text(summary(of: playlist, tags: tags))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
                 }
             }
-            Toggle("Playlist Picture as Logo", isOn: Binding(
-                get: { tags.showsLogo },
-                set: { on in save(playlist, tags.with { $0.showsLogo = on }) }
-            ))
-            Toggle("Logo in the Corner While Playing", isOn: Binding(
-                get: { tags.showsBug },
-                set: { on in save(playlist, tags.with { $0.showsBug = on }) }
-            ))
+            if isExpanded {
+                channelSettings(playlist, tags: tags)
+                    .disabled(!canEdit)
+            }
         } header: {
             Text("Channel \(numbers[playlist.id] ?? 0)")
         }
-        .disabled(!canEdit)
+    }
+
+    /// "Blocks · Weekly · 120 titles · Logo · Bug" for a closed channel.
+    private func summary(of playlist: BaseItem, tags: ChannelTags) -> String {
+        var parts = [tags.mode.title]
+        if tags.mode != .sequential, tags.reshuffle != .day { parts.append(tags.reshuffle.title) }
+        if let count = playlist.childCount { parts.append(count == 1 ? "1 title" : "\(count) titles") }
+        if tags.showsLogo { parts.append("Logo") }
+        if tags.showsBug { parts.append("Bug") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// An open channel's settings.
+    @ViewBuilder
+    private func channelSettings(_ playlist: BaseItem, tags: ChannelTags) -> some View {
+        Toggle(isOn: Binding(
+            get: { true },
+            set: { on in if !on { save(playlist, tags.with { $0.isChannel = false }) } }
+        )) {
+            playlistLabel(playlist)
+        }
+        ChannelNameField(playlistName: playlist.displayTitle, name: tags.name) { name in
+            save(playlist, tags.with { $0.name = name })
+        }
+        SettingsChoiceRow(
+            title: "Number",
+            options: (1...max(99, numbers[playlist.id] ?? 0)).map { ($0, "\($0)") },
+            selection: Binding(
+                get: { tags.number ?? numbers[playlist.id] ?? 1 },
+                set: { number in save(playlist, tags.with { $0.number = number }) }
+            )
+        )
+        SettingsChoiceRow(
+            title: "Mode",
+            options: ChannelMode.allCases.map { ($0, $0.title) },
+            selection: Binding(
+                get: { tags.mode },
+                set: { mode in save(playlist, tags.with { $0.mode = mode }) }
+            )
+        )
+        if tags.mode == .blocks {
+            SettingsChoiceRow(
+                title: "Episodes in a Row",
+                options: (Self.blockChoices + (Self.blockChoices.contains(tags.blocks) ? [] : [tags.blocks])).map { range in
+                    (range, range.count == 1 ? "\(range.lowerBound)" : "\(range.lowerBound) to \(range.upperBound)")
+                },
+                selection: Binding(
+                    get: { tags.blocks },
+                    set: { blocks in save(playlist, tags.with { $0.blocks = blocks }) }
+                )
+            )
+        }
+        if tags.mode != .sequential {
+            SettingsChoiceRow(
+                title: "Reshuffle",
+                options: ChannelReshuffle.allCases.map { ($0, $0.title) },
+                selection: Binding(
+                    get: { tags.reshuffle },
+                    set: { reshuffle in save(playlist, tags.with { $0.reshuffle = reshuffle }) }
+                )
+            )
+            Button("Shuffle Again") {
+                save(playlist, tags.with { $0.seed += 1 })
+            }
+        }
+        Toggle("Playlist Picture as Logo", isOn: Binding(
+            get: { tags.showsLogo },
+            set: { on in save(playlist, tags.with { $0.showsLogo = on }) }
+        ))
+        Toggle("Logo in the Corner While Playing", isOn: Binding(
+            get: { tags.showsBug },
+            set: { on in save(playlist, tags.with { $0.showsBug = on }) }
+        ))
+        if tags.showsBug {
+            SettingsChoiceRow(
+                title: "Corner",
+                options: BugCorner.allCases.map { ($0, $0.title) },
+                selection: Binding(
+                    get: { tags.bugCorner },
+                    set: { corner in save(playlist, tags.with { $0.bugCorner = corner }) }
+                )
+            )
+            SettingsChoiceRow(
+                title: "Hide After",
+                options: (Self.bugHideChoices + (Self.bugHideChoices.contains(tags.bugHideAfter) ? [] : [tags.bugHideAfter])).sorted().map { seconds in
+                    (seconds, seconds == 0 ? "Never" : Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
+                },
+                selection: Binding(
+                    get: { tags.bugHideAfter },
+                    set: { seconds in save(playlist, tags.with { $0.bugHideAfter = seconds }) }
+                )
+            )
+            SettingsChoiceRow(
+                title: "Logo Size",
+                options: (Self.bugSizeChoices + (Self.bugSizeChoices.contains(tags.bugSize) ? [] : [tags.bugSize])).sorted().map { ($0, "\($0)%") },
+                selection: Binding(
+                    get: { tags.bugSize },
+                    set: { size in save(playlist, tags.with { $0.bugSize = size }) }
+                )
+            )
+        }
     }
 
     private func playlistLabel(_ playlist: BaseItem) -> some View {
@@ -582,6 +655,8 @@ struct ChannelSettingsView: View {
         tags.isChannel = true
         if tags.number == nil { tags.number = (numbers.values.max() ?? 0) + 1 }
         if !ChannelTags.sets("logo", in: playlist.tags) { tags.showsLogo = playlist.imageTags?["Primary"] != nil }
+        // Opened, as it's about to be set up.
+        expanded.insert(playlist.id)
         save(playlist, tags)
     }
 

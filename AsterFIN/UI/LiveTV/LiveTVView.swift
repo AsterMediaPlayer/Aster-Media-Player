@@ -32,13 +32,9 @@ final class LiveTVModel {
             async let sportsList = client.recommendedPrograms(limit: 20, isSports: true)
             async let kidsList = client.recommendedPrograms(limit: 20, isKids: true)
             async let newsList = client.recommendedPrograms(limit: 20, isNews: true)
-            let loaded = try await channelList
-            channels = loaded.sorted { lhs, rhs in
-                let lf = lhs.userData?.isFavorite ?? false
-                let rf = rhs.userData?.isFavorite ?? false
-                if lf != rf { return lf }
-                return Self.channelOrder(lhs) < Self.channelOrder(rhs)
-            }
+            channels = Self.guideOrder(try await channelList)
+            // So the player can flick through them in the same order.
+            LiveChannelDirectory.register(channels)
             onNow = (try? await recommended) ?? []
             movies = (try? await movieList) ?? []
             sports = (try? await sportsList) ?? []
@@ -71,6 +67,16 @@ final class LiveTVModel {
     func isFavorite(channelId: String?) -> Bool {
         guard let channelId else { return false }
         return channels.first { $0.id == channelId }?.userData?.isFavorite == true
+    }
+
+    /// The guide's order: favourites first, then by channel number.
+    static func guideOrder(_ channels: [BaseItem]) -> [BaseItem] {
+        channels.sorted { lhs, rhs in
+            let lf = lhs.userData?.isFavorite ?? false
+            let rf = rhs.userData?.isFavorite ?? false
+            if lf != rf { return lf }
+            return channelOrder(lhs) < channelOrder(rhs)
+        }
     }
 
     private static func channelOrder(_ channel: BaseItem) -> (Double, String) {
@@ -294,13 +300,26 @@ struct LiveTVView: View {
             return
         }
         #endif
+        let request = PlaybackRequest(itemId: channelId)
         if let live {
+            #if canImport(AetherEngine)
+            // The system player took over a channel AetherEngine couldn't
+            // play; another channel gets AetherEngine again.
+            if AetherPlayback.canPlay(request) {
+                live.stop()
+                self.live = nil
+            } else {
+                live.tune(channelId)
+                liveFullScreen = true
+                return
+            }
+            #else
             live.tune(channelId)
             liveFullScreen = true
             return
+            #endif
         }
         guard let client = session.client else { return }
-        let request = PlaybackRequest(itemId: channelId)
         #if canImport(AetherEngine)
         if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
             // A channel the engine can't play carries on in the system player.

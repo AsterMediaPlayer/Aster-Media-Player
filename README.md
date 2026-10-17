@@ -107,6 +107,9 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `asterfin:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
   | `asterfin:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
   | `asterfin:bug=on` | The logo, faint in the corner while the channel plays | off |
+  | `asterfin:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
+  | `asterfin:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
+  | `asterfin:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
   | `asterfin:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
   Turning a playlist on in AsterFIN writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `asterfin:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
@@ -132,6 +135,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   - Keyboard shortcuts: Space to play or pause, ← → to jump, Esc to close.
 - **Deep links:** `asterfin://item/{id}` opens a title page, and `asterfin://play/{id}` starts playback.
 - **Sign-in:** password or Quick Connect, with multiple users per server.
+- **Settings that follow you:** Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in AsterFIN's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
 
 ## Server requirements
 

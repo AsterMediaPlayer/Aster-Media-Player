@@ -50,13 +50,14 @@ struct ChannelTagsTests {
         #expect(written == [
             "Family", "asterfin:theme=retro", "Halloween", "asterfin:channel", "asterfin:number=7", "asterfin:mode=blocks",
             "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off",
+            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off",
         ])
         #expect(ChannelTags(tags: written) == ChannelTags(isChannel: true, number: 7, mode: .blocks))
     }
 
     /// Defaults are written too, so every setting shows in Jellyfin.
     @Test func everySettingIsWritten() {
-        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off"]
+        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off"]
         #expect(ChannelTags(isChannel: true).applied(to: []) == ["asterfin:channel"] + defaults)
         #expect(ChannelTags().applied(to: ["asterfin:channel", "Family"]) == ["Family", "asterfin:channel=off"] + defaults)
         #expect(ChannelTags(tags: ChannelTags(isChannel: true).applied(to: [])) == ChannelTags(isChannel: true))
@@ -135,8 +136,34 @@ struct ChannelTagsTests {
         let written = tags.applied(to: ["Family"])
         #expect(written == [
             "Family", "asterfin:channel", "asterfin:mode=blocks", "asterfin:reshuffle=month", "asterfin:blocks=4",
-            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:channel-name=Late Night",
+            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off",
+            "asterfin:channel-name=Late Night",
         ])
         #expect(ChannelTags(tags: written) == tags)
+    }
+
+    @Test func theBugsCornerAndSizeAreRead() {
+        let tags = ChannelTags(tags: ["asterfin:bug=on", "asterfin:bug-location=Top-Left", "asterfin:bug-size=150%"])
+        #expect(tags.bugCorner == .topLeft)
+        #expect(tags.bugSize == 150)
+        #expect(ChannelTags(tags: ["asterfin:bug-size=75"]).bugSize == 75)
+        #expect(ChannelTags(tags: ["asterfin:bug-size=500%"]).bugSize == 100)
+        #expect(ChannelTags(tags: ["asterfin:bug-size=big"]).bugSize == 100)
+        #expect(ChannelTags(tags: ["asterfin:bug-location=middle"]).bugCorner == .bottomRight)
+        let written = tags.with { $0.isChannel = true }.applied(to: [])
+        #expect(written.contains("asterfin:bug-location=top-left"))
+        #expect(written.contains("asterfin:bug-size=150%"))
+        #expect(ChannelTags(tags: written) == tags.with { $0.isChannel = true })
+    }
+
+    @Test func theBugCanHideItself() {
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=30"]).bugHideAfter == 30)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=45s"]).bugHideAfter == 45)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=off"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=soon"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["asterfin:bug-hide=99999"]).bugHideAfter == 0)
+        let written = ChannelTags(isChannel: true).with { $0.bugHideAfter = 30 }.applied(to: [])
+        #expect(written.contains("asterfin:bug-hide=30"))
+        #expect(ChannelTags(tags: written).bugHideAfter == 30)
     }
 }

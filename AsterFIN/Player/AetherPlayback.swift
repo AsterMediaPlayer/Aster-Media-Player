@@ -94,6 +94,8 @@ final class AetherPlayback {
     private var entry: PlaybackQueueItem
     /// The Channel this is playing, if it's playing one.
     var channelId: String? { entry.channelId }
+    /// The Live TV channel playing, if it's one.
+    var liveChannelId: String? { isLive ? entry.itemId : nil }
     private let preferences: PlaybackPreferences
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -135,6 +137,19 @@ final class AetherPlayback {
     /// When the live source was last reopened, to give up on a channel that
     /// keeps dropping rather than retry for ever.
     private var liveRetunes: [Date] = []
+    /// The last channel's stream, still being closed. The tuner has only so
+    /// many streams, so the next one opens once it's gone.
+    @ObservationIgnored private var closingLiveStream: Task<Void, Never>?
+    /// This channel failed to start once and was given a second go before
+    /// going to the system player.
+    private var liveStartRetried = false
+    /// The channel being tuned while the current one plays on, and the
+    /// work of tuning it.
+    private(set) var tuningName: String?
+    @ObservationIgnored private var tuneTask: Task<Void, Never>?
+    /// A channel couldn't be tuned, so the one playing stayed; shown briefly.
+    private(set) var tuneMessage: String?
+    @ObservationIgnored private var tuneMessageTask: Task<Void, Never>?
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -172,23 +187,8 @@ final class AetherPlayback {
                 try await loadTitle(item)
             }
             guard !stopped else { return }
-            if speed != 1 { engine.setRate(speed) }
-            engine.play()
-            hasStarted = true
-            stopReported = false
-            nowPlaying.show(item)
-            trickplay = isLive ? nil : ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
-            if reportsPlayback {
-                await client.reportStart(report(paused: false))
-                startReporting()
-            }
-            onItemStarted?(item)
-            startTimedState()
-            if isLive {
-                // For the Top Shelf's recent channels.
-                RecentChannels.record(item.id)
-                return
-            }
+            await begin(item)
+            if isLive { return }
             // Markers and the next episode load once it plays, so they never
             // hold up the start.
             async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
@@ -207,6 +207,26 @@ final class AetherPlayback {
             // A newer load took over, or the player closed.
         } catch {
             if !stopped { fallBack(error.localizedDescription) }
+        }
+    }
+
+    /// Playing from here on, once the engine has the stream.
+    private func begin(_ item: BaseItem) async {
+        if speed != 1 { engine.setRate(speed) }
+        engine.play()
+        hasStarted = true
+        stopReported = false
+        nowPlaying.show(item)
+        trickplay = isLive ? nil : ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
+        if reportsPlayback {
+            await client.reportStart(report(paused: false))
+            startReporting()
+        }
+        onItemStarted?(item)
+        startTimedState()
+        if isLive {
+            // For the Top Shelf's recent channels.
+            RecentChannels.record(item.id)
         }
     }
 
@@ -272,42 +292,187 @@ final class AetherPlayback {
     /// Opens the channel's live stream on the server, the way the system
     /// player does, and plays its HLS stream through the engine as live.
     private func loadLive() async throws {
+        await closingLiveStream?.value
+        closingLiveStream = nil
+        try await load(try await openLive(entry.itemId))
+    }
+
+    /// A channel's stream, opened on the server and ready for the engine.
+    private struct OpenedLive {
+        let playSessionId: String?
+        let mediaSourceId: String?
+        let liveStreamId: String?
+        let url: URL
+        let playMethod: String
+    }
+
+    /// Opens the channel's live stream on the server, without touching
+    /// what's playing.
+    private func openLive(_ channelId: String) async throws -> OpenedLive {
         let info = try await client.playbackInfo(
-            itemId: entry.itemId,
+            itemId: channelId,
             startTicks: 0,
             maxBitrate: AppSettings.maxBitrate,
             subtitleStreamIndex: -1
         )
         if let code = info.errorCode { throw JellyfinError.http(0, code) }
         guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
-        playSessionId = info.playSessionId
-        mediaSourceId = source.id
-        liveStreamId = source.liveStreamId
-        let url: URL
         if let path = source.transcodingUrl, let absolute = client.absoluteURL(serverRelative: path) {
-            url = absolute
-            playMethod = "Transcode"
+            return OpenedLive(playSessionId: info.playSessionId, mediaSourceId: source.id, liveStreamId: source.liveStreamId, url: absolute, playMethod: "Transcode")
         } else if let path = source.path, path.lowercased().contains("m3u8"), let direct = URL(string: path), direct.scheme?.hasPrefix("http") == true {
             // A tuner that already speaks HLS.
-            url = direct
-            playMethod = "DirectPlay"
-        } else {
-            throw JellyfinError.http(0, "This channel's stream format isn't supported.")
+            return OpenedLive(playSessionId: info.playSessionId, mediaSourceId: source.id, liveStreamId: source.liveStreamId, url: direct, playMethod: "DirectPlay")
         }
+        if let liveStreamId = source.liveStreamId {
+            let client = client
+            Task { await client.closeLiveStream(liveStreamId) }
+        }
+        throw JellyfinError.http(0, "This channel's stream format isn't supported.")
+    }
+
+    /// Plays an opened stream: it becomes this player's.
+    private func load(_ opened: OpenedLive) async throws {
+        playSessionId = opened.playSessionId
+        mediaSourceId = opened.mediaSourceId
+        liveStreamId = opened.liveStreamId
+        playMethod = opened.playMethod
         #if DEBUG
         print("DEBUG playback: AetherEngine plays live channel \(item?.displayTitle ?? entry.itemId) (\(playMethod))")
         #endif
-        try await engine.load(url: url, options: LoadOptions(isLive: true, nativeRemoteHLS: true))
+        try await engine.load(url: opened.url, options: LoadOptions(isLive: true, nativeRemoteHLS: true))
         watchForLiveReset()
     }
 
+    /// Waits until an opened stream lists video, following a master
+    /// playlist to its first variant; throws if it doesn't within 20 seconds.
+    private func waitUntilServing(_ opened: OpenedLive) async throws {
+        let deadline = Date().addingTimeInterval(20)
+        var playlist = opened.url
+        while true {
+            try Task.checkCancellation()
+            if let text = try? await client.playlistText(at: playlist) {
+                if text.contains("#EXTINF") { return }
+                let variant = text.split(whereSeparator: \.isNewline)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .first { !$0.isEmpty && !$0.hasPrefix("#") }
+                if let variant, let next = URL(string: variant, relativeTo: playlist)?.absoluteURL, next != playlist {
+                    playlist = next
+                    continue
+                }
+            }
+            guard Date() < deadline else { throw JellyfinError.http(0, "The channel didn't start.") }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
     /// Changes channel in this same player, as the Live TV mini player does.
+    /// The channel playing carries on while the new one is tuned (the
+    /// server opening its stream and starting the video), and gives way
+    /// only once it's ready. A channel that can't be tuned leaves the
+    /// current one playing, with a note; if it couldn't even open (both
+    /// tuners busy, with this channel holding one), it's tried the plain
+    /// way, this channel first let go.
     func tune(_ channelId: String) {
-        guard isLive, !stopped, entry.itemId != channelId else { return }
+        guard isLive, !stopped else { return }
+        guard entry.itemId != channelId else {
+            // Back to the channel playing: whatever was being tuned is dropped.
+            tuneTask?.cancel()
+            tuningName = nil
+            return
+        }
+        guard hasStarted else {
+            cutOver(to: channelId)
+            return
+        }
+        tuneTask?.cancel()
+        tuneTask = Task { [weak self] in
+            guard let self else { return }
+            let channel = try? await self.client.item(channelId)
+            guard !Task.isCancelled, !self.stopped else { return }
+            self.tuningName = channel?.displayTitle ?? "the channel"
+            defer { if !Task.isCancelled { self.tuningName = nil } }
+            let opened: OpenedLive
+            do {
+                opened = try await self.openLive(channelId)
+            } catch {
+                guard !Task.isCancelled, !self.stopped else { return }
+                #if DEBUG
+                print("DEBUG playback: couldn't open \(channelId) beside the playing channel (\(error.localizedDescription)); tuning it the plain way")
+                #endif
+                self.tuningName = nil
+                self.cutOver(to: channelId)
+                return
+            }
+            do {
+                try await self.waitUntilServing(opened)
+                guard !Task.isCancelled, !self.stopped, let channel else { throw CancellationError() }
+                await self.switchLive(to: channel, opened: opened)
+            } catch {
+                if let liveStreamId = opened.liveStreamId {
+                    let client = self.client
+                    Task { await client.closeLiveStream(liveStreamId) }
+                }
+                guard !(error is CancellationError), !self.stopped else { return }
+                #if DEBUG
+                print("DEBUG playback: \(channel?.displayTitle ?? channelId) didn't start (\(error.localizedDescription)); staying on this channel")
+                #endif
+                self.showTuneMessage("Couldn't tune \(channel?.displayTitle ?? "that channel")")
+            }
+        }
+    }
+
+    /// Changes channel by letting this one go first, then opening the next.
+    private func cutOver(to channelId: String) {
+        tuneTask?.cancel()
         endServerSession()
         closeLiveStream()
         liveRetunes = []
+        liveStartRetried = false
         play(item ?? BaseItem(id: channelId, name: nil, type: ItemKind.tvChannel.rawValue), entry: PlaybackQueueItem(itemId: channelId))
+    }
+
+    /// The new channel is ready: the old one stops, and the engine takes
+    /// the new stream.
+    private func switchLive(to channel: BaseItem, opened: OpenedLive) async {
+        endServerSession()
+        closeLiveStream()
+        liveRetunes = []
+        liveStartRetried = false
+        timedTask?.cancel()
+        item = channel
+        entry = PlaybackQueueItem(itemId: channel.id)
+        tuningName = nil
+        do {
+            try await load(opened)
+            guard !stopped else { return }
+            await begin(channel)
+        } catch is CancellationError {
+        } catch {
+            if !stopped { fallBack(error.localizedDescription) }
+        }
+    }
+
+    private func showTuneMessage(_ message: String) {
+        tuneMessage = message
+        tuneMessageTask?.cancel()
+        tuneMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.tuneMessage = nil
+        }
+    }
+
+    /// Changes channel in this same player: another Live TV channel, or
+    /// whatever another of the Channels tab's channels is showing now.
+    func switchChannel(to channelId: String) {
+        if isLive {
+            tune(channelId)
+            return
+        }
+        guard !stopped, let current = entry.channelId, current != channelId,
+              let live = ChannelTuner.live(channelId: channelId) else { return }
+        endServerSession()
+        play(live.item, entry: live.entry)
     }
 
     /// The engine says the live source can't go on (the server restarted
@@ -348,7 +513,7 @@ final class AetherPlayback {
         guard let liveStreamId else { return }
         self.liveStreamId = nil
         let client = client
-        Task { await client.closeLiveStream(liveStreamId) }
+        closingLiveStream = Task { await client.closeLiveStream(liveStreamId) }
     }
 
     /// Asks the server for a converted stream (at `qualityCap`, or the
@@ -388,6 +553,19 @@ final class AetherPlayback {
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
         guard !stopped, !fellBack else { return }
+        // A live channel's stream can be briefly missing on the server (a
+        // tuner still being let go, an encode not ready): one fresh try in
+        // this player before handing it over.
+        if isLive, !liveStartRetried, let item {
+            liveStartRetried = true
+            #if DEBUG
+            print("DEBUG playback: live channel failed (\(reason)); trying a fresh stream once")
+            #endif
+            endServerSession()
+            closeLiveStream()
+            play(item, entry: entry)
+            return
+        }
         if isConverted, entry.fallback != .mostCompatible {
             #if DEBUG
             print("DEBUG playback: converted stream failed (\(reason)); trying a plain H.264 encode")
@@ -481,6 +659,8 @@ final class AetherPlayback {
         guard !stopped else { return }
         stopped = true
         reportTask?.cancel()
+        tuneTask?.cancel()
+        tuneMessageTask?.cancel()
         countdownTask?.cancel()
         timedTask?.cancel()
         clearStyledSubtitles()

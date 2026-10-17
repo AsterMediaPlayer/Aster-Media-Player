@@ -17,6 +17,7 @@
 //    asterfin:bug=on          the logo in the corner while the channel plays
 //    asterfin:bug-location=…  which corner: top-left, top-right, bottom-left, bottom-right
 //    asterfin:bug-size=150%   the bug's size, from 25% to 300% of the usual
+//    asterfin:bug-hide=30     the bug fades after 30 seconds (off: it stays)
 //    asterfin:channel-name=…  the channel's name, in place of the playlist's
 //
 //  "asterfin:" and the keys and values are read whatever their case. A tag
@@ -32,7 +33,7 @@ import Foundation
 nonisolated struct ChannelTags: Equatable, Sendable {
     static let prefix = "asterfin:"
     /// The keys this reads and writes; other `asterfin:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -45,6 +46,9 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     var bugCorner: BugCorner = .bottomRight
     /// The bug's size, as a percentage of the usual.
     var bugSize = 100
+    /// Seconds the bug shows after tuning in or a programme starting; 0 for
+    /// always.
+    var bugHideAfter = 0
     /// Nil for the playlist's own name.
     var name: String?
 
@@ -52,6 +56,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     static let longestBlock = 20
     /// The sizes `bug-size=` can ask for, in percent.
     static let bugSizes = 25...300
+    /// How long `bug-hide=` can keep the bug up, in seconds.
+    static let bugHideTimes = 1...3600
 
     init(isChannel: Bool = false, number: Int? = nil, mode: ChannelMode = .rotation, showsLogo: Bool = false) {
         self.isChannel = isChannel
@@ -89,6 +95,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 bugCorner = value.flatMap { BugCorner(rawValue: $0.lowercased()) } ?? .bottomRight
             case "bug-size":
                 bugSize = value.flatMap(Self.percent).flatMap { Self.bugSizes.contains($0) ? $0 : nil } ?? 100
+            case "bug-hide":
+                bugHideAfter = value.flatMap(Self.seconds).flatMap { Self.bugHideTimes.contains($0) ? $0 : nil } ?? 0
             case "channel-name":
                 name = value.flatMap { $0.isEmpty ? nil : $0 }
             default:
@@ -117,6 +125,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         result.append(Self.prefix + "bug=\(on(showsBug))")
         result.append(Self.prefix + "bug-location=\(bugCorner.rawValue)")
         result.append(Self.prefix + "bug-size=\(bugSize)%")
+        result.append(Self.prefix + (bugHideAfter > 0 ? "bug-hide=\(bugHideAfter)" : "bug-hide=off"))
         if let name { result.append(Self.prefix + "channel-name=\(name)") }
         return result
     }
@@ -124,6 +133,11 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// Whether `tags` set `key` at all, as opposed to leaving it to its default.
     static func sets(_ key: String, in tags: [String]?) -> Bool {
         (tags ?? []).contains { parse($0)?.key == key }
+    }
+
+    /// "30", "30s" → 30; nil for "off" or anything else.
+    private static func seconds(_ value: String) -> Int? {
+        Int(value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "s ")))
     }
 
     /// "150%" or "150" → 150.

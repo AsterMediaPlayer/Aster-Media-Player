@@ -19,8 +19,12 @@ struct ChannelBug: View {
     /// The picture's shape as shown, width over height; nil while unknown,
     /// when the picture is taken to fill the screen.
     var videoAspect: CGFloat?
+    /// What's playing: a new programme brings back a bug that hides itself.
+    var playingId: String?
 
     @Environment(AppSession.self) private var session
+    /// Faded out, `bug-hide=` seconds after tuning in or a programme starting.
+    @State private var faded = false
 
     #if os(tvOS)
     private static let width: CGFloat = 300
@@ -48,7 +52,7 @@ struct ChannelBug: View {
                 let insetY = picture.height * Self.insetY + width / 2
                 RemoteImage(url: url, contentMode: .fit) { EmptyView() }
                     .frame(width: width, height: width, alignment: Self.alignment(for: corner))
-                    .opacity(0.45)
+                    .opacity(faded ? 0 : 0.45)
                     .position(
                         x: corner.isLeft ? picture.minX + insetX : picture.maxX - insetX,
                         y: corner.isTop ? picture.minY + insetY : picture.maxY - insetY
@@ -57,6 +61,13 @@ struct ChannelBug: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+            .task(id: "\(channel.id)|\(playingId ?? "")") {
+                faded = false
+                guard channel.bugHideAfter > 0 else { return }
+                try? await Task.sleep(for: .seconds(channel.bugHideAfter))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 1)) { faded = true }
+            }
         }
     }
 

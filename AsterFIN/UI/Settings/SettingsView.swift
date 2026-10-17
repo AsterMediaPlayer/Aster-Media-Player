@@ -427,6 +427,9 @@ struct ChannelSettingsView: View {
         channel.tags.name ?? channel.playlist.displayTitle
     }
 
+    /// How long the bug can stay up, in seconds; 0 for always.
+    private static let bugHideChoices = [0, 10, 30, 60, 120, 300]
+
     /// Bug sizes offered, in percent of the usual.
     private static let bugSizeChoices = [50, 75, 100, 125, 150, 200, 250, 300]
 
@@ -493,7 +496,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, and asterfin:bug-size=150%) and asterfin:channel-name=Your Name.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30) and asterfin:channel-name=Your Name.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -568,6 +571,16 @@ struct ChannelSettingsView: View {
                     selection: Binding(
                         get: { tags.bugCorner },
                         set: { corner in save(playlist, tags.with { $0.bugCorner = corner }) }
+                    )
+                )
+                SettingsChoiceRow(
+                    title: "Hide After",
+                    options: (Self.bugHideChoices + (Self.bugHideChoices.contains(tags.bugHideAfter) ? [] : [tags.bugHideAfter])).sorted().map { seconds in
+                        (seconds, seconds == 0 ? "Never" : Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
+                    },
+                    selection: Binding(
+                        get: { tags.bugHideAfter },
+                        set: { seconds in save(playlist, tags.with { $0.bugHideAfter = seconds }) }
                     )
                 )
                 SettingsChoiceRow(

@@ -49,6 +49,10 @@ struct AetherPlayerView: View {
                 AetherSubtitleLayer(engine: engine, clock: engine.clock)
                     .allowsHitTesting(false)
             }
+            // Under the controls, so they draw over it.
+            if playback.hasStarted, !playback.endCardVisible {
+                ChannelBug(channelId: playback.channelId)
+            }
             // An anime episode's opening or ending gets its song card, as it
             // does in the system player.
             if playback.hasStarted, !playback.endCardVisible {

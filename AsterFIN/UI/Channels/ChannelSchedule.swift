@@ -11,8 +11,9 @@
 //  The timeline runs back to back from a fixed start (local midnight, 1
 //  January 2026). Each day picks up where the day before ended: whatever is
 //  playing at midnight finishes first, then the new day's order begins,
-//  going round it again until the next midnight. A show plays its episodes
-//  in order and carries on from where it got to, like reruns.
+//  going round it again until the next midnight. A channel can keep its
+//  order for a week or a month instead (`ChannelReshuffle`). A show plays its
+//  episodes in order and carries on from where it got to, like reruns.
 //
 
 import Foundation
@@ -39,6 +40,38 @@ nonisolated enum ChannelMode: String, CaseIterable, Identifiable, Sendable {
         case .sequential: "In Order"
         }
     }
+}
+
+/// How long a channel keeps one shuffled order before dealing a new one.
+nonisolated enum ChannelReshuffle: String, CaseIterable, Identifiable, Sendable {
+    case day
+    /// From Monday to Monday.
+    case week
+    /// From the 1st to the 1st.
+    case month
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .day: "Daily"
+        case .week: "Weekly"
+        case .month: "Monthly"
+        }
+    }
+}
+
+/// How a channel's lineup is dealt, from its tags.
+nonisolated struct ChannelLineup: Hashable, Sendable {
+    static let defaultBlocks = 2...4
+
+    var mode: ChannelMode = .rotation
+    var reshuffle: ChannelReshuffle = .day
+    /// Mixed into the shuffle, so another number deals a fresh lineup;
+    /// 0 is the channel's original one.
+    var seed = 0
+    /// How many episodes a show plays in a row in Blocks mode.
+    var blocks: ClosedRange<Int> = defaultBlocks
 }
 
 nonisolated struct ScheduledProgram: Identifiable, Hashable, Sendable {
@@ -74,8 +107,12 @@ nonisolated enum ChannelSchedule {
 
     /// The channel's programs overlapping `from` to `to`, in order.
     static func programs(channelId: String, items: [BaseItem], mode: ChannelMode = .rotation, from: Date, to: Date, calendar: Calendar = .current) -> [ScheduledProgram] {
+        programs(channelId: channelId, items: items, lineup: ChannelLineup(mode: mode), from: from, to: to, calendar: calendar)
+    }
+
+    static func programs(channelId: String, items: [BaseItem], lineup: ChannelLineup, from: Date, to: Date, calendar: Calendar = .current) -> [ScheduledProgram] {
         var found: [ScheduledProgram] = []
-        walk(channelId: channelId, items: items, mode: mode, from: from, until: to, calendar: calendar) { program in
+        walk(channelId: channelId, items: items, lineup: lineup, from: from, until: to, calendar: calendar) { program in
             if program.end > from, program.start < to { found.append(program) }
         }
         return found
@@ -83,7 +120,11 @@ nonisolated enum ChannelSchedule {
 
     /// The program on the channel at `date`.
     static func airing(channelId: String, items: [BaseItem], mode: ChannelMode = .rotation, at date: Date, calendar: Calendar = .current) -> ScheduledProgram? {
-        programs(channelId: channelId, items: items, mode: mode, from: date, to: date.addingTimeInterval(1), calendar: calendar).first
+        airing(channelId: channelId, items: items, lineup: ChannelLineup(mode: mode), at: date, calendar: calendar)
+    }
+
+    static func airing(channelId: String, items: [BaseItem], lineup: ChannelLineup, at date: Date, calendar: Calendar = .current) -> ScheduledProgram? {
+        programs(channelId: channelId, items: items, lineup: lineup, from: date, to: date.addingTimeInterval(1), calendar: calendar).first
     }
 
     // MARK: Shows
@@ -150,13 +191,15 @@ nonisolated enum ChannelSchedule {
 
     // MARK: Building the timeline
 
-    /// Where the walk has got to at the start of a day: enough to carry on
-    /// from there without going back to the epoch.
+    /// Where the walk has got to at the start of a period (a day, week or
+    /// month, as the channel reshuffles): enough to carry on from there
+    /// without going back to the epoch.
     private struct WalkState: Sendable {
-        var dayStart: Date
-        /// When the day's first program starts (after the one crossing midnight).
+        var periodStart: Date
+        /// When the period's first program starts (after the one crossing into it).
         var time: Date
-        var day: UInt64
+        /// Periods since the epoch.
+        var period: UInt64
         /// The show that played last, by its place in the list.
         var lastShow: Int?
         /// The next episode of each show, counted from its first.
@@ -169,33 +212,47 @@ nonisolated enum ChannelSchedule {
 
     /// Lays the timeline out up to `end`, handing each program to `visit`
     /// as it goes. Programs before `from` may be skipped.
-    private static func walk(channelId: String, items: [BaseItem], mode: ChannelMode, from: Date, until end: Date, calendar: Calendar, visit: (ScheduledProgram) -> Void) {
-        let shows = shows(from: items, mode: mode)
+    private static func walk(channelId: String, items: [BaseItem], lineup: ChannelLineup, from: Date, until end: Date, calendar local: Calendar, visit: (ScheduledProgram) -> Void) {
+        let shows = shows(from: items, mode: lineup.mode)
         guard !shows.isEmpty else { return }
 
-        let base = seed(of: channelId)
-        let key = "\(channelId)|\(mode.rawValue)|\(calendar.timeZone.identifier)|\(seed(of: shows.flatMap { $0.episodes.map(\.item.id) }.joined(separator: ",")))"
-        let fresh = WalkState(dayStart: epoch(calendar: calendar), time: epoch(calendar: calendar), day: 0, lastShow: nil, pointers: Array(repeating: 0, count: shows.count))
+        // Gregorian whatever calendar the device uses, so every device
+        // counts its days, weeks and months from the same start.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = local.timeZone
+
+        let channelSeed = seed(of: channelId)
+        let base = lineup.seed == 0 ? channelSeed : mix(channelSeed ^ UInt64(bitPattern: Int64(lineup.seed)))
+        let blocks = lineup.blocks
+        let key = [
+            channelId, lineup.mode.rawValue, lineup.reshuffle.rawValue, "\(lineup.seed)",
+            "\(blocks.lowerBound)-\(blocks.upperBound)", calendar.timeZone.identifier,
+            "\(seed(of: shows.flatMap { $0.episodes.map(\.item.id) }.joined(separator: ",")))"
+        ].joined(separator: "|")
+        let start = epoch(calendar: calendar)
+        let fresh = WalkState(periodStart: start, time: start, period: 0, lastShow: nil, pointers: Array(repeating: 0, count: shows.count))
         let saved = checkpoints.withLock { $0[key] }
         var state = saved.flatMap { $0.time <= from ? $0 : nil } ?? fresh
         var latest: WalkState?
 
         while state.time < end {
-            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: state.dayStart) else { return }
+            guard let periodEnd = endOfPeriod(after: state.periodStart, lineup.reshuffle, calendar: calendar) else { return }
             if state.time <= from { latest = state }
-            let daySeed = base ^ (state.day &* 0x9E37_79B9_7F4A_7C15)
-            var order = shuffled(Array(shows.indices), seed: daySeed)
-            // A new day never opens with the show that just played.
+            let periodSeed = base ^ (state.period &* 0x9E37_79B9_7F4A_7C15)
+            var order = shuffled(Array(shows.indices), seed: periodSeed)
+            // A new period never opens with the show that just played.
             if order.count > 1, order[0] == state.lastShow {
                 order.swapAt(0, order.count - 1)
             }
+            // The shows go round this order until the period ends, so in a
+            // week or a month the turns carry on across midnight.
             var turn = 0
-            while state.time < dayEnd, state.time < end {
+            while state.time < periodEnd, state.time < end {
                 let index = order[turn % order.count]
                 let show = shows[index]
-                let size = mode == .blocks ? min(show.episodes.count, 2 + Int(mix(daySeed ^ (UInt64(turn + 1) &* 0xD1B5_4A32_D192_ED03)) % 3)) : 1
+                let size = lineup.mode == .blocks ? min(show.episodes.count, blocks.lowerBound + Int(mix(periodSeed ^ (UInt64(turn + 1) &* 0xD1B5_4A32_D192_ED03)) % UInt64(blocks.count))) : 1
                 var played = 0
-                while played < size, state.time < dayEnd, state.time < end {
+                while played < size, state.time < periodEnd, state.time < end {
                     let entry = show.episodes[state.pointers[index] % show.episodes.count]
                     let finish = state.time.addingTimeInterval(entry.length)
                     visit(ScheduledProgram(channelId: channelId, item: entry.item, start: state.time, end: finish))
@@ -206,18 +263,31 @@ nonisolated enum ChannelSchedule {
                 state.lastShow = index
                 turn += 1
             }
-            state.dayStart = dayEnd
-            state.day += 1
-            // The day's last program can run past several midnights only when
-            // it's longer than a day; skip the days it covers.
-            while let next = calendar.date(byAdding: .day, value: 1, to: state.dayStart), next <= state.time {
-                state.dayStart = next
-                state.day += 1
+            state.periodStart = periodEnd
+            state.period += 1
+            // The period's last program can run past the next one's end only
+            // when it's longer than a period; skip the periods it covers.
+            while let next = endOfPeriod(after: state.periodStart, lineup.reshuffle, calendar: calendar), next <= state.time {
+                state.periodStart = next
+                state.period += 1
             }
         }
 
         if let latest, latest.time > (saved?.time ?? .distantPast) {
             checkpoints.withLock { $0[key] = latest }
+        }
+    }
+
+    /// When the period starting at `start` ends: the next midnight, the
+    /// next Monday's, or the next 1st's.
+    private static func endOfPeriod(after start: Date, _ reshuffle: ChannelReshuffle, calendar: Calendar) -> Date? {
+        switch reshuffle {
+        case .day:
+            calendar.date(byAdding: .day, value: 1, to: start)
+        case .week:
+            calendar.nextDate(after: start, matching: DateComponents(hour: 0, minute: 0, second: 0, weekday: 2), matchingPolicy: .nextTime)
+        case .month:
+            calendar.nextDate(after: start, matching: DateComponents(day: 1, hour: 0, minute: 0, second: 0), matchingPolicy: .nextTime)
         }
     }
 

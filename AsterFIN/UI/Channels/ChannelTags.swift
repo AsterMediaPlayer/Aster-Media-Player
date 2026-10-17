@@ -11,10 +11,18 @@
 //    asterfin:number=101      its channel number
 //    asterfin:mode=blocks     rotation (the default), blocks, shuffle or sequential
 //    asterfin:logo=on         the playlist's picture is the channel's logo
+//    asterfin:reshuffle=week  a new order every day (the default), week or month
+//    asterfin:seed=2          deals a fresh lineup; any other number, another
+//    asterfin:blocks=3-6      episodes in a row in Blocks mode (2-4 by default)
+//    asterfin:bug=on          the logo in the corner while the channel plays
+//    asterfin:channel-name=…  the channel's name, in place of the playlist's
 //
 //  "asterfin:" and the keys and values are read whatever their case. A tag
 //  that isn't understood is left alone, and a value that doesn't make sense
 //  falls back to the default rather than stopping the channel playing.
+//
+//  The app writes every setting out, defaults too (all but the name), so
+//  whoever opens the playlist in Jellyfin sees each one there to change.
 //
 
 import Foundation
@@ -22,18 +30,32 @@ import Foundation
 nonisolated struct ChannelTags: Equatable, Sendable {
     static let prefix = "asterfin:"
     /// The keys this reads and writes; other `asterfin:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "channel-name"]
 
     var isChannel = false
     var number: Int?
     var mode: ChannelMode = .rotation
     var showsLogo = false
+    var reshuffle: ChannelReshuffle = .day
+    var seed = 0
+    var blocks = ChannelLineup.defaultBlocks
+    var showsBug = false
+    /// Nil for the playlist's own name.
+    var name: String?
+
+    /// The longest block `blocks=` can ask for.
+    static let longestBlock = 20
 
     init(isChannel: Bool = false, number: Int? = nil, mode: ChannelMode = .rotation, showsLogo: Bool = false) {
         self.isChannel = isChannel
         self.number = number
         self.mode = mode
         self.showsLogo = showsLogo
+    }
+
+    /// How the channel's lineup is dealt.
+    var lineup: ChannelLineup {
+        ChannelLineup(mode: mode, reshuffle: reshuffle, seed: seed, blocks: blocks)
     }
 
     init(tags: [String]?) {
@@ -48,25 +70,55 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 mode = value.flatMap { ChannelMode(rawValue: $0.lowercased()) } ?? .rotation
             case "logo":
                 showsLogo = value.map { !Self.isOff($0) } ?? true
+            case "reshuffle":
+                reshuffle = value.flatMap { ChannelReshuffle(rawValue: $0.lowercased()) } ?? .day
+            case "seed":
+                seed = value.flatMap { Int($0) }.map { max($0, 0) } ?? 0
+            case "blocks":
+                blocks = value.flatMap(Self.blockRange) ?? ChannelLineup.defaultBlocks
+            case "bug":
+                showsBug = value.map { !Self.isOff($0) } ?? true
+            case "channel-name":
+                name = value.flatMap { $0.isEmpty ? nil : $0 }
             default:
                 break
             }
         }
     }
 
-    /// `tags` with AsterFIN's own replaced by these settings; every other
-    /// tag is kept, in its place. A playlist that stops being a channel
-    /// keeps its number, mode and logo, so turning it back on restores them.
+    /// `tags` with AsterFIN's own replaced by every one of these settings,
+    /// defaults included; every other tag is kept, in its place. A playlist
+    /// that stops being a channel is marked `channel=off` and keeps the
+    /// rest, so turning it back on restores them.
     func applied(to tags: [String]?) -> [String] {
         var result = (tags ?? []).filter { tag in
             guard let (key, _) = Self.parse(tag) else { return true }
             return !Self.keys.contains(key)
         }
-        if isChannel { result.append(Self.prefix + "channel") }
+        let on = { (flag: Bool) in flag ? "on" : "off" }
+        result.append(Self.prefix + (isChannel ? "channel" : "channel=off"))
         if let number { result.append(Self.prefix + "number=\(number)") }
-        if mode != .rotation { result.append(Self.prefix + "mode=\(mode.rawValue)") }
-        if showsLogo { result.append(Self.prefix + "logo=on") }
+        result.append(Self.prefix + "mode=\(mode.rawValue)")
+        result.append(Self.prefix + "reshuffle=\(reshuffle.rawValue)")
+        result.append(Self.prefix + (blocks.count == 1 ? "blocks=\(blocks.lowerBound)" : "blocks=\(blocks.lowerBound)-\(blocks.upperBound)"))
+        result.append(Self.prefix + "seed=\(seed)")
+        result.append(Self.prefix + "logo=\(on(showsLogo))")
+        result.append(Self.prefix + "bug=\(on(showsBug))")
+        if let name { result.append(Self.prefix + "channel-name=\(name)") }
         return result
+    }
+
+    /// Whether `tags` set `key` at all, as opposed to leaving it to its default.
+    static func sets(_ key: String, in tags: [String]?) -> Bool {
+        (tags ?? []).contains { parse($0)?.key == key }
+    }
+
+    /// "3-6" → 3...6, "4" → 4...4; nil unless it's 1 to `longestBlock`, low to high.
+    private static func blockRange(_ value: String) -> ClosedRange<Int>? {
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false).map { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard (1...2).contains(parts.count), let low = parts.first ?? nil, let high = parts.last ?? nil,
+              1 <= low, low <= high, high <= longestBlock else { return nil }
+        return low...high
     }
 
     /// "asterfin:Number=101" → ("number", "101"); nil for a tag that isn't AsterFIN's.

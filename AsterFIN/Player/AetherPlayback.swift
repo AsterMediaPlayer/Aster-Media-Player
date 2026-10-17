@@ -92,6 +92,8 @@ final class AetherPlayback {
 
     private let client: JellyfinClient
     private var entry: PlaybackQueueItem
+    /// The Channel this is playing, if it's playing one.
+    var channelId: String? { entry.channelId }
     private let preferences: PlaybackPreferences
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -865,6 +867,15 @@ final class AetherPlayback {
 
     // MARK: Reporting
 
+    /// Sends where playback is and saves it as the resume point now, for when
+    /// the app is leaving the screen and may not get to say it stopped.
+    func saveProgressNow() {
+        guard hasStarted, !stopped, !stopReported, reportsPlayback, !isLive else { return }
+        let report = report(paused: engine.state == .paused)
+        let client = client
+        Task { await client.reportProgress(report, savingResumePoint: .now) }
+    }
+
     /// Progress every ten seconds while the player is open.
     private func startReporting() {
         reportTask = Task { [weak self] in
@@ -888,7 +899,8 @@ final class AetherPlayback {
             playMethod: playMethod,
             liveStreamId: liveStreamId,
             audioStreamIndex: currentAudio,
-            subtitleStreamIndex: currentSubtitle >= 0 ? currentSubtitle : nil
+            subtitleStreamIndex: currentSubtitle >= 0 ? currentSubtitle : nil,
+            runTimeTicks: item?.runTimeTicks ?? (engine.duration > 0 ? Int64(engine.duration * 10_000_000) : nil)
         )
     }
 }

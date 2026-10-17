@@ -519,12 +519,24 @@ nonisolated final class JellyfinClient: Sendable {
         try? await post("/Sessions/Playing", body: report)
     }
 
-    func reportProgress(_ report: PlaybackReport) async {
+    /// Also saves the position as the resume point when it's due, at once,
+    /// or never (music, which starts each song from the top); see `ResumePoints`.
+    func reportProgress(_ report: PlaybackReport, savingResumePoint saving: ResumePoints.Saving = .whenDue) async {
         try? await post("/Sessions/Playing/Progress", body: report)
+        guard saving != .never else { return }
+        await ResumePoints.shared.progress(report, client: self, force: saving == .now)
     }
 
     func reportStopped(_ report: PlaybackReport) async {
+        // A resume point still on its way mustn't land after the stop.
+        await ResumePoints.shared.stopping(report.itemId)
         try? await post("/Sessions/Playing/Stopped", body: report)
+    }
+
+    /// Sets the user's resume point on an item, leaving its watched state alone.
+    func saveResumePosition(itemId: String, ticks: Int64) async throws {
+        guard let userId else { return }
+        try await post("/UserItems/\(itemId)/UserData", query: ["userId": userId], body: ResumePositionUpdate(playbackPositionTicks: ticks))
     }
 
     // MARK: Images

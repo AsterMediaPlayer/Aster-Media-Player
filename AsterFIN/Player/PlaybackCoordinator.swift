@@ -147,6 +147,8 @@ final class PlaybackCoordinator {
     private let client: JellyfinClient
     private var queue: [PlaybackQueueItem]
     private var index = 0
+    /// The Channel playing, if it's playing one.
+    var channelId: String? { index < queue.count ? queue[index].channelId : nil }
 
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -1149,6 +1151,15 @@ final class PlaybackCoordinator {
         Task { await client.reportProgress(report) }
     }
 
+    /// Sends where playback is and saves it as the resume point now, for when
+    /// the app is leaving the screen and may not get to say it stopped.
+    func saveProgressNow() {
+        guard hasStarted, reportsPlayback, !isLive, let item = currentItem else { return }
+        let report = makeReport(itemId: item.id, position: currentPositionTicks, paused: player.timeControlStatus != .playing)
+        let client = client
+        Task { await client.reportProgress(report, savingResumePoint: .now) }
+    }
+
     private func makeReport(itemId: String, position: Int64, paused: Bool) -> PlaybackReport {
         PlaybackReport(
             itemId: itemId,
@@ -1160,7 +1171,8 @@ final class PlaybackCoordinator {
             playMethod: playMethod,
             liveStreamId: liveStreamId,
             audioStreamIndex: selectedAudioIndex,
-            subtitleStreamIndex: selectedSubtitleIndex >= 0 ? selectedSubtitleIndex : nil
+            subtitleStreamIndex: selectedSubtitleIndex >= 0 ? selectedSubtitleIndex : nil,
+            runTimeTicks: currentItem?.id == itemId ? currentItem?.runTimeTicks : nil
         )
     }
 

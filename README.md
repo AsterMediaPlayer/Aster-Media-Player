@@ -103,10 +103,16 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `asterfin:number=101` | Its channel number | numbered after the rest, by name |
   | `asterfin:mode=blocks` | `rotation`, `blocks`, `shuffle` or `sequential` | `rotation` |
   | `asterfin:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
+  | `asterfin:reshuffle=week` | How long one order of shows lasts: `day`, `week` (Monday to Monday) or `month` | `day` |
+  | `asterfin:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
+  | `asterfin:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
+  | `asterfin:bug=on` | The logo, faint in the corner while the channel plays | off |
+  | `asterfin:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
-  Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
+  Turning a playlist on in AsterFIN writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `asterfin:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
-- **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays two to four in a row; **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
+- **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
+- **A week ahead:** the guide covers the next 7 days, with a day picker at the top.
 - **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
 - **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
 

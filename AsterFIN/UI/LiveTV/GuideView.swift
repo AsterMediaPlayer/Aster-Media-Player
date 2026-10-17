@@ -223,6 +223,14 @@ struct GuideView: View {
         ImageStore.shared.prefetch(urls, client: client)
     }
 
+    /// Where focus goes on entering the grid: the programme at the start of
+    /// the window (on now, unless the window has moved) on the row last
+    /// highlighted, else the first.
+    private var entryProgramId: String? {
+        guard let channelId = highlightedChannelId ?? channels.first?.id else { return nil }
+        return firstVisibleProgram(in: channelId)?.id
+    }
+
     private func nudgeIntoRow(_ channelId: String) {
         pendingNudgeChannelId = nil
         if let target = firstVisibleProgram(in: channelId) {
@@ -303,11 +311,17 @@ struct GuideView: View {
             }
             #endif
 
-            GuideHeader(guideStart: model.guideStart, guideEnd: model.guideEnd, windowStart: windowStart, visibleMinutes: visibleMinutes, jumpToNow: jumpToNow) { width in
+            GuideHeader(guideStart: model.guideStart, guideEnd: model.guideEnd, windowStart: windowStart, visibleMinutes: visibleMinutes, jumpToNow: jumpToNow, days: days, jumpToDay: jump(toDay:)) { width in
                 if width > 0, abs(width - timelineWidth) > 1 { timelineWidth = width }
             }
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.top, 10)
+            #if !os(tvOS)
+            // The whole strip, padding included, takes the drag; the day
+            // picker and Now still take taps.
+            .contentShape(Rectangle())
+            .gesture(timeDrag)
+            #endif
 
             if channels.isEmpty {
                 MessageView(systemImage: "antenna.radiowaves.left.and.right", title: "No channels", detail: emptyDetail)
@@ -353,9 +367,10 @@ struct GuideView: View {
                     .tvFocusSection()
                     #if os(tvOS)
                     .focusScope(gridFocus)
-                    #else
-                    // Sideways drags move through time; up and down still scroll.
-                    .simultaneousGesture(timeDrag)
+                    // Coming down into the grid (from the day picker, say)
+                    // lands on what's on in view on the current row, rather
+                    // than whichever cell happens to sit under the button.
+                    .defaultFocus($focusedProgram, entryProgramId, priority: .userInitiated)
                     #endif
                     // The lazy stack builds a row or two past the bottom edge, so
                     // focus can reach them before the system's animated scroll
@@ -428,6 +443,37 @@ struct GuideView: View {
         return min(max(start, model.guideStart), latest)
     }
 
+    /// The start of each day the guide reaches into, when it covers several;
+    /// a guide of a day (Live TV's) has no day picker.
+    private var days: [Date] {
+        guard model.guideEnd.timeIntervalSince(model.guideStart) > 26 * 3600 else { return [] }
+        let calendar = Calendar.current
+        var result: [Date] = []
+        var day = calendar.startOfDay(for: model.guideStart)
+        while day < model.guideEnd {
+            result.append(day)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return result
+    }
+
+    /// Moves the window to `day` at the time of day it is now; today means now.
+    private func jump(toDay day: Date) {
+        let calendar = Calendar.current
+        let now = Date()
+        let time = calendar.dateComponents([.hour, .minute], from: now)
+        let target = calendar.isDate(day, inSameDayAs: now)
+            ? now
+            : calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: day) ?? day
+        // The panel goes back to what's on the channel, as the highlighted
+        // programme is no longer in view.
+        highlightedProgramId = nil
+        withAnimation(.easeInOut(duration: 0.25)) {
+            windowStart = clampedWindow(GuideModel.floorToHalfHour(target))
+        }
+    }
+
     /// Back to the current half hour, offered once the window has moved on.
     private var jumpToNow: (() -> Void)? {
         #if os(tvOS)
@@ -442,39 +488,36 @@ struct GuideView: View {
     }
 
     #if !os(tvOS)
-    /// Which way the current drag is going, decided by its first movement.
-    private enum DragAxis { case horizontal, vertical }
-    @State private var dragAxis: DragAxis?
-    /// Where the window started when a sideways drag began.
+    /// Where the window started when the drag began.
     @State private var dragOrigin: Date?
 
-    /// On a touch screen the guide is dragged sideways through time: the
-    /// window follows the finger and settles on the nearest quarter hour.
-    /// A drag that starts out vertical is left to the scroll view.
+    /// On a touch screen the time strip is dragged sideways through time.
+    /// It has nothing to tap, so the drag can't be taken for a tap on a
+    /// programme or a scroll up or down the grid, as it was there. The
+    /// window follows the finger, a flick carries on, and it settles on the
+    /// nearest quarter hour.
     private var timeDrag: some Gesture {
-        DragGesture(minimumDistance: 12)
+        DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if dragAxis == nil {
-                    let horizontal = abs(value.translation.width) > abs(value.translation.height)
-                    dragAxis = horizontal ? .horizontal : .vertical
-                    if horizontal { dragOrigin = windowStart }
-                }
-                guard dragAxis == .horizontal, let origin = dragOrigin else { return }
-                let minutes = -Double(value.translation.width / Self.pointsPerMinute)
-                windowStart = clampedWindow(origin.addingTimeInterval(minutes * 60))
+                if dragOrigin == nil { dragOrigin = windowStart }
+                guard let origin = dragOrigin else { return }
+                windowStart = clampedWindow(origin.addingTimeInterval(minutes(for: value.translation.width) * 60))
             }
-            .onEnded { _ in
-                defer {
-                    dragAxis = nil
-                    dragOrigin = nil
-                }
-                guard dragAxis == .horizontal else { return }
+            .onEnded { value in
+                defer { dragOrigin = nil }
+                guard let origin = dragOrigin else { return }
+                let coasted = origin.addingTimeInterval(minutes(for: value.predictedEndTranslation.width) * 60)
                 let quarter: TimeInterval = 900
-                let snapped = Date(timeIntervalSinceReferenceDate: (windowStart.timeIntervalSinceReferenceDate / quarter).rounded() * quarter)
-                withAnimation(.easeOut(duration: 0.2)) {
+                let snapped = Date(timeIntervalSinceReferenceDate: (coasted.timeIntervalSinceReferenceDate / quarter).rounded() * quarter)
+                withAnimation(.easeOut(duration: 0.35)) {
                     windowStart = clampedWindow(snapped)
                 }
             }
+    }
+
+    /// Minutes the window moves for a sideways drag: dragging left goes later.
+    private func minutes(for width: CGFloat) -> Double {
+        -Double(width / Self.pointsPerMinute)
     }
     #endif
 
@@ -544,7 +587,20 @@ struct GuideHeader: View {
     /// Shown in place of the day label when the window has moved off the
     /// current time; nil keeps the label.
     var jumpToNow: (() -> Void)? = nil
+    /// The start of each day a guide of several days reaches into; with
+    /// any, a day picker takes the day label's place.
+    var days: [Date] = []
+    var jumpToDay: (Date) -> Void = { _ in }
     var onMeasure: (CGFloat) -> Void
+
+    /// "Today", "Tomorrow" or "Sat 18": short enough for the channel column.
+    private var shortDayLabel: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(windowStart) || calendar.isDateInTomorrow(windowStart) {
+            return LiveTVFormat.dayLabel(windowStart)
+        }
+        return windowStart.formatted(.dateTime.weekday(.abbreviated).day())
+    }
 
     private var slots: [Date] {
         var result: [Date] = []
@@ -561,7 +617,32 @@ struct GuideHeader: View {
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
             Group {
-                if let jumpToNow {
+                if !days.isEmpty {
+                    // Today goes back to now; another day opens at the same
+                    // time of day, as a TV guide's day buttons do.
+                    Menu {
+                        ForEach(days, id: \.self) { day in
+                            Button(LiveTVFormat.dayLabel(day)) { jumpToDay(day) }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(shortDayLabel)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                            Image(systemName: "chevron.down")
+                                .imageScale(.small)
+                        }
+                        #if os(tvOS)
+                        .font(.headline)
+                        #else
+                        .font(.subheadline.weight(.semibold))
+                        #endif
+                    }
+                    #if !os(tvOS)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    #endif
+                } else if let jumpToNow {
                     Button(action: jumpToNow) {
                         Label("Now", systemImage: "arrow.uturn.backward")
                             .font(.subheadline.weight(.semibold))
@@ -601,7 +682,10 @@ struct GuideHeader: View {
                 onMeasure(width)
             }
         }
-        .accessibilityElement(children: .combine)
+        // Its own section, so pressing up anywhere in the grid can reach the
+        // day picker rather than whatever sits above it.
+        .tvFocusSection()
+        .accessibilityElement(children: days.isEmpty ? .combine : .contain)
     }
 }
 

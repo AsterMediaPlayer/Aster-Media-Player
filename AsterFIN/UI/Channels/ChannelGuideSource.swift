@@ -22,9 +22,12 @@ final class ChannelGuideSource: GuideSource {
     private let scheduled: [String: ScheduledProgram]
     private let programIndex: [String: BaseItem]
 
+    /// How far ahead the guide reaches, like a TV guide's week.
+    static let days = 7
+
     init(channels playlistChannels: [PlaylistChannel], now: Date = Date()) {
         let start = GuideModel.floorToHalfHour(now)
-        let end = start.addingTimeInterval(24 * 3600)
+        let end = start.addingTimeInterval(TimeInterval(Self.days) * 24 * 3600)
         guideStart = start
         guideEnd = end
 

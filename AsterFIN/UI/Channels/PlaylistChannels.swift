@@ -73,9 +73,18 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
 /// or episode ends, so a channel stays with its schedule.
 enum ChannelTuner {
     private static var channels: [String: PlaylistChannel] = [:]
+    /// The channels as last loaded, in channel-number order.
+    private static var order: [String] = []
 
+    /// Takes the full list the Channels tab loaded, in order.
     static func register(_ loaded: [PlaylistChannel]) {
         for channel in loaded { channels[channel.id] = channel }
+        order = loaded.map(\.id)
+    }
+
+    /// The channels in number order, for flicking through them.
+    static var orderedChannels: [PlaylistChannel] {
+        order.compactMap { channels[$0] }
     }
 
     static func channel(_ id: String) -> PlaylistChannel? {

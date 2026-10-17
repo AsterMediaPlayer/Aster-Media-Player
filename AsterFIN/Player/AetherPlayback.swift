@@ -94,6 +94,8 @@ final class AetherPlayback {
     private var entry: PlaybackQueueItem
     /// The Channel this is playing, if it's playing one.
     var channelId: String? { entry.channelId }
+    /// The Live TV channel playing, if it's one.
+    var liveChannelId: String? { isLive ? entry.itemId : nil }
     private let preferences: PlaybackPreferences
     private var playSessionId: String?
     private var mediaSourceId: String?
@@ -308,6 +310,19 @@ final class AetherPlayback {
         closeLiveStream()
         liveRetunes = []
         play(item ?? BaseItem(id: channelId, name: nil, type: ItemKind.tvChannel.rawValue), entry: PlaybackQueueItem(itemId: channelId))
+    }
+
+    /// Changes channel in this same player: another Live TV channel, or
+    /// whatever another of the Channels tab's channels is showing now.
+    func switchChannel(to channelId: String) {
+        if isLive {
+            tune(channelId)
+            return
+        }
+        guard !stopped, let current = entry.channelId, current != channelId,
+              let live = ChannelTuner.live(channelId: channelId) else { return }
+        endServerSession()
+        play(live.item, entry: live.entry)
     }
 
     /// The engine says the live source can't go on (the server restarted

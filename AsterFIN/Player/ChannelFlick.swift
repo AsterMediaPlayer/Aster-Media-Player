@@ -158,15 +158,13 @@ final class ChannelFlickModel {
                     imageURL: client.landscapeURL(for: item, width: 480)
                 )
             }
-            let picture = channel.playlist.imageTags?["Primary"].map {
-                client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: $0, maxWidth: 560)
-            }
+            let picture = channel.logoURL(client: client, maxWidth: 560)
             return FlickChannel(
                 id: channel.id,
                 number: "\(channel.number)",
                 name: channel.name,
                 logoURL: channel.showsLogo ? picture : nil,
-                // The playlist's picture is a logo when it's the bug or the logo.
+                // The picture is a logo when it's the bug or the logo.
                 bugURL: channel.showsBug || channel.showsLogo ? picture : nil,
                 now: program
             )

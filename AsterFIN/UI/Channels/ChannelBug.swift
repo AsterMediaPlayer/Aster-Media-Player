@@ -3,8 +3,9 @@
 //  AsterFIN
 //
 //  A Channel's logo, faint in a corner while it plays, as a TV network's
-//  bug. Shown for a channel tagged asterfin:bug=on whose playlist has a
-//  picture, in the corner and at the size its bug-location= and bug-size=
+//  bug. Shown for a channel tagged asterfin:bug=on with a logo (its one
+//  series' clear logo, or the playlist's picture), in the corner and at the
+//  size its bug-location= and bug-size=
 //  tags ask for. It sits in the corner of the picture itself, so a 4:3
 //  show between black bars (or a wide film between bars above and below)
 //  keeps it on the picture rather than out in the bars.
@@ -37,10 +38,10 @@ struct ChannelBug: View {
     }
 
     var body: some View {
-        if let channel, let tag = channel.playlist.imageTags?["Primary"], let client = session.client {
+        if let channel, let client = session.client,
+           let url = channel.logoURL(client: client, maxWidth: Int(Self.width * CGFloat(channel.bugSize) / 100 * 2)) {
             let corner = channel.bugCorner
             let width = Self.width * CGFloat(channel.bugSize) / 100
-            let url = client.imageURL(itemId: channel.playlist.id, kind: .primary, tag: tag, maxWidth: Int(width * 2))
             GeometryReader { proxy in
                 let picture = Self.pictureRect(in: proxy.size, aspect: videoAspect)
                 let insetX = picture.width * Self.insetX + width / 2

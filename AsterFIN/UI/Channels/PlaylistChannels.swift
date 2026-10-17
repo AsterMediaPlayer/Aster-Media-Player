@@ -27,8 +27,37 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var bugSize = 100
     /// From the `channel-name=` tag; nil for the playlist's own name.
     var customName: String?
+    /// The series' clear logo, when the playlist is all one series' episodes:
+    /// the channel's logo and bug then, rather than the playlist's picture.
+    var seriesLogo: SeriesLogo?
+
+    nonisolated struct SeriesLogo: Hashable, Sendable {
+        let itemId: String
+        let tag: String
+    }
 
     var id: String { playlist.id }
+
+    /// The picture the channel's logo and bug show: its one series' clear
+    /// logo, else the playlist's picture; nil with neither.
+    func logoURL(client: JellyfinClient, maxWidth: Int) -> URL? {
+        if let seriesLogo {
+            return client.imageURL(itemId: seriesLogo.itemId, kind: .logo, tag: seriesLogo.tag, maxWidth: maxWidth)
+        }
+        return playlist.imageTags?["Primary"].map {
+            client.imageURL(itemId: playlist.id, kind: .primary, tag: $0, maxWidth: maxWidth)
+        }
+    }
+
+    /// The clear logo of the one series `items` are all episodes of; nil for
+    /// a playlist with movies, several series, or a series without a logo.
+    static func seriesLogo(of items: [BaseItem]) -> SeriesLogo? {
+        guard let first = items.first, let seriesId = first.seriesId,
+              items.allSatisfy({ $0.kind == .episode && $0.seriesId == seriesId }),
+              let logoItem = items.lazy.compactMap(\.parentLogoItemId).first,
+              let tag = items.lazy.compactMap(\.parentLogoImageTag).first else { return nil }
+        return SeriesLogo(itemId: logoItem, tag: tag)
+    }
     var name: String { customName ?? playlist.displayTitle }
     var mode: ChannelMode { lineup.mode }
 
@@ -122,7 +151,7 @@ final class ChannelsModel {
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 let items = (itemCache[entry.playlist.id]?.items ?? []).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, customName: entry.tags.name)
+                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, customName: entry.tags.name, seriesLogo: PlaylistChannel.seriesLogo(of: items))
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built

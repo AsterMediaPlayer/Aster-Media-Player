@@ -707,7 +707,8 @@ nonisolated final class JellyfinClient: Sendable {
         return try await get(ItemsResult.self, "/Playlists/\(playlistId)/Items", query: [
             "userId": user,
             "fields": Self.listFields,
-            "enableImageTypes": "Primary",
+            // Logo too, so an episode carries its series' clear logo.
+            "enableImageTypes": "Primary,Logo",
             "imageTypeLimit": "1",
         ]).items
     }

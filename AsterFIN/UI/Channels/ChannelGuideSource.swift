@@ -21,6 +21,8 @@ final class ChannelGuideSource: GuideSource {
 
     private let scheduled: [String: ScheduledProgram]
     private let programIndex: [String: BaseItem]
+    /// The channels showing a logo, by id.
+    private let logoChannels: [String: PlaylistChannel]
 
     /// How far ahead the guide reaches, like a TV guide's week.
     static let days = 7
@@ -38,8 +40,6 @@ final class ChannelGuideSource: GuideSource {
         for channel in playlistChannels {
             var item = BaseItem(id: channel.id, name: channel.name, type: "TvChannel")
             item.channelNumber = "\(channel.number)"
-            // The playlist's picture as the logo, when turned on for it.
-            if channel.showsLogo { item.imageTags = channel.playlist.imageTags }
             channels.append(item)
 
             let row = channel.programs(from: start, to: end).map { program in
@@ -54,6 +54,9 @@ final class ChannelGuideSource: GuideSource {
         self.programs = programs
         self.scheduled = scheduled
         self.programIndex = programIndex
+        // The logo, when turned on: the one series' clear logo, or the
+        // playlist's picture (see `PlaylistChannel.logoURL`).
+        logoChannels = Dictionary(playlistChannels.filter(\.showsLogo).map { ($0.id, $0) }) { first, _ in first }
     }
 
     /// The scheduled movie or episode behind a guide programme.
@@ -97,6 +100,10 @@ final class ChannelGuideSource: GuideSource {
     func hasDetail(for programId: String) -> Bool { true }
     func ensureDetail(for programId: String, client: JellyfinClient) {}
     func ensurePrograms(for channelId: String, client: JellyfinClient) {}
+
+    func channelLogoURL(_ channel: BaseItem, width: Int, client: JellyfinClient) -> URL? {
+        logoChannels[channel.id]?.logoURL(client: client, maxWidth: width)
+    }
 
     /// The item's own wide art (an episode's still), looked up by its real id.
     func programImageURL(_ program: BaseItem, width: Int, client: JellyfinClient) -> URL? {

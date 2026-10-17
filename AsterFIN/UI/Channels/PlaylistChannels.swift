@@ -11,35 +11,6 @@
 import Foundation
 import Observation
 
-/// How channels were stored before they moved to playlist tags: the chosen
-/// playlists' ids in order, comma-joined, with each one's mode and logo.
-/// Read once, to move them to tags (`ChannelMigration`).
-nonisolated enum PlaylistChannelList {
-    static func ids(from stored: String) -> [String] {
-        var seen = Set<String>()
-        return stored.split(separator: ",").map(String.init).filter { !$0.isEmpty && seen.insert($0).inserted }
-    }
-
-    static func encode(_ ids: [String]) -> String {
-        ids.joined(separator: ",")
-    }
-
-    /// Each channel's mode, stored as `id=blocks,…`; a channel missing from
-    /// it uses Rotation.
-    static func modes(from stored: String) -> [String: ChannelMode] {
-        var modes: [String: ChannelMode] = [:]
-        for pair in stored.split(separator: ",") {
-            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
-            if parts.count == 2, let mode = ChannelMode(rawValue: parts[1]) { modes[parts[0]] = mode }
-        }
-        return modes
-    }
-
-    static func encode(_ modes: [String: ChannelMode]) -> String {
-        modes.filter { $0.value != .rotation }.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.rawValue)" }.joined(separator: ",")
-    }
-}
-
 /// A playlist as a channel: its number and name, the movies and episodes it
 /// plays, and how its shows take turns.
 nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {

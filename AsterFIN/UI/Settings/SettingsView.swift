@@ -80,10 +80,6 @@ struct SettingsView: View {
             case .about: AboutSettingsView()
             }
         }
-        // Settings that follow the user come from their server on opening.
-        .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
-        }
     }
 }
 
@@ -112,9 +108,6 @@ struct MacSettingsView: View {
         }
         .frame(width: 560)
         .frame(minHeight: 380)
-        .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
-        }
     }
 }
 #endif

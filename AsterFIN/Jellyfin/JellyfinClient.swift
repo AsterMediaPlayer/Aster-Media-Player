@@ -872,6 +872,15 @@ nonisolated final class JellyfinClient: Sendable {
         try await delete("/LiveTv/Recordings/\(recordingId)")
     }
 
+    /// The text at a stream address (an HLS playlist), signed in; for checking
+    /// a stream is serving video before switching to it.
+    func playlistText(at url: URL) async throws -> String {
+        var request = authorizedRequest(url)
+        request.timeoutInterval = 10
+        let (data, _) = try await send(request)
+        return String(decoding: data, as: UTF8.self)
+    }
+
     func closeLiveStream(_ liveStreamId: String) async {
         try? await post("/LiveStreams/Close", query: ["liveStreamId": liveStreamId])
     }

@@ -70,6 +70,24 @@ struct AetherPlayerView: View {
                 #endif
             }
 
+            // Changing channel: the one playing carries on until the next is
+            // ready, and says so; or says the next one couldn't be tuned.
+            if let note = playback.tuningName.map({ "Tuning \($0)…" }) ?? playback.tuneMessage {
+                HStack(spacing: 12) {
+                    if playback.tuningName != nil { ProgressView() }
+                    Text(note)
+                        .font(.callout.weight(.semibold))
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(.black.opacity(0.7), in: Capsule())
+                .foregroundStyle(.white)
+                .padding(48)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
             if playback.qualityOfferVisible, !playback.endCardVisible {
                 StallQualityCard(playback: playback)
                     .transition(.opacity)
@@ -98,6 +116,7 @@ struct AetherPlayerView: View {
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
         .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
+        .animation(.easeInOut(duration: 0.25), value: playback.tuningName ?? playback.tuneMessage)
         .onChange(of: engine.state) { _, state in
             // The end of an episode with one after it holds on Up Next;
             // anything else closes the player.

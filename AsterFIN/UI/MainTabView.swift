@@ -185,9 +185,11 @@ struct MainTabView: View {
                     PlayerView(request: request) { linkedPlayback = nil }
                 }
         }
-        // Whether the server has any channels (playlists tagged as one),
-        // alongside the loading below rather than holding it up.
+        // Settings that follow the user, and whether the server has any
+        // channels (playlists tagged as one), alongside the loading below
+        // rather than holding it up.
         .task {
+            if let client = session.client { await SettingsSync.pull(client: client) }
             await session.refreshChannels()
         }
         .task {
@@ -201,8 +203,11 @@ struct MainTabView: View {
         }
         // Back from the background: changes made on another device since.
         .onChange(of: scenePhase) { old, phase in
-            guard phase == .active, old == .background, session.client != nil else { return }
-            Task { await session.refreshChannels() }
+            guard phase == .active, old == .background, let client = session.client else { return }
+            Task {
+                await SettingsSync.pull(client: client)
+                await session.refreshChannels()
+            }
         }
         .onChange(of: session.router.pendingItemId) { _, _ in
             Task { await followPendingLinks() }

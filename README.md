@@ -134,6 +134,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   - Keyboard shortcuts: Space to play or pause, ← → to jump, Esc to close.
 - **Deep links:** `asterfin://item/{id}` opens a title page, and `asterfin://play/{id}` starts playback.
 - **Sign-in:** password or Quick Connect, with multiple users per server.
+- **Settings that follow you:** Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in AsterFIN's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
 
 ## Server requirements
 

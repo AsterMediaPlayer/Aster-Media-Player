@@ -244,6 +244,9 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
     @AppStorage(AppSettings.useSystemPlayerKey) private var useSystemPlayer = false
+    #if os(iOS)
+    @AppStorage(AppSettings.listenAheadKey) private var listenAhead = 30
+    #endif
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
     #endif
@@ -266,6 +269,21 @@ private struct PlaybackSettingsView: View {
                     }
                 }
             }
+            #if os(iOS)
+            Section {
+                Picker("Listen Ahead", selection: $listenAhead) {
+                    Text("Off").tag(0)
+                    Text("15 minutes").tag(15)
+                    Text("30 minutes").tag(30)
+                    Text("1 hour").tag(60)
+                    Text("2 hours").tag(120)
+                }
+            } header: {
+                Text("Audiobooks")
+            } footer: {
+                SettingsNote("Saves what's coming up in an audiobook as it plays, so it carries on through a spot with no signal. It's kept in the cache, and let go once heard. Downloaded books don't need it.")
+            }
+            #endif
             #if os(macOS)
             Section("Window") {
                 Toggle("Play videos full screen", isOn: $fullScreenPlayback)

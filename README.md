@@ -81,7 +81,7 @@ Taken on Apple TV.
 
 ### Music and audiobooks
 - **Music:** albums, artists, playlists and songs. The full player has shuffle, repeat and lyrics, plus system Now Playing info.
-- **Audiobooks:** books are put together from a library's files, with authors and series taken from the folders. There are chapters, per-book playback speed, and progress synced with Jellyfin. On iPhone and iPad you can download a book and listen offline.
+- **Audiobooks:** books are put together from a library's files, with authors and series taken from the folders. There are chapters, per-book playback speed, and progress synced with Jellyfin. On iPhone and iPad you can download a book and listen offline, and Listen Ahead (Settings ▸ Playback; 30 minutes by default) keeps the next stretch of a streamed book on the device so it plays on through a spot with no signal.
 - **Back to the player from anywhere:**
   - on iPhone and iPad, a bar under the tab bar;
   - on the Mac, a bar at the foot of the sidebar and the Space bar;

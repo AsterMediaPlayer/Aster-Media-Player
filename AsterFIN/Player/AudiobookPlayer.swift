@@ -70,6 +70,10 @@ final class AudiobookPlayer {
     private var lastReport = Date.distantPast
     private var hasStarted = false
     private var commandsInstalled = false
+    /// The part is playing through Listen Ahead's cache; and whether that
+    /// failed this time, so the book streams as before instead.
+    private var playsThroughCache = false
+    private var cacheFailed = false
     private var artworkTask: Task<Void, Never>?
 
     // MARK: Starting
@@ -91,6 +95,7 @@ final class AudiobookPlayer {
         finishCurrent()
         self.client = client
         self.book = book
+        cacheFailed = false
         rate = AudiobookRates.rate(for: book.id)
         installRemoteCommands()
         RemoteCommandLayout.useForAudiobooks()
@@ -197,6 +202,9 @@ final class AudiobookPlayer {
     /// Stops and lets go of the book, reporting where it got to.
     func stop() {
         guard book != nil else { return }
+        #if os(iOS)
+        ListenAhead.shared.pause()
+        #endif
         finishCurrent()
         removeObservers()
         player.replaceCurrentItem(with: nil)
@@ -231,13 +239,20 @@ final class AudiobookPlayer {
         // The universal URL always starts at the beginning, so the resume
         // point is sought once the file is ready.
         var url = client.universalAudioURL(itemId: item.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate)
+        var cachedItem: AVPlayerItem?
         #if os(iOS)
-        // A downloaded book plays from the device.
+        // A downloaded book plays from the device; else, with Listen Ahead
+        // on, through its cache of what's coming up.
         if let saved = AudiobookDownloads.shared.fileURL(forPart: item.id) {
             url = saved
+        } else if !cacheFailed, let asset = ListenAhead.shared.asset(book: book, part: part, client: client) {
+            cachedItem = AVPlayerItem(asset: asset)
+            // The stretch ahead starts from where this part will play.
+            ListenAhead.shared.update(bookId: book.id, part: part, seconds: seconds, force: true)
         }
         #endif
-        let playerItem = AVPlayerItem(url: url)
+        playsThroughCache = cachedItem != nil
+        let playerItem = cachedItem ?? AVPlayerItem(url: url)
         // Keeps voices natural when sped up or slowed down.
         playerItem.audioTimePitchAlgorithm = .timeDomain
         installObservers(for: playerItem)
@@ -283,6 +298,9 @@ final class AudiobookPlayer {
             load(part: partIndex + 1, at: 0, playing: true)
         } else {
             // The end of the book: report it finished and stop there.
+            #if os(iOS)
+            ListenAhead.shared.finished(bookId: book.id)
+            #endif
             finishCurrent()
             player.pause()
             isPlaying = false
@@ -336,6 +354,12 @@ final class AudiobookPlayer {
                     // Debug builds only: the error can include the stream URL and its token.
                     print("DEBUG audiobook: failed \(String(describing: observed.error))")
                     #endif
+                    // Through the cache, it tries again streaming as before.
+                    if self.playsThroughCache {
+                        self.cacheFailed = true
+                        self.load(part: self.partIndex, at: self.currentTime, playing: self.playWhenReady)
+                        return
+                    }
                     self.errorMessage = observed.error?.localizedDescription ?? "This book can't be played."
                     self.isPlaying = false
                 default:
@@ -355,6 +379,11 @@ final class AudiobookPlayer {
                 guard let self, self.hasStarted else { return }
                 let seconds = time.seconds
                 if seconds.isFinite { self.currentTime = seconds }
+                #if os(iOS)
+                if let book = self.book {
+                    ListenAhead.shared.update(bookId: book.id, part: self.partIndex, seconds: self.currentTime)
+                }
+                #endif
                 if Date().timeIntervalSince(self.lastReport) >= 10 {
                     self.lastReport = Date()
                     self.report(paused: !self.isPlaying)

@@ -84,7 +84,7 @@ private struct ChannelFlickDetail: View {
                 if let program = channel.now {
                     ChannelFlickTime(program: program)
                 }
-                Label(isCurrent ? "Watching" : "Press to watch", systemImage: isCurrent ? "play.tv" : "play.circle")
+                Label(isCurrent ? "Watching" : "Press Select to Watch", systemImage: isCurrent ? "play.tv" : "circle.circle")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(isCurrent ? .white.opacity(0.6) : .white)
                     .padding(.top, 4)

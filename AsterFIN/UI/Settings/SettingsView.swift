@@ -243,7 +243,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
-    @AppStorage(AppSettings.useAetherEngineKey) private var useAetherEngine = false
+    @AppStorage(AppSettings.useSystemPlayerKey) private var useSystemPlayer = false
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
     #endif
@@ -283,8 +283,8 @@ private struct PlaybackSettingsView: View {
             }
             #if canImport(AetherEngine)
             Section("Player") {
-                Toggle("Use AetherEngine (test)", isOn: $useAetherEngine)
-                SettingsNote("Plays videos from the original file, with every audio and subtitle track switchable right away. Music, audiobooks, Live TV, downloads and theme clips keep the system player.")
+                Toggle("Use the system player", isOn: $useSystemPlayer)
+                SettingsNote("Videos and Live TV play in AetherEngine, from the original file, with every audio and subtitle track switchable right away. A file that's too much for this device or the connection is converted by the server, and anything the engine can't play moves to the system player by itself. Turn this on to use the system player for everything. Playlists, downloads and opening and ending clips use the system player either way.")
             }
             #endif
         }

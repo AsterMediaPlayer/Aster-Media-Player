@@ -275,9 +275,10 @@ enum AppSettings {
     static let downloadHEVCKey = "AsterFIN.downloadHEVC"
     static let downloadSubtitlesKey = "AsterFIN.downloadSubtitles"
     static let downloadCellularKey = "AsterFIN.downloadCellular"
-    /// Video through AetherEngine instead of the system player (a test; see
-    /// `AetherPlayback`). Off by default.
-    static let useAetherEngineKey = "AsterFIN.useAetherEngine"
+    /// Video through the system player instead of AetherEngine, the main
+    /// player (see `AetherPlayback`). Off by default. (Replaces the old
+    /// "AsterFIN.useAetherEngine" test switch, which is no longer read.)
+    static let useSystemPlayerKey = "AsterFIN.useSystemPlayer"
     /// The video playlists made into Channels, in channel order, comma-joined
     /// (see `PlaylistChannelList`). Kept on this device.
     static let playlistChannelsKey = "AsterFIN.playlistChannels"
@@ -312,6 +313,6 @@ enum AppSettings {
     }
 
     static var useAetherEngine: Bool {
-        UserDefaults.standard.bool(forKey: useAetherEngineKey)
+        !UserDefaults.standard.bool(forKey: useSystemPlayerKey)
     }
 }

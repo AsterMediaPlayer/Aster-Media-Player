@@ -2,16 +2,22 @@
 //  AetherPlayback.swift
 //  AsterFIN
 //
-//  Plays one video through AetherEngine instead of AVPlayer, a test of the
-//  engine behind the "Player engine" setting. The file streams from the
-//  server untouched (no transcode, no HLS), so every audio and subtitle
-//  track is in hand and switches on the device. Progress goes to Jellyfin
-//  as it does for the system player. Music and audiobooks don't use this.
+//  Plays one video through AetherEngine, the app's main video player.
+//  Usually the file streams from the server untouched, so every audio and
+//  subtitle track is in hand and switches on the device. When the file is
+//  too much (AV1 on Apple TV, which has no hardware for it, or a lower
+//  quality chosen in the player) the server converts it and the engine
+//  plays that stream instead: one audio track at a time, and the app draws
+//  the subtitles. Progress goes to Jellyfin as it does for the system
+//  player. A Live TV channel plays the server's live stream, opened and
+//  closed through Jellyfin. What the engine can't play at all is handed to
+//  the system player (`onFallback`). Music and audiobooks don't use this.
 //
 
 #if canImport(AetherEngine)
 import AetherEngine
 import AVFoundation
+import Combine
 import Foundation
 import Observation
 
@@ -44,6 +50,35 @@ final class AetherPlayback {
     /// Told each time an item starts, so the page behind can follow when
     /// the next episode plays on its own.
     @ObservationIgnored var onItemStarted: ((BaseItem) -> Void)?
+    /// Told when the engine can't play the title, with a request for the
+    /// same title from the same spot and on the same tracks, for the system
+    /// player. Without it, a failure shows "Can't Play" instead.
+    @ObservationIgnored var onFallback: ((PlaybackRequest) -> Void)?
+    /// Whether a failure goes to the system player rather than an alert.
+    var handsOverOnFailure: Bool { onFallback != nil }
+    /// Playback keeps stalling, and the lower qualities are on offer.
+    private(set) var qualityOfferVisible = false
+
+    /// Playing a stream the server converts, rather than the file itself.
+    private(set) var isConverted = false
+    /// The converted stream's bitrate cap; nil for the streaming quality setting.
+    private(set) var qualityCap: Int?
+    /// The file can't be played as it is here (AV1 on Apple TV), so it's
+    /// converted whatever quality is chosen.
+    private(set) var mustConvert = false
+    /// A converted stream's text subtitle under the playhead, drawn by the
+    /// app; ASS tracks go to libass (`assTrack`) as usual.
+    private(set) var subtitleText: String?
+    /// The playback speed chosen in the player. The engine forgets it on
+    /// each load, so it's put back after one.
+    private(set) var speed: Float = 1
+    /// An anime episode's openings and endings, for the song card, when the
+    /// card is on (the same as the system player's).
+    private(set) var themeMoments: [PlaybackCoordinator.ThemeMoment] = []
+    /// A Live TV channel: no timeline, no skipping.
+    private(set) var isLive = false
+    /// Whether playback is paused right now.
+    var isPaused: Bool { engine.state == .paused }
 
     /// The item's intro, credits and recap markers from the server, and the
     /// one the playhead is inside now, which Skip Intro / Skip Credits skips.
@@ -75,9 +110,37 @@ final class AetherPlayback {
     private var skipOfferTask: Task<Void, Never>?
     /// The current item's end was already reported to the server.
     private var stopReported = false
+    /// The title has gone to the system player.
+    private var fellBack = false
+    /// Watches for stalls that call for a lower quality.
+    private var stallWatch = StallWatch()
+    /// The file's audio streams as Jellyfin lists them, which a converted
+    /// stream's menus offer (it carries only the one chosen).
+    private var audioStreams: [MediaStream] = []
+    /// A converted stream's tracks: its one audio track, and the subtitle
+    /// the app draws (or the server burned in); -1 for none.
+    private var convertedAudio: Int?
+    private var convertedSubtitle = -1
+    private var cueTask: Task<Void, Never>?
+    private var playMethod = "DirectPlay"
+    /// The lock screen, Control Center and remote buttons.
+    @ObservationIgnored private let nowPlaying: AetherNowPlaying
+    /// The item's trickplay frames, when the server has made them.
+    @ObservationIgnored private var trickplay: ScrubPreviewSource?
+    /// The server's live stream for a channel, closed when it's done.
+    private var liveStreamId: String?
+    @ObservationIgnored private var liveResetTask: Task<Void, Never>?
+    /// When the live source was last reopened, to give up on a channel that
+    /// keeps dropping rather than retry for ever.
+    private var liveRetunes: [Date] = []
+
+    /// Video codecs Apple TV can only decode in software, too slowly to play.
+    static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
 
     /// Whether this engine can take `request`: one whole title from the
-    /// server. A queue, a clip, or a download keeps to the system player.
+    /// server, unless "Use the system player" is on. A queue, a clip, or a
+    /// download keeps to the system player; so does a Live TV channel, once
+    /// `start` sees what it is.
     static func canPlay(_ request: PlaybackRequest) -> Bool {
         guard AppSettings.useAetherEngine, sharedEngine != nil, request.items.count == 1, let entry = request.items.first, entry.endTicks == nil else { return false }
         #if os(iOS)
@@ -92,52 +155,38 @@ final class AetherPlayback {
         self.client = client
         self.entry = entry
         self.preferences = preferences
+        self.nowPlaying = AetherNowPlaying(engine: engine, client: client)
     }
 
     func start() async {
         do {
             let item = try await client.item(entry.itemId)
             self.item = item
-            // Asked only for the session id and the file's id: the stream
-            // below is the file itself, whatever the server would choose.
-            let info = try await client.playbackInfo(
-                itemId: entry.itemId,
-                mediaSourceId: entry.mediaSourceId,
-                startTicks: entry.startTicks,
-                maxBitrate: AppSettings.maxBitrate,
-                subtitleStreamIndex: -1
-            )
-            if let code = info.errorCode { throw JellyfinError.http(0, code) }
-            guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
-            playSessionId = info.playSessionId
-            mediaSourceId = source.id
-
-            let streams = source.mediaStreams ?? []
-            let audio = entry.audioStreamIndex ?? PlaybackCoordinator.preferredAudioTrack(in: streams, language: preferences.audioLanguage)
-            let subtitles = streams.filter { $0.type == "Subtitle" }
-            subtitleStreams = subtitles
-            attachments = source.mediaAttachments ?? item.mediaSources?.first { $0.id == source.id }?.mediaAttachments ?? []
-            let subtitle = PlaybackCoordinator.resolveSubtitle(for: entry, source: source, among: subtitles, preferences: preferences)
-
-            let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
-            let start = entry.startTicks > 0 ? Double(entry.startTicks) / 10_000_000 : nil
-            try await engine.load(url: url, startPosition: start, audioSourceStreamIndex: audio.map { Int32($0) })
-            guard !stopped else { return }
-            // Jellyfin numbers a file's streams as the container does, so its
-            // index is the engine's track id. An external file isn't in the
-            // container and has no engine track yet.
-            if subtitle >= 0, engine.subtitleTracks.contains(where: { $0.id == subtitle }) {
-                selectSubtitle(subtitle)
+            isLive = item.kind == .tvChannel
+            nowPlaying.prepare()
+            if isLive {
+                try await loadLive()
+            } else {
+                try await loadTitle(item)
             }
+            guard !stopped else { return }
+            if speed != 1 { engine.setRate(speed) }
             engine.play()
             hasStarted = true
             stopReported = false
+            nowPlaying.show(item)
+            trickplay = isLive ? nil : ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
             if reportsPlayback {
                 await client.reportStart(report(paused: false))
                 startReporting()
             }
             onItemStarted?(item)
             startTimedState()
+            if isLive {
+                // For the Top Shelf's recent channels.
+                RecentChannels.record(item.id)
+                return
+            }
             // Markers and the next episode load once it plays, so they never
             // hold up the start.
             async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
@@ -147,11 +196,282 @@ final class AetherPlayback {
             guard self.item?.id == item.id, !stopped else { return }
             segments = markers
             upNext = next
+            if AppSettings.themeCards, item.kind == .episode {
+                let themes = await client.opEdThemes(for: item.id) ?? []
+                guard self.item?.id == item.id, !stopped else { return }
+                themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+            }
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
-            if !stopped { errorMessage = error.localizedDescription }
+            if !stopped { fallBack(error.localizedDescription) }
         }
+    }
+
+    /// A movie, episode or other video: the file itself, or a stream the
+    /// server converts.
+    private func loadTitle(_ item: BaseItem) async throws {
+        // Asked only for the session id and the file's id: the stream
+        // below is the file itself, whatever the server would choose.
+        let info = try await client.playbackInfo(
+            itemId: entry.itemId,
+            mediaSourceId: entry.mediaSourceId,
+            startTicks: entry.startTicks,
+            maxBitrate: AppSettings.maxBitrate,
+            subtitleStreamIndex: -1
+        )
+        if let code = info.errorCode { throw JellyfinError.http(0, code) }
+        guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
+        playSessionId = info.playSessionId
+        mediaSourceId = source.id
+
+        let streams = source.mediaStreams ?? []
+        let audio = entry.audioStreamIndex ?? PlaybackCoordinator.preferredAudioTrack(in: streams, language: preferences.audioLanguage)
+        let subtitles = streams.filter { $0.type == "Subtitle" }
+        subtitleStreams = subtitles
+        audioStreams = streams.filter { $0.type == "Audio" }
+        attachments = source.mediaAttachments ?? item.mediaSources?.first { $0.id == source.id }?.mediaAttachments ?? []
+        let subtitle = PlaybackCoordinator.resolveSubtitle(for: entry, source: source, among: subtitles, preferences: preferences)
+        let start = entry.startTicks > 0 ? Double(entry.startTicks) / 10_000_000 : nil
+
+        mustConvert = false
+        #if os(tvOS)
+        // Apple TV has no AV1 or VP9 hardware, and decoding them in
+        // software can't keep up, so the server converts them.
+        if let codec = streams.first(where: { $0.type == "Video" })?.codec?.lowercased(), Self.softwareOnlyCodecs.contains(codec) {
+            mustConvert = true
+        }
+        #endif
+        qualityCap = entry.maxBitrate
+        isConverted = mustConvert || entry.maxBitrate != nil || entry.fallback != .none
+        #if DEBUG
+        let videoCodec = streams.first(where: { $0.type == "Video" })?.codec ?? "none"
+        print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: entry.maxBitrate)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
+        #endif
+
+        if isConverted {
+            try await loadConverted(audio: audio ?? source.defaultAudioStreamIndex, subtitle: subtitle, start: start)
+        } else {
+            playMethod = "DirectPlay"
+            let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
+            try await engine.load(url: url, startPosition: start, audioSourceStreamIndex: audio.map { Int32($0) })
+            guard !stopped else { return }
+            // Jellyfin numbers a file's streams as the container does, so its
+            // index is the engine's track id. An external file isn't in the
+            // container and has no engine track yet.
+            if subtitle >= 0, engine.subtitleTracks.contains(where: { $0.id == subtitle }) {
+                selectSubtitle(subtitle)
+            }
+        }
+    }
+
+    // MARK: Live TV
+
+    /// Opens the channel's live stream on the server, the way the system
+    /// player does, and plays its HLS stream through the engine as live.
+    private func loadLive() async throws {
+        let info = try await client.playbackInfo(
+            itemId: entry.itemId,
+            startTicks: 0,
+            maxBitrate: AppSettings.maxBitrate,
+            subtitleStreamIndex: -1
+        )
+        if let code = info.errorCode { throw JellyfinError.http(0, code) }
+        guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
+        playSessionId = info.playSessionId
+        mediaSourceId = source.id
+        liveStreamId = source.liveStreamId
+        let url: URL
+        if let path = source.transcodingUrl, let absolute = client.absoluteURL(serverRelative: path) {
+            url = absolute
+            playMethod = "Transcode"
+        } else if let path = source.path, path.lowercased().contains("m3u8"), let direct = URL(string: path), direct.scheme?.hasPrefix("http") == true {
+            // A tuner that already speaks HLS.
+            url = direct
+            playMethod = "DirectPlay"
+        } else {
+            throw JellyfinError.http(0, "This channel's stream format isn't supported.")
+        }
+        #if DEBUG
+        print("DEBUG playback: AetherEngine plays live channel \(item?.displayTitle ?? entry.itemId) (\(playMethod))")
+        #endif
+        try await engine.load(url: url, options: LoadOptions(isLive: true, nativeRemoteHLS: true))
+        watchForLiveReset()
+    }
+
+    /// Changes channel in this same player, as the Live TV mini player does.
+    func tune(_ channelId: String) {
+        guard isLive, !stopped, entry.itemId != channelId else { return }
+        endServerSession()
+        closeLiveStream()
+        liveRetunes = []
+        play(item ?? BaseItem(id: channelId, name: nil, type: ItemKind.tvChannel.rawValue), entry: PlaybackQueueItem(itemId: channelId))
+    }
+
+    /// The engine says the live source can't go on (the server restarted
+    /// its stream, or it stopped arriving): a fresh stream from the server,
+    /// a few times at most before giving the channel to the system player.
+    private func watchForLiveReset() {
+        liveResetTask?.cancel()
+        let resets = engine.liveSourceReset.values
+        liveResetTask = Task { [weak self] in
+            for await _ in resets {
+                guard let self, !Task.isCancelled else { return }
+                self.reopenLive()
+                return
+            }
+        }
+    }
+
+    private func reopenLive() {
+        guard isLive, !stopped, let item else { return }
+        let now = Date()
+        liveRetunes.removeAll { now.timeIntervalSince($0) > 120 }
+        guard liveRetunes.count < 3 else {
+            fallBack("the channel keeps dropping")
+            return
+        }
+        liveRetunes.append(now)
+        #if DEBUG
+        print("DEBUG playback: live source reset; reopening \(item.displayTitle) (\(liveRetunes.count) of 3)")
+        #endif
+        endServerSession()
+        closeLiveStream()
+        play(item, entry: entry)
+    }
+
+    private func closeLiveStream() {
+        liveResetTask?.cancel()
+        liveResetTask = nil
+        guard let liveStreamId else { return }
+        self.liveStreamId = nil
+        let client = client
+        Task { await client.closeLiveStream(liveStreamId) }
+    }
+
+    /// Asks the server for a converted stream (at `qualityCap`, or the
+    /// streaming quality setting) and loads it. The chosen audio track is the
+    /// one the stream carries; a picture-based subtitle (PGS, VobSub) is
+    /// burned in by the server, and a text one is drawn by the app.
+    private func loadConverted(audio: Int?, subtitle: Int, start: Double?) async throws {
+        let burnIn = subtitle >= 0 && !isTextSubtitle(subtitle) ? subtitle : nil
+        let info = try await client.playbackInfo(
+            itemId: entry.itemId,
+            mediaSourceId: mediaSourceId,
+            startTicks: entry.startTicks,
+            maxBitrate: qualityCap ?? AppSettings.maxBitrate,
+            audioStreamIndex: audio,
+            subtitleStreamIndex: burnIn ?? -1,
+            allowDirect: false,
+            mostCompatible: entry.fallback == .mostCompatible
+        )
+        if let code = info.errorCode { throw JellyfinError.http(0, code) }
+        guard let source = info.mediaSources.first, let path = source.transcodingUrl,
+              let url = client.absoluteURL(serverRelative: path) else { throw JellyfinError.http(0, "The server didn't offer a converted stream") }
+        playSessionId = info.playSessionId
+        playMethod = "Transcode"
+        convertedAudio = audio
+        convertedSubtitle = subtitle
+        #if DEBUG
+        print("DEBUG playback: AetherEngine plays a converted stream (\(entry.fallback == .mostCompatible ? "H.264" : "HEVC/H.264"), cap \((qualityCap ?? AppSettings.maxBitrate) / 1_000_000) Mbps)")
+        #endif
+        try await engine.load(url: url, startPosition: start, audioSourceStreamIndex: nil)
+        guard !stopped else { return }
+        showConvertedSubtitle()
+    }
+
+    /// The load failed or the engine gave up partway. A converted stream
+    /// is tried again as a plain H.264 encode first; after that, or for the
+    /// file itself, the title goes to the system player, carrying on from
+    /// where this got to, on the same tracks.
+    func fallBack(_ reason: String) {
+        guard !stopped, !fellBack else { return }
+        if isConverted, entry.fallback != .mostCompatible {
+            #if DEBUG
+            print("DEBUG playback: converted stream failed (\(reason)); trying a plain H.264 encode")
+            #endif
+            restart { $0.fallback = .mostCompatible }
+            return
+        }
+        guard let onFallback else {
+            errorMessage = reason
+            return
+        }
+        fellBack = true
+        var resume = entry
+        resume.mediaSourceId = mediaSourceId ?? entry.mediaSourceId
+        if isConverted { resume.fallback = .mostCompatible }
+        if hasStarted {
+            resume.startTicks = currentTicks
+            if let audio = currentAudio { resume.audioStreamIndex = audio }
+            resume.subtitleStreamIndex = currentSubtitle
+        }
+        #if DEBUG
+        print("DEBUG playback: AetherEngine can't play \(entry.itemId) (\(reason)); handing it to the system player")
+        #endif
+        stop()
+        onFallback(PlaybackRequest(entry: resume))
+    }
+
+    /// Where playback has got to, for starting again from here.
+    private var currentTicks: Int64 {
+        let seconds = engine.clock.currentTime
+        return seconds.isFinite && seconds > 0 ? Int64(seconds * 10_000_000) : entry.startTicks
+    }
+
+    /// Plays the same title again from here with `change` made to it:
+    /// another quality, or another track on a converted stream.
+    private func restart(_ change: (inout PlaybackQueueItem) -> Void) {
+        var next = entry
+        next.startTicks = currentTicks
+        change(&next)
+        endServerSession()
+        guard let item else { return }
+        play(item, entry: next)
+    }
+
+    /// Lets the server know this stream is done: the stop report, or for a
+    /// converted stream nothing reports (a channel), ending its encode.
+    private func endServerSession() {
+        reportTask?.cancel()
+        if hasStarted, !stopReported, reportsPlayback {
+            stopReported = true
+            let final = report(paused: true)
+            let client = client
+            Task { await client.reportStopped(final) }
+        } else if isConverted, let playSessionId {
+            let client = client
+            Task { await client.stopTranscoding(playSessionId: playSessionId) }
+        }
+    }
+
+    // MARK: Quality
+
+    /// The qualities on offer: the original file (or, when it must be
+    /// converted anyway, the best the setting allows) as 0, then the caps.
+    var qualityChoices: [TrackChoice] {
+        [TrackChoice(id: 0, title: mustConvert ? "Best" : "Original")] + StreamQuality.caps.map { TrackChoice(id: $0, title: StreamQuality.title($0)) }
+    }
+
+    /// The quality playing, as in `qualityChoices`.
+    var currentQuality: Int { qualityCap ?? 0 }
+
+    /// Plays on from here at another quality: a cap has the server convert
+    /// the file down to it; 0 goes back to the original (or the best).
+    func chooseQuality(_ cap: Int) {
+        qualityOfferVisible = false
+        guard cap != currentQuality else { return }
+        restart { next in
+            next.maxBitrate = cap > 0 ? cap : nil
+            // A file that needed the plain encode still does.
+            if next.fallback != .mostCompatible || cap == 0 && !mustConvert { next.fallback = .none }
+        }
+    }
+
+    /// Stays as it is; the offer holds off for a while.
+    func keepTrying() {
+        qualityOfferVisible = false
+        stallWatch.declined(at: Date())
     }
 
     /// Stops playback and tells the server where it ended. Safe to call twice.
@@ -162,11 +482,18 @@ final class AetherPlayback {
         countdownTask?.cancel()
         timedTask?.cancel()
         clearStyledSubtitles()
+        clearCues()
+        nowPlaying.end()
         let final = report(paused: true)
         engine.stop()
+        closeLiveStream()
         if hasStarted, !stopReported, reportsPlayback {
             let client = client
             Task { await client.reportStopped(final) }
+        } else if isConverted, let playSessionId {
+            // Nothing reports a channel's stream, so its encode is ended here.
+            let client = client
+            Task { await client.stopTranscoding(playSessionId: playSessionId) }
         }
     }
 
@@ -230,7 +557,9 @@ final class AetherPlayback {
         autoSkipped = []
         endCardVisible = false
         upNext = nil
+        themeMoments = []
         clearStyledSubtitles()
+        clearCues()
         hasStarted = false
         // Its artwork covers the screen until it starts.
         item = next
@@ -284,6 +613,14 @@ final class AetherPlayback {
 
     private func updateTimedState() {
         guard hasStarted, !endCardVisible else { return }
+        nowPlaying.tick()
+        let stalling = switch engine.playbackPhase {
+        case .rebuffering, .stalled: true
+        default: false
+        }
+        if !qualityOfferVisible, stallWatch.note(stalling: stalling, at: Date()) {
+            qualityOfferVisible = true
+        }
         let seconds = engine.clock.currentTime
         guard seconds.isFinite else { return }
         let ticks = Int64(seconds * 10_000_000)
@@ -322,12 +659,59 @@ final class AetherPlayback {
 
     // MARK: Tracks
 
+    /// A track to choose in the menus: an engine track id, or for a
+    /// converted stream the file's stream index (the same numbers).
+    struct TrackChoice: Identifiable, Hashable {
+        let id: Int
+        let title: String
+    }
+
+    var audioChoices: [TrackChoice] {
+        if isConverted {
+            return audioStreams.compactMap { stream in stream.index.map { TrackChoice(id: $0, title: stream.trackTitle) } }
+        }
+        return engine.audioTracks.map { TrackChoice(id: $0.id, title: AetherPlayerView.label(for: $0)) }
+    }
+
+    /// The subtitle tracks, not counting "Off".
+    var subtitleChoices: [TrackChoice] {
+        if isConverted {
+            return subtitleStreams.compactMap { stream in stream.index.map { TrackChoice(id: $0, title: stream.trackTitle) } }
+        }
+        return engine.subtitleTracks.map { TrackChoice(id: $0.id, title: AetherPlayerView.label(for: $0)) }
+    }
+
+    var currentAudio: Int? { isConverted ? convertedAudio : engine.activeAudioTrackIndex }
+    /// -1 for none.
+    var currentSubtitle: Int { isConverted ? convertedSubtitle : (engine.activeSubtitleTrackIndex ?? -1) }
+
+    /// A converted stream carries one audio track, so another one is a new
+    /// stream from the server, from here.
     func selectAudio(_ id: Int) {
-        engine.selectAudioTrack(index: id)
+        if isConverted {
+            guard id != convertedAudio else { return }
+            restart { $0.audioStreamIndex = id; $0.subtitleStreamIndex = convertedSubtitle }
+        } else {
+            engine.selectAudioTrack(index: id)
+        }
     }
 
     /// A subtitle track by id, or none for nil.
     func selectSubtitle(_ id: Int?) {
+        if isConverted {
+            let wanted = id ?? -1
+            guard wanted != convertedSubtitle else { return }
+            // A picture-based track is burned in by the server, so taking
+            // one on or off needs a new stream; text ones the app draws.
+            let burnedIn = convertedSubtitle >= 0 && !isTextSubtitle(convertedSubtitle)
+            if burnedIn || (wanted >= 0 && !isTextSubtitle(wanted)) {
+                restart { $0.subtitleStreamIndex = wanted; $0.audioStreamIndex = convertedAudio }
+            } else {
+                convertedSubtitle = wanted
+                showConvertedSubtitle()
+            }
+            return
+        }
         clearStyledSubtitles()
         if let id {
             engine.selectSubtitleTrack(index: id)
@@ -335,6 +719,88 @@ final class AetherPlayback {
         } else {
             engine.clearSubtitle()
         }
+    }
+
+    private func isTextSubtitle(_ index: Int) -> Bool {
+        guard let stream = subtitleStreams.first(where: { $0.index == index }) else { return true }
+        return PlaybackCoordinator.isTextTrack(stream)
+    }
+
+    // MARK: Speed, chapters and scrubbing
+
+    /// The speeds offered; the engine plays video at up to 2×.
+    static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+    func setSpeed(_ speed: Float) {
+        self.speed = speed
+        engine.setRate(speed)
+    }
+
+    /// The item's chapters, when there are enough to be worth choosing from.
+    var chapters: [ChapterInfo] {
+        let all = item?.chapters ?? []
+        return all.count > 1 ? all.sorted { $0.startPositionTicks < $1.startPositionTicks } : []
+    }
+
+    func play(chapter: ChapterInfo) {
+        let engine = engine
+        Task {
+            await engine.seek(to: Double(chapter.startPositionTicks) / 10_000_000)
+            engine.play()
+        }
+    }
+
+    /// The picture for a point on the timeline while scrubbing: a trickplay
+    /// frame, else a still from what the engine has downloaded, else nil
+    /// (the preview shows just the time).
+    func scrubPreview(at seconds: Double) async -> CGImage? {
+        if let trickplay, let frame = await trickplay.frame(at: seconds) { return frame }
+        guard engine.supportsCacheBackedStills else { return nil }
+        return await engine.scrubThumbnail(atSeconds: seconds, maxWidth: ScrubPreviewSource.previewWidth)
+    }
+
+    // MARK: Converted stream subtitles
+
+    /// Shows the converted stream's chosen text subtitle: ASS through
+    /// libass, anything else as text cues from the server.
+    private func showConvertedSubtitle() {
+        clearStyledSubtitles()
+        clearCues()
+        let id = convertedSubtitle
+        guard id >= 0, let stream = subtitleStreams.first(where: { $0.index == id }), PlaybackCoordinator.isTextTrack(stream) else { return }
+        if AppSettings.styledSubtitles, AssSubtitleTrack.isAvailable, AssSubtitleTrack.handles(stream) {
+            loadStyledSubtitles(id)
+        } else {
+            loadCues(id)
+        }
+    }
+
+    private func loadCues(_ id: Int) {
+        guard let mediaSourceId else { return }
+        let client = client
+        let itemId = entry.itemId
+        cueTask = Task { [weak self] in
+            do {
+                let cues = try await client.subtitleCues(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: id)
+                // Ten times a second, the cue under the playhead.
+                while !Task.isCancelled {
+                    guard let self, self.currentSubtitle == id else { return }
+                    let text = SubtitleCue.text(at: self.precisePosition, in: cues)
+                    if text != self.subtitleText { self.subtitleText = text }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            } catch {
+                #if DEBUG
+                print("DEBUG subtitles: track \(id) failed to load: \(error)")
+                #endif
+            }
+        }
+    }
+
+    private func clearCues() {
+        cueTask?.cancel()
+        cueTask = nil
+        subtitleText = nil
     }
 
     // MARK: Styled subtitles
@@ -351,7 +817,7 @@ final class AetherPlayback {
         assTask = Task { [weak self] in
             do {
                 let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: id, attachments: attachments, client: client)
-                guard let self, !Task.isCancelled, self.engine.activeSubtitleTrackIndex == id else {
+                guard let self, !Task.isCancelled, self.currentSubtitle == id else {
                     loaded.unload()
                     return
                 }
@@ -368,6 +834,8 @@ final class AetherPlayback {
                 #if DEBUG
                 print("DEBUG subtitles: styled track \(id) failed (\(error)); showing it as text")
                 #endif
+                // A converted stream has no engine cues to fall back on.
+                if let self, self.isConverted { self.loadCues(id) }
             }
         }
     }
@@ -416,11 +884,11 @@ final class AetherPlayback {
             playSessionId: playSessionId,
             positionTicks: seconds.isFinite && seconds > 0 ? Int64(seconds * 10_000_000) : 0,
             isPaused: paused,
-            canSeek: true,
-            playMethod: "DirectPlay",
-            liveStreamId: nil,
-            audioStreamIndex: engine.activeAudioTrackIndex,
-            subtitleStreamIndex: engine.activeSubtitleTrackIndex
+            canSeek: !isLive,
+            playMethod: playMethod,
+            liveStreamId: liveStreamId,
+            audioStreamIndex: currentAudio,
+            subtitleStreamIndex: currentSubtitle >= 0 ? currentSubtitle : nil
         )
     }
 }

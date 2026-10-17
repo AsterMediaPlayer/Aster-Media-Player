@@ -43,6 +43,10 @@ nonisolated struct PlaybackQueueItem: Hashable, Sendable {
     /// its resume point and watched state are left alone, and when it ends
     /// whatever is on the channel then plays next (see `ChannelTuner`).
     var channelId: String?
+    /// A bitrate cap for this playback only, chosen in the player when the
+    /// original file was too much for the connection (`StreamQuality`);
+    /// nil uses the setting.
+    var maxBitrate: Int?
 }
 
 /// The streams tried in turn when a title won't play, each asking the server
@@ -78,9 +82,10 @@ nonisolated struct PlaybackRequest: Identifiable, Hashable, Sendable {
         items = [PlaybackQueueItem(itemId: itemId, startTicks: startTicks, endTicks: endTicks, clipStartTicks: startTicks, themeInfo: info)]
     }
 
-    /// A channel's movie, from `ChannelTuner`.
-    init(channelEntry: PlaybackQueueItem) {
-        items = [channelEntry]
+    /// One entry as it stands, e.g. a channel's movie from `ChannelTuner`,
+    /// or a title handed over from AetherEngine mid-play.
+    init(entry: PlaybackQueueItem) {
+        items = [entry]
     }
 }
 
@@ -314,7 +319,7 @@ final class PlaybackCoordinator {
                 itemId: entry.itemId,
                 mediaSourceId: sourceId,
                 startTicks: entry.startTicks,
-                maxBitrate: AppSettings.maxBitrate,
+                maxBitrate: entry.maxBitrate ?? AppSettings.maxBitrate,
                 audioStreamIndex: audioChoice,
                 subtitleStreamIndex: isClip ? -1 : entry.subtitleStreamIndex,
                 allowDirect: entry.fallback == .none,
@@ -347,7 +352,7 @@ final class PlaybackCoordinator {
                     itemId: entry.itemId,
                     mediaSourceId: source.id,
                     startTicks: entry.startTicks,
-                    maxBitrate: AppSettings.maxBitrate,
+                    maxBitrate: entry.maxBitrate ?? AppSettings.maxBitrate,
                     audioStreamIndex: audioChoice,
                     subtitleStreamIndex: wantBurnedIn ?? -1,
                     allowDirect: entry.fallback == .none,
@@ -517,7 +522,8 @@ final class PlaybackCoordinator {
     /// only when the OP/ED plugin says a theme plays in it, so an ordinary
     /// show's intro gets no song card. The plugin names the song when it
     /// knows it.
-    private static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
+    /// Used by both players.
+    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
         guard item.kind == .episode else { return [] }
         let series = item.seriesName ?? item.displayTitle
         let playing = pluginThemes.filter { $0.playsInEpisode == true }

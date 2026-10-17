@@ -6,11 +6,18 @@
 //  the Channels and YouTube TV apps. Selecting it goes full screen again.
 //
 
+#if canImport(AetherEngine)
+import AetherEngine
+#endif
 import AVFoundation
 import SwiftUI
 
 struct LiveMiniPlayer: View {
-    let coordinator: PlaybackCoordinator
+    var coordinator: PlaybackCoordinator?
+    #if canImport(AetherEngine)
+    /// The channel when it's playing through AetherEngine.
+    var aether: AetherPlayback?
+    #endif
     var expand: () -> Void
 
     #if os(tvOS)
@@ -25,8 +32,15 @@ struct LiveMiniPlayer: View {
         Button(action: expand) {
             ZStack {
                 Color.black
-                PlayerLayerView(player: coordinator.player)
-                if coordinator.errorMessage != nil {
+                #if canImport(AetherEngine)
+                if let aether {
+                    AetherPlayerSurface(engine: aether.engine)
+                }
+                #endif
+                if let coordinator {
+                    PlayerLayerView(player: coordinator.player)
+                }
+                if coordinator?.errorMessage != nil {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.title2)
                         .foregroundStyle(.secondary)
@@ -40,7 +54,12 @@ struct LiveMiniPlayer: View {
     }
 
     private var channelTitle: String {
-        guard let item = coordinator.currentItem else { return "Live TV" }
+        #if canImport(AetherEngine)
+        let current = aether?.item ?? coordinator?.currentItem
+        #else
+        let current = coordinator?.currentItem
+        #endif
+        guard let item = current else { return "Live TV" }
         return [item.channelNumber, item.name].compactMap { $0 }.joined(separator: " ")
     }
 }

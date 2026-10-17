@@ -92,6 +92,6 @@ struct ChannelsView: View {
     /// Plays what's on the channel now, from as far in as it's got.
     private func tuneIn(channelId: String) {
         guard let live = ChannelTuner.live(channelId: channelId) else { return }
-        session.router.play(PlaybackRequest(channelEntry: live.entry))
+        session.router.play(PlaybackRequest(entry: live.entry))
     }
 }

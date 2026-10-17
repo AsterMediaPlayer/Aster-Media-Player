@@ -101,7 +101,12 @@ struct LiveTVView: View {
     @State private var selectedProgram: BaseItem?
     /// The channel playing, full screen or in the mini player. It outlives
     /// the full-screen player so Back can leave it running in the header.
+    /// Through AetherEngine (`aetherLive`), or the system player when the
+    /// engine can't take it or "Use the system player" is on (`live`).
     @State private var live: PlaybackCoordinator?
+    #if canImport(AetherEngine)
+    @State private var aetherLive: AetherPlayback?
+    #endif
     @State private var liveFullScreen = false
     /// A channel chosen on a programme page, started once that page closes.
     @State private var pendingChannel: String?
@@ -150,16 +155,28 @@ struct LiveTVView: View {
         .appCover(isPresented: $liveFullScreen, onDismiss: {
             // Leaving full screen while paused ends the channel. Leaving while
             // it plays keeps it going in the header's mini player.
-            if live?.wasPausedByViewer == true {
+            if livePausedByViewer {
                 stopLive()
             } else {
                 live?.resume()
                 miniPlayerLayerID = UUID()
             }
         }) {
+            #if canImport(AetherEngine)
+            if let aetherLive {
+                // Back or Close leaves full screen; whether the channel then
+                // carries on in the mini player is decided as it closes.
+                PlayerView(aether: aetherLive) { liveFullScreen = false }
+                    .id("aether")
+            } else if let live {
+                PlayerView(coordinator: live) { stopLive() }
+                    .id("system")
+            }
+            #else
             if let live {
                 PlayerView(coordinator: live) { stopLive() }
             }
+            #endif
         }
         .appCover(item: $selectedProgram, onDismiss: {
             Task { if let client = session.client { await model.refreshRecordings(client: client) } }
@@ -188,7 +205,23 @@ struct LiveTVView: View {
         await model.load(client: client)
     }
 
-    private var miniPlayerShowing: Bool { live != nil && !liveFullScreen }
+    private var hasLive: Bool {
+        #if canImport(AetherEngine)
+        if aetherLive != nil { return true }
+        #endif
+        return live != nil
+    }
+
+    private var miniPlayerShowing: Bool { hasLive && !liveFullScreen }
+
+    /// Whether the viewer paused before closing full screen, which ends the
+    /// channel rather than leaving it in the mini player.
+    private var livePausedByViewer: Bool {
+        #if canImport(AetherEngine)
+        if let aetherLive { return aetherLive.isPaused }
+        #endif
+        return live?.wasPausedByViewer == true
+    }
 
     /// Back's action while the mini player shows; nil leaves Back to the system.
     private var closeMiniPlayer: (() -> Void)? {
@@ -234,38 +267,75 @@ struct LiveTVView: View {
 
     @ViewBuilder
     private var miniPlayer: some View {
-        if let live, miniPlayerShowing {
+        if miniPlayerShowing {
+            #if canImport(AetherEngine)
+            LiveMiniPlayer(coordinator: live, aether: aetherLive) {
+                liveFullScreen = true
+            }
+            .id(miniPlayerLayerID)
+            .transition(.opacity)
+            #else
             LiveMiniPlayer(coordinator: live) {
                 liveFullScreen = true
             }
             .id(miniPlayerLayerID)
             .transition(.opacity)
+            #endif
         }
     }
 
     /// Opens the channel full screen. With the mini player up, its player
     /// switches to the channel (if different) and goes full screen.
     private func play(channelId: String) {
+        #if canImport(AetherEngine)
+        if let aetherLive {
+            aetherLive.tune(channelId)
+            liveFullScreen = true
+            return
+        }
+        #endif
         if let live {
             live.tune(channelId)
             liveFullScreen = true
             return
         }
         guard let client = session.client else { return }
+        let request = PlaybackRequest(itemId: channelId)
+        #if canImport(AetherEngine)
+        if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
+            // A channel the engine can't play carries on in the system player.
+            playback.onFallback = { handedOver in
+                aetherLive = nil
+                startSystemLive(handedOver, client: client)
+            }
+            aetherLive = playback
+            Task { await playback.start() }
+            liveFullScreen = true
+            return
+        }
+        #endif
+        startSystemLive(request, client: client)
+        liveFullScreen = true
+    }
+
+    private func startSystemLive(_ request: PlaybackRequest, client: JellyfinClient) {
         let created = PlaybackCoordinator(
             client: client,
-            request: PlaybackRequest(itemId: channelId),
+            request: request,
             autoplayNext: AppSettings.autoplayNext,
             autoSkipIntro: AppSettings.autoSkipIntro,
             preferences: session.playbackPreferences
         )
         live = created
         created.start()
-        liveFullScreen = true
     }
 
     /// Ends the channel and closes the full-screen player and mini player.
     private func stopLive() {
+        #if canImport(AetherEngine)
+        aetherLive?.stop()
+        aetherLive = nil
+        #endif
         live?.stop()
         live = nil
         liveFullScreen = false

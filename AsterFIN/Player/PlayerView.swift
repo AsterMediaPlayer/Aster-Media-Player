@@ -39,9 +39,11 @@ struct PlayerView: View {
     @State private var controlsShownAt: Date?
     @State private var trackMenuOpen = false
     #if canImport(AetherEngine)
-    /// Playback through AetherEngine, when the setting is on and it can take
-    /// the request; the system player otherwise.
+    /// Playback through AetherEngine, the main player, when it can take the
+    /// request; the system player otherwise, or once it hands over.
     @State private var aether: AetherPlayback?
+    /// AetherEngine playback owned by someone else (the Live TV screen).
+    private var sharedAether: AetherPlayback?
     #endif
 
     /// Plays `request`, and stops when the view goes away.
@@ -58,6 +60,17 @@ struct PlayerView: View {
         self.sharedCoordinator = coordinator
         self.onFinished = onFinished
     }
+
+    #if canImport(AetherEngine)
+    /// Shows AetherEngine playback that keeps going after the view goes away,
+    /// like a Live TV channel the mini player carries on with.
+    init(aether: AetherPlayback, onFinished: @escaping () -> Void) {
+        self.request = nil
+        self.sharedCoordinator = nil
+        self.sharedAether = aether
+        self.onFinished = onFinished
+    }
+    #endif
 
     var body: some View {
         ZStack {
@@ -213,33 +226,34 @@ struct PlayerView: View {
                 #endif
                 return
             }
+            #if canImport(AetherEngine)
+            if let sharedAether {
+                aether = sharedAether
+                return
+            }
+            #endif
             guard let request, let client = session.client else { return }
             #if canImport(AetherEngine)
             guard aether == nil else { return }
             if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
                 aether = playback
                 playback.onItemStarted = onItemStarted
+                // What the engine can't play carries on in the system player,
+                // which can ask the server to transcode.
+                playback.onFallback = { handedOver in
+                    aether = nil
+                    startSystemPlayer(handedOver, client: client)
+                }
                 Task { await playback.start() }
                 return
             }
             #endif
-            let created = PlaybackCoordinator(
-                client: client,
-                request: request,
-                autoplayNext: AppSettings.autoplayNext,
-                autoSkipIntro: AppSettings.autoSkipIntro,
-                preferences: session.playbackPreferences
-            )
-            coordinator = created
-            #if canImport(UIKit)
-            audioTab = TracksTab.makeController(.audio, for: created)
-            subtitlesTab = TracksTab.makeController(.subtitles, for: created)
-            #endif
-            created.start()
+            startSystemPlayer(request, client: client)
         }
         .onDisappear {
             guard sharedCoordinator == nil else { return }
             #if canImport(AetherEngine)
+            guard sharedAether == nil else { return }
             aether?.stop()
             #endif
             coordinator?.stop()
@@ -247,6 +261,22 @@ struct PlayerView: View {
         #if os(macOS)
         .modifier(FullScreenWhilePlaying())
         #endif
+    }
+
+    private func startSystemPlayer(_ request: PlaybackRequest, client: JellyfinClient) {
+        let created = PlaybackCoordinator(
+            client: client,
+            request: request,
+            autoplayNext: AppSettings.autoplayNext,
+            autoSkipIntro: AppSettings.autoSkipIntro,
+            preferences: session.playbackPreferences
+        )
+        coordinator = created
+        #if canImport(UIKit)
+        audioTab = TracksTab.makeController(.audio, for: created)
+        subtitlesTab = TracksTab.makeController(.subtitles, for: created)
+        #endif
+        created.start()
     }
 
     /// The system player, with what each platform's version takes.

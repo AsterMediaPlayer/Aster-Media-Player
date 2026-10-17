@@ -11,6 +11,7 @@
 
 #if canImport(AetherEngine)
 import AetherEngine
+import AVKit
 import SwiftUI
 
 struct AetherPlayerView: View {
@@ -21,6 +22,10 @@ struct AetherPlayerView: View {
     #if !os(tvOS)
     /// When the controls were last called up; nil while they're hidden.
     @State private var controlsShownAt: Date? = Date()
+    /// The picture fills the screen, cropping the edges, rather than fitting.
+    @State private var fills = false
+    /// A double-tap skip just made: which way, shown briefly over its side.
+    @State private var skipFlash: SkipFlash?
     #endif
 
     init(playback: AetherPlayback, onFinished: @escaping () -> Void) {
@@ -36,18 +41,34 @@ struct AetherPlayerView: View {
                 .ignoresSafeArea()
             if let track = playback.assTrack {
                 AssSubtitleOverlay(track: track, videoSize: CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight)))
+            } else if playback.isConverted {
+                // A converted stream carries no subtitles; the app draws them.
+                SubtitleOverlayView(text: playback.subtitleText)
+                    .allowsHitTesting(false)
             } else if !playback.isLoadingStyledSubtitles {
                 AetherSubtitleLayer(engine: engine, clock: engine.clock)
                     .allowsHitTesting(false)
             }
+            // An anime episode's opening or ending gets its song card, as it
+            // does in the system player.
+            if playback.hasStarted, !playback.endCardVisible {
+                ForEach(playback.themeMoments) { moment in
+                    ThemeInfoOverlay(currentTime: { engine.clock.currentTime }, range: moment.range, info: moment.info)
+                }
+            }
             // The Up Next card takes the screen (and the remote) on its own.
             if !playback.endCardVisible {
                 #if os(tvOS)
-                AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil, onFinished: onFinished)
+                AetherTVControls(playback: playback, engine: engine, isSuspended: errorMessage != nil || playback.qualityOfferVisible, onFinished: onFinished)
                 #else
                 touchControls
                 skipButton
                 #endif
+            }
+
+            if playback.qualityOfferVisible, !playback.endCardVisible {
+                StallQualityCard(playback: playback)
+                    .transition(.opacity)
             }
 
             if !playback.hasStarted, playback.errorMessage == nil {
@@ -66,12 +87,19 @@ struct AetherPlayerView: View {
                 .transition(.opacity)
             }
         }
+        #if !os(tvOS)
+        // The engine is shared between videos: each one starts fitted.
+        .onAppear { engine.videoGravity = .resizeAspect }
+        #endif
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
+        .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
         .onChange(of: engine.state) { _, state in
             // The end of an episode with one after it holds on Up Next;
             // anything else closes the player.
             if state == .ended, !playback.playbackEnded() { onFinished() }
+            // Given up partway: the system player carries on from here.
+            if case .error(let message) = state { playback.fallBack(message) }
         }
         .alert("Can't Play", isPresented: Binding(get: { errorMessage != nil }, set: { _ in })) {
             Button("OK", action: onFinished)
@@ -80,10 +108,11 @@ struct AetherPlayerView: View {
         }
     }
 
-    /// The load failing, or the engine giving up partway.
+    /// The load failing, or the engine giving up partway, when there's no
+    /// system player to hand over to.
     private var errorMessage: String? {
         if let message = playback.errorMessage { return message }
-        if case .error(let message) = engine.state { return message }
+        if case .error(let message) = engine.state, !playback.handsOverOnFailure { return message }
         return nil
     }
 
@@ -127,11 +156,46 @@ struct AetherPlayerView: View {
 
     private var touchControls: some View {
         ZStack {
-            // A tap or click on the picture shows or hides the controls.
-            Color.clear
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .onTapGesture { controlsShownAt = controlsShownAt == nil ? Date() : nil }
+            // A tap or click on the picture shows or hides the controls. On
+            // iPhone and iPad a double-tap on either side skips 10 seconds,
+            // and a pinch fills the screen or fits the picture again.
+            GeometryReader { proxy in
+                Color.clear
+                    .contentShape(Rectangle())
+                    #if os(iOS)
+                    .gesture(
+                        SpatialTapGesture(count: 2)
+                            .onEnded { value in
+                                // A live channel has nothing to skip through.
+                                guard !playback.isLive else { return }
+                                let forward = value.location.x > proxy.size.width / 2
+                                Self.skip(forward ? 10 : -10, on: engine)
+                                skipFlash = SkipFlash(forward: forward)
+                            }
+                            .exclusively(before: TapGesture().onEnded { toggleControls() })
+                    )
+                    .simultaneousGesture(
+                        MagnifyGesture().onEnded { value in
+                            if value.magnification > 1.1 { setFills(true) }
+                            if value.magnification < 0.9 { setFills(false) }
+                        }
+                    )
+                    #else
+                    .onTapGesture { toggleControls() }
+                    #endif
+            }
+            .ignoresSafeArea()
+            #if os(iOS)
+            if let skipFlash {
+                SkipFlashView(flash: skipFlash)
+                    .id(skipFlash.id)
+                    .allowsHitTesting(false)
+                    .task(id: skipFlash.id) {
+                        try? await Task.sleep(for: .milliseconds(700))
+                        if self.skipFlash?.id == skipFlash.id { self.skipFlash = nil }
+                    }
+            }
+            #endif
             controlsLayout
                 .opacity(controlsShown ? 1 : 0)
                 .disabled(!controlsShown)
@@ -182,12 +246,42 @@ struct AetherPlayerView: View {
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal)
+            if playback.isLive {
+                LiveBadge()
+            } else {
+                AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
+            }
             HStack(spacing: 20) {
+                RoutePicker()
+                    .frame(width: 30, height: 30)
+                    .accessibilityLabel("AirPlay")
+                #if os(iOS)
+                Button { setFills(!fills); reveal() } label: {
+                    Label(fills ? "Fit to Screen" : "Fill Screen", systemImage: fills ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                }
+                #endif
                 Spacer()
+                if !playback.isLive {
+                    chapterMenu
+                    speedMenu
+                }
                 trackMenus
             }
+            #if os(iOS)
+            // Icons only: an upright iPhone has no room for the words.
+            .labelStyle(.iconOnly)
+            .font(.title3)
+            #endif
+            .buttonStyle(.plain)
             .padding(.top, 16)
+            #if os(iOS)
+            if engine.airPlayPictureStaysLocal {
+                Text("AirPlay is playing the sound only; this video's picture stays on this device.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 8)
+            }
+            #endif
         }
         .padding(edgePadding)
         .animation(.easeInOut(duration: 0.35), value: showsPauseInfo)
@@ -241,6 +335,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "gobackward.10")
             }
             .accessibilityLabel("Back 10 seconds")
+            .opacity(playback.isLive ? 0 : 1)
+            .disabled(playback.isLive)
             Button(action: togglePlayPause) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 44))
@@ -251,6 +347,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "goforward.10")
             }
             .accessibilityLabel("Forward 10 seconds")
+            .opacity(playback.isLive ? 0 : 1)
+            .disabled(playback.isLive)
         }
         .font(.system(size: 30))
         .buttonStyle(.plain)
@@ -258,34 +356,50 @@ struct AetherPlayerView: View {
 
     @ViewBuilder
     private var trackMenus: some View {
-        if engine.audioTracks.count > 1 {
+        if playback.audioChoices.count > 1 {
             Menu {
                 Picker("Audio", selection: Binding(
-                    get: { engine.activeAudioTrackIndex ?? -1 },
+                    get: { playback.currentAudio ?? -1 },
                     set: { playback.selectAudio($0); reveal() }
                 )) {
-                    ForEach(engine.audioTracks) { track in
-                        Text(Self.label(for: track)).tag(track.id)
+                    ForEach(playback.audioChoices) { track in
+                        Text(track.title).tag(track.id)
                     }
                 }
             } label: {
                 Label("Audio", systemImage: "speaker.wave.2")
             }
         }
-        if !engine.subtitleTracks.isEmpty {
+        if !playback.subtitleChoices.isEmpty {
             Menu {
                 Picker("Subtitles", selection: Binding(
-                    get: { engine.activeSubtitleTrackIndex ?? -1 },
+                    get: { playback.currentSubtitle },
                     set: { playback.selectSubtitle($0 >= 0 ? $0 : nil); reveal() }
                 )) {
                     Text("Off").tag(-1)
-                    ForEach(engine.subtitleTracks) { track in
-                        Text(Self.label(for: track)).tag(track.id)
+                    ForEach(playback.subtitleChoices) { track in
+                        Text(track.title).tag(track.id)
                     }
                 }
             } label: {
                 Label("Subtitles", systemImage: "captions.bubble")
             }
+        }
+        if !playback.isLive {
+        Menu {
+            // A cap has the server convert the file down to it; AetherEngine
+            // plays on from the same spot.
+            Picker("Quality", selection: Binding(
+                get: { playback.currentQuality },
+                set: { playback.chooseQuality($0); reveal() }
+            )) {
+                ForEach(playback.qualityChoices) { choice in
+                    Text(choice.title).tag(choice.id)
+                }
+            }
+        } label: {
+            Label("Quality", systemImage: "dial.medium")
+        }
         }
     }
 
@@ -328,6 +442,54 @@ struct AetherPlayerView: View {
         controlsShownAt = Date()
     }
 
+    private func toggleControls() {
+        controlsShownAt = controlsShownAt == nil ? Date() : nil
+    }
+
+    private func setFills(_ fill: Bool) {
+        fills = fill
+        engine.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+    }
+
+    @ViewBuilder
+    private var chapterMenu: some View {
+        if !playback.chapters.isEmpty {
+            Menu {
+                ForEach(Array(playback.chapters.enumerated()), id: \.offset) { index, chapter in
+                    Button {
+                        playback.play(chapter: chapter)
+                        reveal()
+                    } label: {
+                        Text(chapter.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Chapter \(index + 1)")
+                        Text(AetherTimeline.time(Double(chapter.startPositionTicks) / 10_000_000))
+                    }
+                }
+            } label: {
+                Label("Chapters", systemImage: "list.bullet")
+            }
+        }
+    }
+
+    private var speedMenu: some View {
+        Menu {
+            Picker("Speed", selection: Binding(
+                get: { playback.speed },
+                set: { playback.setSpeed($0); reveal() }
+            )) {
+                ForEach(AetherPlayback.speeds, id: \.self) { speed in
+                    Text(Self.speedTitle(speed)).tag(speed)
+                }
+            }
+        } label: {
+            Label("Speed", systemImage: playback.speed == 1 ? "gauge.with.dots.needle.33percent" : "gauge.with.dots.needle.67percent")
+        }
+    }
+
+    /// "1×", "1.25×".
+    static func speedTitle(_ speed: Float) -> String {
+        speed.formatted(.number.precision(.fractionLength(0...2))) + "×"
+    }
+
     private func togglePlayPause() {
         engine.togglePlayPause()
         reveal()
@@ -350,6 +512,9 @@ struct AetherTimeline: View {
     /// Apple TV: where a swipe has moved the playhead to, not yet played from.
     var scrubTarget: Double? = nil
     var onScrub: () -> Void = {}
+    /// The picture for a point on the timeline, shown above the playhead
+    /// while scrubbing.
+    var preview: ((Double) async -> CGImage?)? = nil
 
     /// Where a drag on the bar has got to, before it's let go.
     @State private var scrubPosition: Double?
@@ -373,6 +538,17 @@ struct AetherTimeline: View {
                 .frame(height: barHeight)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
+                .overlay(alignment: .bottomLeading) {
+                    if let scrubbing = scrubTarget ?? scrubPosition {
+                        let x = proxy.size.width * fraction - ScrubBubble.width / 2
+                        ScrubBubble(seconds: scrubbing, preview: preview)
+                            .frame(width: ScrubBubble.width)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .alignmentGuide(.bottom) { _ in -16 }
+                            .offset(x: min(max(x, 0), max(proxy.size.width - ScrubBubble.width, 0)))
+                            .allowsHitTesting(false)
+                    }
+                }
                 #if !os(tvOS)
                 .gesture(
                     DragGesture(minimumDistance: 0)
@@ -471,4 +647,169 @@ private struct AetherSubtitleLayer: View {
         return CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2, width: fitted.width, height: fitted.height)
     }
 }
+// MARK: - Stalling
+
+/// Comes up when the original file keeps stalling: carry on, or play at a
+/// lower quality, which the server converts down to fit the connection.
+struct StallQualityCard: View {
+    let playback: AetherPlayback
+
+    #if os(tvOS)
+    @FocusState private var focused: Int?
+    #endif
+
+    var body: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Text("Playback Keeps Stopping")
+                    .font(.title2.weight(.semibold))
+                Text("The connection can't keep up with the original file. A lower quality has the server convert it to fit.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            choices
+        }
+        .padding(40)
+        .frame(maxWidth: 900)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(40)
+        #if os(tvOS)
+        .onAppear { focused = 0 }
+        // Back is "Keep Trying".
+        .onExitCommand { playback.keepTrying() }
+        #endif
+    }
+
+    private var choices: some View {
+        HStack(spacing: 16) {
+            Button("Keep Trying") { playback.keepTrying() }
+                .buttonStyle(.bordered)
+                #if os(tvOS)
+                .focused($focused, equals: 0)
+                #endif
+            ForEach(StreamQuality.caps, id: \.self) { cap in
+                Button(StreamQuality.title(cap)) { playback.chooseQuality(cap) }
+                    .buttonStyle(.borderedProminent)
+                    #if os(tvOS)
+                    .focused($focused, equals: cap)
+                    #endif
+            }
+        }
+    }
+}
+
+// MARK: - Touch extras
+
+#if !os(tvOS)
+/// A double-tap skip, for the flash over its side of the screen.
+struct SkipFlash: Equatable {
+    var forward: Bool
+    var id = UUID()
+}
+
+/// "10" with arrows, briefly, over the side that was double-tapped.
+private struct SkipFlashView: View {
+    let flash: SkipFlash
+
+    var body: some View {
+        Image(systemName: flash.forward ? "goforward.10" : "gobackward.10")
+            .font(.system(size: 44, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(28)
+            .background(.black.opacity(0.35), in: Circle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: flash.forward ? .trailing : .leading)
+            .padding(.horizontal, 60)
+            .transition(.opacity)
+    }
+}
+
+/// The system's AirPlay button.
+#if os(iOS)
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.prioritizesVideoDevices = true
+        picker.tintColor = .white
+        picker.activeTintColor = .systemBlue
+        return picker
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+#elseif os(macOS)
+private struct RoutePicker: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+
+    func updateNSView(_ view: AVRoutePickerView, context: Context) {}
+}
+#endif
+#endif
+
+// MARK: - Live
+
+/// In place of the timeline for a Live TV channel.
+struct LiveBadge: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(.red)
+                .frame(width: 10, height: 10)
+            Text("LIVE")
+                .font(.callout.weight(.bold))
+                .tracking(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.black.opacity(0.5), in: Capsule())
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("Live")
+    }
+}
+
+// MARK: - Scrub preview
+
+/// The frame and time above the playhead while scrubbing.
+struct ScrubBubble: View {
+    let seconds: Double
+    var preview: ((Double) async -> CGImage?)?
+
+    @State private var image: CGImage?
+
+    #if os(tvOS)
+    static let width: CGFloat = 400
+    #else
+    static let width: CGFloat = 200
+    #endif
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(16 / 9, contentMode: .fill)
+                    .frame(width: Self.width, height: Self.width * 9 / 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .shadow(color: .black.opacity(0.5), radius: 8)
+            }
+            Text(AetherTimeline.time(seconds))
+                .font(.callout.monospacedDigit().weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.6), in: Capsule())
+        }
+        .foregroundStyle(.white)
+        // A new frame every two seconds of timeline, not every pixel dragged.
+        .task(id: Int(seconds / 2)) {
+            guard let preview else { return }
+            if let frame = await preview(seconds), !Task.isCancelled { image = frame }
+        }
+    }
+}
+
 #endif

@@ -8,7 +8,9 @@
 //  size its bug-location= and bug-size=
 //  tags ask for. It sits in the corner of the picture itself, so a 4:3
 //  show between black bars (or a wide film between bars above and below)
-//  keeps it on the picture rather than out in the bars.
+//  keeps it on the picture rather than out in the bars. It steps aside for
+//  a break's clips, as a network's bug does for the commercials, and comes
+//  back with the next programme.
 //
 
 import SwiftUI
@@ -19,8 +21,10 @@ struct ChannelBug: View {
     /// The picture's shape as shown, width over height; nil while unknown,
     /// when the picture is taken to fill the screen.
     var videoAspect: CGFloat?
-    /// What's playing: a new programme brings back a bug that hides itself.
-    var playingId: String?
+    /// What's playing: a new programme brings back a bug that hides itself,
+    /// and a break's clip (anything but a movie or an episode, which is all
+    /// a channel's programmes are) hides it.
+    var playing: BaseItem?
 
     @Environment(AppSession.self) private var session
     /// Faded out, `bug-hide=` seconds after tuning in or a programme starting.
@@ -35,6 +39,12 @@ struct ChannelBug: View {
     /// so the bug keeps clear of the edge on any screen.
     private static let insetX: CGFloat = 0.094
     private static let insetY: CGFloat = 0.12
+
+    /// A break's clip is playing, not a programme.
+    private var inBreak: Bool {
+        guard let kind = playing?.kind else { return false }
+        return kind != .movie && kind != .episode
+    }
 
     private var channel: PlaylistChannel? {
         guard let channelId, let channel = ChannelTuner.channel(channelId), channel.showsBug else { return nil }
@@ -52,7 +62,8 @@ struct ChannelBug: View {
                 let insetY = picture.height * Self.insetY + width / 2
                 RemoteImage(url: url, contentMode: .fit) { EmptyView() }
                     .frame(width: width, height: width, alignment: Self.alignment(for: corner))
-                    .opacity(faded ? 0 : Double(channel.bugOpacity) / 100)
+                    .opacity(faded || inBreak ? 0 : Double(channel.bugOpacity) / 100)
+                    .animation(.easeInOut(duration: 0.6), value: inBreak)
                     .position(
                         x: corner.isLeft ? picture.minX + insetX : picture.maxX - insetX,
                         y: corner.isTop ? picture.minY + insetY : picture.maxY - insetY
@@ -61,7 +72,7 @@ struct ChannelBug: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            .task(id: "\(channel.id)|\(playingId ?? "")") {
+            .task(id: "\(channel.id)|\(playing?.id ?? "")") {
                 faded = false
                 guard channel.bugHideAfter > 0 else { return }
                 try? await Task.sleep(for: .seconds(channel.bugHideAfter))

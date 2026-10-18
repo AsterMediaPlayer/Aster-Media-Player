@@ -117,7 +117,7 @@ struct PlayerView: View {
                         ChannelBug(
                             channelId: coordinator.channelId,
                             videoAspect: coordinator.videoSize.height > 0 ? coordinator.videoSize.width / coordinator.videoSize.height : nil,
-                            playingId: coordinator.currentItem?.id
+                            playing: coordinator.currentItem
                         )
                     }
                 }

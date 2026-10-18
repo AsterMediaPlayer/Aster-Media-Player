@@ -15,7 +15,8 @@
 //    Quality, the choices below them. It closes on Menu, or after a while left alone.
 //  - On a Live TV channel or a Channels-tab channel, Up opens the channel
 //    row (`ChannelFlickBar`): left and right go round the channels, a click
-//    changes to the one picked, Down or Menu closes it.
+//    changes to the one picked, Down or Menu closes it. On a Channels-tab
+//    channel, Up picks Go to Episode, and a click plays what's on by itself.
 //  - Menu always backs out one step: scrub, panel, controls, then the player.
 //
 //  Focus never goes missing: one invisible view holds it while the panel is
@@ -162,7 +163,16 @@ struct AetherTVControls: View {
                     switch direction {
                     case .left: flickMove(-1)
                     case .right: flickMove(1)
-                    case .down: closeChannels()
+                    case .up:
+                        flick?.pickGoTo(true)
+                        activity += 1
+                    case .down:
+                        if flick?.isOnGoTo == true {
+                            flick?.pickGoTo(false)
+                            activity += 1
+                        } else {
+                            closeChannels()
+                        }
                     default: activity += 1
                     }
                     return
@@ -195,7 +205,8 @@ struct AetherTVControls: View {
         skipAction != nil && mode != .panel && mode != .channels && (playback.skipOfferIsFresh || mode == .transport)
     }
 
-    /// A click: changes channel in the channel row, plays from a scrub,
+    /// A click: changes channel in the channel row (or goes to what's on),
+    /// plays from a scrub,
     /// takes the skip on screen, or pauses.
     private func select() {
         if mode == .channels {
@@ -362,9 +373,12 @@ struct AetherTVControls: View {
         activity += 1
     }
 
-    /// Changes to the picked channel, or just closes on the one playing.
+    /// Changes to the picked channel, or just closes on the one playing;
+    /// with Go to Episode picked, plays what's on it by itself.
     private func changeChannel() {
-        if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId {
+        if let flick, flick.isOnGoTo, let itemId = flick.selectedChannel?.now?.itemId {
+            playback.goTo(itemId)
+        } else if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId {
             playback.switchChannel(to: picked.id)
         }
         closeChannels()

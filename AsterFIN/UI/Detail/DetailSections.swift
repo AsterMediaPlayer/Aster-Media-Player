@@ -95,10 +95,9 @@ struct DetailSectionBar: View {
 
 /// An anime's openings and endings, each in its own row: the OP/ED plugin's
 /// themes when the server has them, else clips found in the episodes'
-/// chapters. The plugin's play in the page's Now Playing panel, which the
-/// page draws on the right of the screen (on a phone, it shows here, above
-/// the rows); chapter clips, which are stretches of episodes, play full
-/// screen as before.
+/// chapters. Both play in the page's Now Playing panel, which the page
+/// draws on the right of the screen (on a phone, it shows here, above the
+/// rows).
 struct ThemeMusicSection: View {
     let entries: [OpeningEnding]
     let seasons: [BaseItem]
@@ -108,23 +107,22 @@ struct ThemeMusicSection: View {
     let deck: ThemeDeck
     /// Whether the page shows the panel beside everything (not on a phone).
     var panelBesidePage: Bool
-    /// A chapter clip pressed.
-    var play: (OpeningEnding) -> Void
     /// The panel's Full Screen, on a phone.
-    var fullScreen: (OpEdTheme) -> Void
+    var fullScreen: (OpeningEnding) -> Void
 
     @Environment(AppSession.self) private var session
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
 
-    /// The plugin's themes, in the order the rows show them.
-    private var themes: [OpEdTheme] {
-        (sorted(opening: true) + sorted(opening: false)).compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
+
+    /// Everything, in the order the rows show it: what the panel plays through.
+    private var queue: [OpeningEnding] {
+        sorted(opening: true) + sorted(opening: false)
     }
 
     /// The ones that play without asking.
-    private var unflagged: [OpEdTheme] {
-        themes.filter { $0.playablePath != nil && !$0.spoiler && !$0.nsfw }
+    private var unflagged: [OpeningEnding] {
+        queue.filter(\.playsUnasked)
     }
 
     var body: some View {
@@ -143,7 +141,7 @@ struct ThemeMusicSection: View {
         .onDisappear { if !panelBesidePage { deck.stop() } }
         .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
             Button("Play") {
-                if let theme = confirming { start(theme, in: themes) }
+                if let theme = confirming { start(.theme(theme), in: queue) }
                 confirming = nil
             }
             Button("Cancel", role: .cancel) { confirming = nil }
@@ -158,12 +156,12 @@ struct ThemeMusicSection: View {
     private var playButtons: some View {
         HStack(spacing: 16) {
             Button {
-                if let first = unflagged.first { start(first, in: themes) }
+                if let first = unflagged.first { start(first, in: queue) }
             } label: {
                 Label("Play All", systemImage: "play.fill")
             }
             .buttonStyle(.borderedProminent)
-            .keyboardTarget { if let first = unflagged.first { start(first, in: themes) } }
+            .keyboardTarget { if let first = unflagged.first { start(first, in: queue) } }
 
             Button {
                 shuffle()
@@ -182,19 +180,19 @@ struct ThemeMusicSection: View {
         if let first = order.first { start(first, in: order) }
     }
 
-    /// A theme's card pressed: it plays in the panel, after asking when it's
-    /// marked as a spoiler or NSFW.
-    private func pressed(_ theme: OpEdTheme) {
-        if theme.spoiler || theme.nsfw {
+    /// A card pressed: it plays in the panel, after asking when it's marked
+    /// as a spoiler or NSFW.
+    private func pressed(_ entry: OpeningEnding) {
+        if case .theme(let theme) = entry, entry.isFlagged {
             confirming = theme
         } else {
-            start(theme, in: themes)
+            start(entry, in: queue)
         }
     }
 
-    private func start(_ theme: OpEdTheme, in queue: [OpEdTheme]) {
+    private func start(_ entry: OpeningEnding, in queue: [OpeningEnding]) {
         guard let client = session.client else { return }
-        deck.play(theme, in: queue, client: client)
+        deck.play(entry, in: queue, client: client)
     }
 
     @ViewBuilder
@@ -236,9 +234,9 @@ struct ThemeMusicSection: View {
     private func card(_ entry: OpeningEnding) -> some View {
         switch entry {
         case .theme(let theme):
-            ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == theme.id) { pressed(theme) }
+            ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
         case .chapter(let clip):
-            ThemeClipLockup(clip: clip) { play(entry) }
+            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
         }
     }
 

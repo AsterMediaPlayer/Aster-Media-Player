@@ -224,7 +224,7 @@ final class ThemePlayer {
 
     /// Episodes are mostly MKV, which Apple TV can't open, so the server's
     /// stream (usually a cheap remux) is used unless the file plays as is.
-    private static func stream(for clip: ThemeClip, client: JellyfinClient) async -> (url: URL, playSessionId: String?)? {
+    static func stream(for clip: ThemeClip, client: JellyfinClient) async -> (url: URL, playSessionId: String?)? {
         guard let info = try? await client.playbackInfo(
             itemId: clip.episode.id,
             startTicks: clip.startTicks,

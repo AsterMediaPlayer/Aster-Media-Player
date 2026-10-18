@@ -5,44 +5,116 @@
 //  The Music tab's Now Playing panel: an opening or ending plays right
 //  there, its video (or, for a song alone, the show's picture) above what
 //  it is and the controls, then the next one, so a show's songs play
-//  through like a playlist.
+//  through like a playlist. It plays both kinds: the OP/ED plugin's files,
+//  and clips found in episodes' chapters, which are that stretch of the
+//  episode's stream.
 //
 
 import AVFoundation
 import SwiftUI
 
-/// The themes the Music tab plays, one after another, and where it's got to.
+extension OpeningEnding {
+    var isOpening: Bool {
+        switch self {
+        case .theme(let theme): theme.isOpening
+        case .chapter(let clip): clip.kind == .opening
+        }
+    }
+
+    /// Plays without asking: not marked as a spoiler or NSFW, and playable
+    /// (a chapter clip always is).
+    var playsUnasked: Bool {
+        switch self {
+        case .theme(let theme): theme.playablePath != nil && !theme.spoiler && !theme.nsfw
+        case .chapter: true
+        }
+    }
+
+    /// Asks first: marked as a spoiler or NSFW.
+    var isFlagged: Bool {
+        if case .theme(let theme) = self { return theme.spoiler || theme.nsfw }
+        return false
+    }
+}
+
+/// The openings and endings the Music tab plays, one after another, and
+/// where it's got to.
 @MainActor
 @Observable
 final class ThemeDeck {
-    private(set) var queue: [OpEdTheme] = []
-    private(set) var current: OpEdTheme?
+    private(set) var queue: [OpeningEnding] = []
+    private(set) var current: OpeningEnding?
     private(set) var isPlaying = false
+    /// Into the current one, and its length, in seconds: a chapter clip's
+    /// count from the clip's start, not the episode's.
     private(set) var elapsed: Double = 0
     private(set) var duration: Double = 0
+    /// A chapter clip's stream is being asked for.
+    private(set) var isLoading = false
     let player = AVPlayer()
 
     @ObservationIgnored private var client: JellyfinClient?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endWatcher: Task<Void, Never>?
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    /// Where the current one starts on its item's timeline: a chapter
+    /// clip's start in the episode, else zero.
+    @ObservationIgnored private var offset: Double = 0
+    /// A chapter clip's server transcode, ended once it's done with.
+    @ObservationIgnored private var transcode: (JellyfinClient, String)?
 
     /// Whether something is loaded, playing or paused.
     var isActive: Bool { current != nil }
 
-    var hasVideo: Bool { current?.videoMp4Url != nil }
+    /// Whether there's a picture: an MP4 from the plugin, or an episode.
+    var hasVideo: Bool {
+        switch current {
+        case .theme(let theme): theme.videoMp4Url != nil
+        case .chapter: true
+        case nil: false
+        }
+    }
 
-    /// Plays `theme`, then the rest of `queue` after it.
-    func play(_ theme: OpEdTheme, in queue: [OpEdTheme], client: JellyfinClient) {
-        guard let path = theme.playablePath else { return }
+    /// Plays `entry`, then the rest of `queue` after it.
+    func play(_ entry: OpeningEnding, in queue: [OpeningEnding], client: JellyfinClient) {
+        loadTask?.cancel()
+        endTranscode()
         self.client = client
         self.queue = queue
-        current = theme
+        current = entry
         elapsed = 0
-        duration = 0
-        player.replaceCurrentItem(with: AVPlayerItem(url: client.opEdMediaURL(path)))
-        observe()
-        player.play()
         isPlaying = true
+        switch entry {
+        case .theme(let theme):
+            guard let path = theme.playablePath else { return }
+            offset = 0
+            duration = 0
+            isLoading = false
+            start(AVPlayerItem(url: client.opEdMediaURL(path)))
+        case .chapter(let clip):
+            offset = Double(clip.startTicks) / 10_000_000
+            duration = Double(clip.endTicks - clip.startTicks) / 10_000_000
+            isLoading = true
+            player.replaceCurrentItem(with: nil)
+            loadTask = Task { [weak self] in
+                let stream = await ThemePlayer.stream(for: clip, client: client)
+                guard let self, !Task.isCancelled, self.current?.id == entry.id else {
+                    if let session = stream?.playSessionId { await client.stopTranscoding(playSessionId: session) }
+                    return
+                }
+                self.isLoading = false
+                guard let stream else {
+                    self.next()
+                    return
+                }
+                self.transcode = stream.playSessionId.map { (client, $0) }
+                let item = AVPlayerItem(url: stream.url)
+                // Just the clip: the episode's stream, from the clip's start
+                // to its end, where it counts as played through.
+                item.forwardPlaybackEndTime = CMTime(value: clip.endTicks, timescale: 10_000_000)
+                self.start(item, at: CMTime(value: clip.startTicks, timescale: 10_000_000))
+            }
+        }
     }
 
     func togglePlaying() {
@@ -55,7 +127,7 @@ final class ThemeDeck {
         isPlaying.toggle()
     }
 
-    /// The next theme that plays without asking (not a spoiler or NSFW).
+    /// The next one that plays without asking (not a spoiler or NSFW).
     func next() {
         guard let client, let upcoming = neighbour(after: true) else {
             stop()
@@ -64,10 +136,10 @@ final class ThemeDeck {
         play(upcoming, in: queue, client: client)
     }
 
-    /// Back to the start, or a few seconds in, back to the theme before.
+    /// Back to the start, or a few seconds in, back to the one before.
     func previous() {
         if elapsed > 3 || neighbour(after: false) == nil {
-            player.seek(to: .zero)
+            player.seek(to: CMTime(seconds: offset, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
             elapsed = 0
             return
         }
@@ -77,6 +149,8 @@ final class ThemeDeck {
     }
 
     func stop() {
+        loadTask?.cancel()
+        loadTask = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
         endWatcher?.cancel()
@@ -85,16 +159,35 @@ final class ThemeDeck {
             player.removeTimeObserver(timeObserver)
             self.timeObserver = nil
         }
+        endTranscode()
         current = nil
         isPlaying = false
+        isLoading = false
         elapsed = 0
         duration = 0
+        offset = 0
     }
 
-    private func neighbour(after: Bool) -> OpEdTheme? {
+    private func start(_ item: AVPlayerItem, at time: CMTime? = nil) {
+        player.replaceCurrentItem(with: item)
+        observe()
+        if let time {
+            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+        if isPlaying { player.play() }
+    }
+
+    private func endTranscode() {
+        if let (client, session) = transcode {
+            Task { await client.stopTranscoding(playSessionId: session) }
+        }
+        transcode = nil
+    }
+
+    private func neighbour(after: Bool) -> OpeningEnding? {
         guard let current, let index = queue.firstIndex(where: { $0.id == current.id }) else { return nil }
         let candidates = after ? Array(queue[(index + 1)...]) : Array(queue[..<index].reversed())
-        return candidates.first { $0.playablePath != nil && !$0.spoiler && !$0.nsfw }
+        return candidates.first { $0.playsUnasked }
     }
 
     private func observe() {
@@ -102,8 +195,11 @@ final class ThemeDeck {
             timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.elapsed = time.seconds.isFinite ? time.seconds : 0
-                    if let length = self.player.currentItem?.duration.seconds, length.isFinite, length > 0 {
+                    let seconds = time.seconds.isFinite ? time.seconds - self.offset : 0
+                    self.elapsed = max(seconds, 0)
+                    // A plugin file's length comes from the file; a clip's
+                    // is known from its chapters.
+                    if case .theme = self.current, let length = self.player.currentItem?.duration.seconds, length.isFinite, length > 0 {
                         self.duration = length
                     }
                 }
@@ -121,13 +217,13 @@ final class ThemeDeck {
 }
 
 /// The panel: the picture, Now Playing, the progress and controls, and what
-/// the theme is. Nothing while nothing plays. When the screen is too short
-/// for all of it, what the theme is gives way first.
+/// it is. Nothing while nothing plays. When the screen is too short for all
+/// of it, what it is gives way first.
 struct ThemeNowPlayingPanel: View {
     let deck: ThemeDeck
     var artwork: URL?
     var seasonName: (OpEdTheme) -> String?
-    var fullScreen: (OpEdTheme) -> Void
+    var fullScreen: (OpeningEnding) -> Void
 
     private enum Metrics {
         #if os(tvOS)
@@ -146,23 +242,23 @@ struct ThemeNowPlayingPanel: View {
     }
 
     var body: some View {
-        if let theme = deck.current {
+        if let entry = deck.current {
             ViewThatFits(in: .vertical) {
-                panel(theme, showsDetails: true)
-                panel(theme, showsDetails: false)
+                panel(entry, showsDetails: true)
+                panel(entry, showsDetails: false)
             }
         }
     }
 
-    private func panel(_ theme: OpEdTheme, showsDetails: Bool) -> some View {
+    private func panel(_ entry: OpeningEnding, showsDetails: Bool) -> some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             picture
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: Metrics.corner / 1.6))
-            playing(theme)
+            playing(entry)
             if showsDetails {
-                details(theme)
+                details(entry)
             }
         }
         .padding(Metrics.padding)
@@ -175,6 +271,9 @@ struct ThemeNowPlayingPanel: View {
         if deck.hasVideo {
             VideoLayerView(player: deck.player)
                 .background(.black)
+                .overlay {
+                    if deck.isLoading { ProgressView() }
+                }
                 .accessibilityHidden(true)
         } else {
             RemoteImage(url: artwork, systemImage: "music.note.tv")
@@ -187,17 +286,29 @@ struct ThemeNowPlayingPanel: View {
         }
     }
 
+    /// The big line and the one under it: the song and artist, or for a
+    /// chapter clip, which opening it is and where it's from.
+    private func titles(_ entry: OpeningEnding) -> (title: String, subtitle: String?) {
+        switch entry {
+        case .theme(let theme):
+            (theme.songTitle ?? theme.code, theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", "))
+        case .chapter(let clip):
+            (clip.title, clip.episode.episodeCode.map { "From \($0)" })
+        }
+    }
+
     @ViewBuilder
-    private func playing(_ theme: OpEdTheme) -> some View {
+    private func playing(_ entry: OpeningEnding) -> some View {
+        let lines = titles(entry)
         VStack(alignment: .leading, spacing: 4) {
             Label("Now Playing", systemImage: "music.note")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tint)
-            Text(theme.songTitle ?? theme.code)
+            Text(lines.title)
                 .font(Metrics.titleFont)
                 .lineLimit(2)
-            if !theme.artists.isEmpty {
-                Text(theme.artists.joined(separator: ", "))
+            if let subtitle = lines.subtitle {
+                Text(subtitle)
                     .font(.callout)
                     .lineLimit(1)
             }
@@ -223,7 +334,7 @@ struct ThemeNowPlayingPanel: View {
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)
-            control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(theme) }
+            control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(entry) }
         }
     }
 
@@ -240,16 +351,27 @@ struct ThemeNowPlayingPanel: View {
         .accessibilityLabel(label)
     }
 
-    /// What it is, in rows: the mockup's Theme Info, from what the plugin knows.
-    private func details(_ theme: OpEdTheme) -> some View {
-        let rows: [(String, String)] = [
-            ("Type", "\(theme.isOpening ? "Opening" : "Ending") \(theme.sequence)" + (theme.version > 1 ? ", version \(theme.version)" : "")),
-            theme.variant.flatMap { $0.isEmpty ? nil : ("Variant", $0) },
-            seasonName(theme).map { ("Season", $0) },
-            theme.episodes.map { ("Episodes", $0) },
-            theme.artists.isEmpty ? nil : (theme.artists.count == 1 ? "Artist" : "Artists", theme.artists.joined(separator: ", ")),
-            ("Plays", theme.isAudioOnly ? "Song only" : "Music video")
-        ].compactMap { $0 }
+    /// What it is, in rows: the mockup's Theme Info, from what's known.
+    private func details(_ entry: OpeningEnding) -> some View {
+        let rows: [(String, String)]
+        switch entry {
+        case .theme(let theme):
+            rows = [
+                ("Type", "\(theme.isOpening ? "Opening" : "Ending") \(theme.sequence)" + (theme.version > 1 ? ", version \(theme.version)" : "")),
+                theme.variant.flatMap { $0.isEmpty ? nil : ("Variant", $0) },
+                seasonName(theme).map { ("Season", $0) },
+                theme.episodes.map { ("Episodes", $0) },
+                theme.artists.isEmpty ? nil : (theme.artists.count == 1 ? "Artist" : "Artists", theme.artists.joined(separator: ", ")),
+                ("Plays", theme.isAudioOnly ? "Song only" : "Music video")
+            ].compactMap { $0 }
+        case .chapter(let clip):
+            rows = [
+                ("Type", clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue),
+                ("Season", "Season \(clip.season)"),
+                ("From", [clip.episode.episodeCode, clip.episode.name].compactMap { $0 }.joined(separator: " · ")),
+                ("Plays", "From the episode")
+            ]
+        }
         return Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
             ForEach(rows, id: \.0) { row in
                 GridRow {

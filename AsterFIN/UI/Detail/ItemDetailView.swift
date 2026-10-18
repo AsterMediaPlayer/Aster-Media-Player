@@ -347,7 +347,7 @@ struct ItemDetailView: View {
                     deck: themeDeck,
                     artwork: session.client?.landscapeURL(for: detail, width: 800),
                     seasonName: { ThemeMusicSection.seasonName($0, in: model.seasons) },
-                    fullScreen: { theme in themeFullScreen(theme) }
+                    fullScreen: { entry in themeFullScreen(entry) }
                 )
                 .frame(width: ThemePanelMetrics.width)
                 .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
@@ -558,8 +558,7 @@ struct ItemDetailView: View {
             // player; it was already OK'd if it's a spoiler.
             ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
                               deck: themeDeck, panelBesidePage: themePanelBesidePage,
-                              play: { entry in playThemeCard(entry) },
-                              fullScreen: { theme in themeFullScreen(theme) })
+                              fullScreen: { entry in themeFullScreen(entry) })
         case .extras:
             extrasShelf
         case .related:
@@ -662,10 +661,13 @@ struct ItemDetailView: View {
         themeDeck.isActive && themePanelBesidePage && usesSections && !watchingOpening
     }
 
-    /// The panel's Full Screen: the full-screen player takes the theme (it
-    /// was OK'd if it's a spoiler), and covering the page stops the panel.
-    private func themeFullScreen(_ theme: OpEdTheme) {
-        play(theme)
+    /// The panel's Full Screen: the full-screen player takes it over (a
+    /// spoiler was OK'd already), and covering the page stops the panel.
+    private func themeFullScreen(_ entry: OpeningEnding) {
+        switch entry {
+        case .theme(let theme): play(theme)
+        case .chapter: playThemeCard(entry)
+        }
     }
 
     /// A theme's card pressed: a plugin theme asks first when it's marked as

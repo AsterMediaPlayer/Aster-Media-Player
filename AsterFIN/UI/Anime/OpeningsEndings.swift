@@ -118,6 +118,8 @@ nonisolated enum OpeningsEndings {
 /// has one, else the episode's picture, with where it comes from.
 struct ThemeClipLockup: View {
     let clip: ThemeClip
+    /// Whether it's the one in the Now Playing panel.
+    var isPlaying = false
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -142,6 +144,15 @@ struct ThemeClipLockup: View {
                         .padding(.vertical, 4)
                         .background(.black.opacity(0.6), in: Capsule())
                         .padding(12)
+                    if isPlaying {
+                        Label("Playing", systemImage: "speaker.wave.2.fill")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }

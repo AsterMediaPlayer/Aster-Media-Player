@@ -78,6 +78,12 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
         ChannelSchedule.programs(channelId: id, items: items, lineup: lineup, breaks: breakClips, from: from, to: to)
     }
 
+    /// In a break: the programme it leads into; nil during a programme.
+    func programmeAfterBreak(at date: Date = Date()) -> ScheduledProgram? {
+        guard segment(at: date)?.role.isBreak == true, let current = airing(at: date) else { return nil }
+        return airing(at: current.end)
+    }
+
     /// What's playing now, programme or break clip, and from how far in.
     func segment(at date: Date = Date()) -> ScheduledProgram? {
         segments(from: date, to: date.addingTimeInterval(1)).first

@@ -463,7 +463,7 @@ struct AetherTVControls: View {
     @ViewBuilder
     private var logo: some View {
         if let item = playback.item {
-            AetherPauseLogo(item: item)
+            AetherPauseLogo(item: item, channelId: playback.channelId)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -472,7 +472,7 @@ struct AetherTVControls: View {
     @ViewBuilder
     private var pauseInfo: some View {
         if let item = playback.item {
-            AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
+            AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram, channelId: playback.channelId)
         }
     }
 

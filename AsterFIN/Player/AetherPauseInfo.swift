@@ -6,8 +6,9 @@
 //  the Mac: the title's clear logo in the top left, and above the timeline a
 //  panel of its details, a long description drifting slowly up so it can be
 //  read to the end. Paused on a Live TV channel, the channel's logo takes the
-//  clear logo's place and the panel tells of the programme on now. Each
-//  screen sizes it for how far away it's watched.
+//  clear logo's place and the panel tells of the programme on now; paused in
+//  a Channels-tab channel's break, the channel's logo, and what's up next
+//  after the break. Each screen sizes it for how far away it's watched.
 //
 
 #if canImport(AetherEngine)
@@ -49,19 +50,31 @@ private enum PauseMetrics {
     #endif
 }
 
+/// The Channels-tab channel whose break `item` is part of: a clip, not a
+/// movie or an episode (which is all a channel's programmes are).
+private func channelInBreak(_ item: BaseItem, channelId: String?) -> PlaylistChannel? {
+    guard let channelId, item.kind != .movie, item.kind != .episode else { return nil }
+    return ChannelTuner.channel(channelId)
+}
+
 /// The title's clear logo (the series' for an episode), or a Live TV
-/// channel's logo; its name in large type when there's none.
+/// channel's logo, or in a channel's break the channel's own; its name in
+/// large type when there's none.
 struct AetherPauseLogo: View {
     let item: BaseItem
+    /// The Channels-tab channel playing, if one is.
+    var channelId: String? = nil
 
     @Environment(AppSession.self) private var session
 
     private var name: String {
-        item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle
+        if let channel = channelInBreak(item, channelId: channelId) { return channel.name }
+        return item.kind == .episode ? (item.seriesName ?? item.displayTitle) : item.displayTitle
     }
 
     private var url: URL? {
         guard let client = session.client else { return nil }
+        if let channel = channelInBreak(item, channelId: channelId) { return channel.logoURL(client: client, maxWidth: 900) }
         return item.kind == .tvChannel ? client.channelLogoURL(item, width: 900) : client.logoURL(for: item, width: 900)
     }
 
@@ -89,14 +102,34 @@ struct AetherPauseDetails: View {
     @ObservedObject var engine: AetherEngine
     /// What's on, when `item` is a Live TV channel; nil until it's fetched.
     var program: BaseItem?
+    /// The Channels-tab channel playing, if one is.
+    var channelId: String? = nil
 
     private var isLive: Bool { item.kind == .tvChannel }
+    /// In a channel's break: the channel, and the programme after the break.
+    private var breakInfo: (channel: PlaylistChannel, next: ScheduledProgram?)? {
+        channelInBreak(item, channelId: channelId).map { ($0, $0.programmeAfterBreak()) }
+    }
     /// What the description and facts are of.
-    private var subject: BaseItem { isLive ? (program ?? item) : item }
+    private var subject: BaseItem {
+        if let breakInfo { return breakInfo.next?.item ?? item }
+        return isLive ? (program ?? item) : item
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: PauseMetrics.spacing) {
-            if isLive, let program {
+            if let breakInfo {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Break")
+                        .font(.title2.weight(.bold))
+                        .lineLimit(1)
+                    if let next = breakInfo.next {
+                        Text("Up next: " + Self.describe(next.item) + " at " + next.start.formatted(date: .omitted, time: .shortened))
+                            .font(PauseMetrics.facts.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                }
+            } else if isLive, let program {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(program.displayTitle)
                         .font(.title2.weight(.bold))
@@ -113,13 +146,13 @@ struct AetherPauseDetails: View {
                     .foregroundStyle(.white.opacity(0.75))
             }
             HStack(spacing: PauseMetrics.spacing) {
-                let facts = isLive ? liveFacts : [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 }
+                let facts = breakInfo.map(breakFacts) ?? (isLive ? liveFacts : [item.productionYear.map(String.init), item.officialRating, runtime].compactMap { $0 })
                 if !facts.isEmpty {
                     Text(facts.joined(separator: " · "))
                         .font(PauseMetrics.facts)
                         .foregroundStyle(.white.opacity(0.85))
                 }
-                ForEach(badges, id: \.text) { badge in
+                ForEach(breakInfo == nil ? badges : [], id: \.text) { badge in
                     MediaBadge(text: badge.text, filled: badge.filled)
                 }
             }
@@ -133,6 +166,22 @@ struct AetherPauseDetails: View {
                 .overlay(shape.fill(.black.opacity(0.4)))
         }
         .foregroundStyle(.white)
+    }
+
+    /// "103 Hellaverse · back in 2 min".
+    private func breakFacts(_ info: (channel: PlaylistChannel, next: ScheduledProgram?)) -> [String] {
+        var facts = ["\(info.channel.number) \(info.channel.name)"]
+        if let start = info.next?.start, start > Date() {
+            let minutes = max(1, Int((start.timeIntervalSinceNow / 60).rounded(.up)))
+            facts.append("back in " + Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
+        }
+        return facts
+    }
+
+    /// "Friends · S1, E3", or a movie's name.
+    private static func describe(_ item: BaseItem) -> String {
+        guard item.kind == .episode else { return item.displayTitle }
+        return [item.seriesName ?? item.displayTitle, item.episodeCode].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// "511 NBC · 8:00 – 9:00 PM · 23 min left · TV-PG".

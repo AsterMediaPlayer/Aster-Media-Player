@@ -264,7 +264,7 @@ struct AetherPlayerView: View {
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("Close")
                 if showsPauseInfo, let item = playback.item {
-                    AetherPauseLogo(item: item)
+                    AetherPauseLogo(item: item, channelId: playback.channelId)
                         .padding(.leading, 8)
                         .transition(.opacity)
                 } else {
@@ -277,7 +277,7 @@ struct AetherPlayerView: View {
                 .frame(maxWidth: .infinity)
             Spacer()
             if showsPauseInfo, let item = playback.item {
-                AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
+                AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram, channelId: playback.channelId)
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }

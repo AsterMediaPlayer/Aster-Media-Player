@@ -7,6 +7,8 @@
 //  what's on it, and left and right go round them (from the highest back to
 //  the lowest). Select changes channel. Live TV goes through its channels
 //  in the guide's order; the Channels tab through its own, by number.
+//  On a Channels-tab channel, Up picks Go to Episode (or Movie): what's on,
+//  played on its own as from its show's page.
 //
 
 import Foundation
@@ -31,6 +33,10 @@ nonisolated struct FlickProgram: Equatable, Sendable {
     let start: Date?
     let end: Date?
     let imageURL: URL?
+    /// The library item on, for Go to Episode; nil on Live TV, whose
+    /// programmes aren't in the library.
+    var itemId: String? = nil
+    var isMovie = false
 
     func progress(at date: Date) -> Double? {
         guard let start, let end, end > start, start <= date, date < end else { return nil }
@@ -55,6 +61,8 @@ final class ChannelFlickModel {
     private(set) var selected = 0
     /// The channel playing now.
     let currentId: String
+    /// Go to Episode is picked, above the row, rather than the channel.
+    private(set) var isOnGoTo = false
 
     @ObservationIgnored private let isLive: Bool
 
@@ -79,10 +87,20 @@ final class ChannelFlickModel {
         channels.indices.contains(selected) ? channels[selected] : nil
     }
 
-    /// Moves along the row, going round from the last to the first.
+    /// The picked channel's programme can be gone to on its own.
+    var canGoTo: Bool { selectedChannel?.now?.itemId != nil }
+
+    /// Moves along the row, going round from the last to the first; back
+    /// down from Go to Episode, if it was picked.
     func move(by step: Int) {
         guard !channels.isEmpty else { return }
+        isOnGoTo = false
         selected = ((selected + step) % channels.count + channels.count) % channels.count
+    }
+
+    /// Up to Go to Episode, where there's one; down back to the row.
+    func pickGoTo(_ on: Bool) {
+        isOnGoTo = on && canGoTo
     }
 
     /// The channel `offset` places from the selected one, going round; nil
@@ -114,6 +132,7 @@ final class ChannelFlickModel {
         } else {
             selectCurrent()
         }
+        if !canGoTo { isOnGoTo = false }
     }
 
     private func selectCurrent() {
@@ -155,7 +174,9 @@ final class ChannelFlickModel {
                     overview: item.overview,
                     start: airing.start,
                     end: airing.end,
-                    imageURL: client.landscapeURL(for: item, width: 480)
+                    imageURL: client.landscapeURL(for: item, width: 480),
+                    itemId: item.id,
+                    isMovie: item.kind == .movie
                 )
             }
             let picture = channel.logoURL(client: client, maxWidth: 560)

@@ -4,35 +4,36 @@
 //
 //  A Channel is set up with tags on its Jellyfin playlist, so the server is
 //  the one place it lives: edit them in Jellyfin's web interface (the
-//  playlist's Edit Metadata ▸ Tags) or in AsterFIN's Edit Channels, and
+//  playlist's Edit Metadata ▸ Tags) or in Aster's Edit Channels, and
 //  every device finds the same channels.
 //
-//    asterfin:channel         this playlist is a channel
-//    asterfin:number=101      its channel number
-//    asterfin:mode=blocks     rotation (the default), blocks, shuffle or sequential
-//    asterfin:logo=on         the playlist's picture is the channel's logo
-//    asterfin:reshuffle=week  a new order every day (the default), week or month
-//    asterfin:seed=2          deals a fresh lineup; any other number, another
-//    asterfin:blocks=3-6      episodes in a row in Blocks mode (2-4 by default)
-//    asterfin:bug=on          the logo in the corner while the channel plays
-//    asterfin:bug-location=…  which corner: top-left, top-right, bottom-left, bottom-right
-//    asterfin:bug-size=150%   the bug's size, from 25% to 300% of the usual
-//    asterfin:bug-hide=30     the bug fades after 30 seconds (off: it stays)
-//    asterfin:bug-opacity=60% how solid the bug is, 5% to 100% (45% by default)
-//    asterfin:genre=Horror    also plays every title in this genre; repeat
+//    aster:channel            this playlist is a channel
+//    aster:number=101         its channel number
+//    aster:mode=blocks        rotation (the default), blocks, shuffle or sequential
+//    aster:logo=on            the playlist's picture is the channel's logo
+//    aster:reshuffle=week     a new order every day (the default), week or month
+//    aster:seed=2             deals a fresh lineup; any other number, another
+//    aster:blocks=3-6         episodes in a row in Blocks mode (2-4 by default)
+//    aster:bug=on             the logo in the corner while the channel plays
+//    aster:bug-location=…     which corner: top-left, top-right, bottom-left, bottom-right
+//    aster:bug-size=150%      the bug's size, from 25% to 300% of the usual
+//    aster:bug-hide=30        the bug fades after 30 seconds (off: it stays)
+//    aster:bug-opacity=60%    how solid the bug is, 5% to 100% (45% by default)
+//    aster:genre=Horror       also plays every title in this genre; repeat
 //                             (or Horror,Thriller) for more, any of them
-//    asterfin:type=movies     with genres: all (the default), movies or shows
-//    asterfin:library=…       with genres or networks: only this library; repeat
-//    asterfin:network=…       also plays every title from this studio/network; repeat
-//    asterfin:collection=…    also plays every title in this collection; repeat
-//    asterfin:years=1985-1999 with sources: only titles from these years
-//    asterfin:rating=G,PG     with sources: only titles with these ratings
-//    asterfin:weight=Friends:2 a show takes turns this many times as often (1-5)
-//    asterfin:min-length=15   leaves out titles shorter than this, in minutes
-//    asterfin:max-length=120  leaves out titles longer than this, in minutes
-//    asterfin:channel-name=…  the channel's name, in place of the playlist's
+//    aster:type=movies        with genres: all (the default), movies or shows
+//    aster:library=…          with genres or networks: only this library; repeat
+//    aster:network=…          also plays every title from this studio/network; repeat
+//    aster:collection=…       also plays every title in this collection; repeat
+//    aster:years=1985-1999    with sources: only titles from these years
+//    aster:rating=G,PG        with sources: only titles with these ratings
+//    aster:weight=Friends:2   a show takes turns this many times as often (1-5)
+//    aster:min-length=15      leaves out titles shorter than this, in minutes
+//    aster:max-length=120     leaves out titles longer than this, in minutes
+//    aster:channel-name=…     the channel's name, in place of the playlist's
 //
-//  "asterfin:" and the keys and values are read whatever their case. A tag
+//  "aster:" and the keys and values are read whatever their case (and so
+//  is "asterfin:", the app's earlier name, which `converted` rewrites). A tag
 //  that isn't understood is left alone, and a value that doesn't make sense
 //  falls back to the default rather than stopping the channel playing.
 //
@@ -43,8 +44,11 @@
 import Foundation
 
 nonisolated struct ChannelTags: Equatable, Sendable {
-    static let prefix = "asterfin:"
-    /// The keys this reads and writes; other `asterfin:` tags are kept as they are.
+    static let prefix = "aster:"
+    /// What the tags began with when the app was called AsterFIN; still read,
+    /// and rewritten with `converted`.
+    static let oldPrefix = "asterfin:"
+    /// The keys this reads and writes; other `aster:` tags are kept as they are.
     private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "channel-name"]
 
     var isChannel = false
@@ -185,7 +189,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         }
     }
 
-    /// `tags` with AsterFIN's own replaced by every one of these settings,
+    /// `tags` with Aster's own replaced by every one of these settings,
     /// defaults included; every other tag is kept, in its place. A playlist
     /// that stops being a channel is marked `channel=off` and keeps the
     /// rest, so turning it back on restores them.
@@ -275,20 +279,30 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         return low...high
     }
 
-    /// What the tags begin with once the app is called Aster; read already,
-    /// so a playlist a newer build has rewritten stays a channel here.
-    static let newPrefix = "aster:"
-
-    /// "asterfin:Number=101" (or "aster:Number=101") → ("number", "101");
-    /// nil for a tag that isn't AsterFIN's.
+    /// "aster:Number=101" (or "asterfin:Number=101") → ("number", "101");
+    /// nil for a tag that isn't Aster's.
     private static func parse(_ tag: String) -> (key: String, value: String?)? {
         let trimmed = tag.trimmingCharacters(in: .whitespaces)
-        guard let start = [prefix, newPrefix].first(where: { trimmed.lowercased().hasPrefix($0) }) else { return nil }
+        guard let start = [prefix, oldPrefix].first(where: { trimmed.lowercased().hasPrefix($0) }) else { return nil }
         let body = trimmed.dropFirst(start.count)
         let parts = body.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
         guard let key = parts.first?.lowercased(), !key.isEmpty else { return nil }
         let value = parts.count > 1 ? parts[1] : nil
         return (key, value)
+    }
+
+    /// `tags` with every "asterfin:" tag renamed "aster:", the rest as they
+    /// are; nil when there's none to rename.
+    static func converted(_ tags: [String]?) -> [String]? {
+        guard let tags else { return nil }
+        var changed = false
+        let renamed = tags.map { tag -> String in
+            let trimmed = tag.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix(oldPrefix) else { return tag }
+            changed = true
+            return prefix + trimmed.dropFirst(oldPrefix.count)
+        }
+        return changed ? renamed : nil
     }
 
     private static func isOff(_ value: String) -> Bool {

@@ -88,7 +88,7 @@ struct SettingsView: View {
 }
 
 #if os(macOS)
-/// The Mac's Settings window (AsterFIN › Settings…, ⌘,): a pane per section,
+/// The Mac's Settings window (Aster › Settings…, ⌘,): a pane per section,
 /// as Mac apps do, in place of the Settings tab the other platforms have.
 struct MacSettingsView: View {
     @Environment(AppSession.self) private var session
@@ -619,7 +619,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential, airdate), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150%, asterfin:bug-hide=30 and asterfin:bug-opacity=60%), asterfin:channel-name=Your Name, asterfin:min-length=20 and asterfin:max-length=60 (in minutes), asterfin:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel asterfin:genre=Horror, asterfin:network=NBC and asterfin:collection=Star Wars (once each), narrowed by asterfin:type=movies (or shows, all), asterfin:years=1980-1989, asterfin:rating=TV-PG,PG and asterfin:library=TV Shows (once per library, for genres and networks).")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: aster:channel, aster:number=3, aster:mode=blocks (or rotation, shuffle, sequential, airdate), aster:reshuffle=week (or day, month), aster:blocks=3-6, aster:seed=2, aster:logo=on, aster:bug=on (with aster:bug-location=top-left, top-right, bottom-left or bottom-right, aster:bug-size=150%, aster:bug-hide=30 and aster:bug-opacity=60%), aster:channel-name=Your Name, aster:min-length=20 and aster:max-length=60 (in minutes), aster:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel aster:genre=Horror, aster:network=NBC and aster:collection=Star Wars (once each), narrowed by aster:type=movies (or shows, all), aster:years=1980-1989, aster:rating=TV-PG,PG and aster:library=TV Shows (once per library, for genres and networks).")
                     SettingsNote("A channel with genres, networks or collections plays every movie and every episode of every show in them (any of them), as well as anything in its playlist. Air Date plays them all in the order they first aired.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
@@ -1131,7 +1131,7 @@ private struct AboutSettingsView: View {
             // Focusable rows give the page somewhere for focus to land; with
             // nothing focused, tvOS never delivers the Back press to pop it.
             Section {
-                LabeledContent("AsterFIN", value: "1.0")
+                LabeledContent("Aster Media Player", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     .focusable()
                 SettingsNote("A Jellyfin client for Apple TV, iPhone, iPad and Mac with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
                     .focusable()

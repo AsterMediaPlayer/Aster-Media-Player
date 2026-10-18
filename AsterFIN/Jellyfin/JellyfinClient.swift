@@ -28,7 +28,7 @@ nonisolated enum JellyfinError: LocalizedError, Sendable {
 }
 
 nonisolated enum JellyfinDevice {
-    static let clientName = "AsterFIN"
+    static let clientName = "Aster"
     static let version = "1.0"
 
     static let deviceName = "Apple TV"
@@ -1279,7 +1279,7 @@ nonisolated struct DeviceProfile: Encodable, Sendable {
         }
     }
 
-    var Name: String = "AsterFIN Apple TV"
+    var Name: String = "Aster Apple TV"
     var MaxStreamingBitrate: Int
     var MaxStaticBitrate: Int
     var MusicStreamingTranscodingBitrate: Int = 320_000
@@ -1342,7 +1342,7 @@ nonisolated struct DeviceProfile: Encodable, Sendable {
     /// when a direct or copied stream has already failed for a title.
     static func appleTVMostCompatible(maxBitrate: Int) -> DeviceProfile {
         var profile = appleTV(maxBitrate: maxBitrate)
-        profile.Name = "AsterFIN Apple TV (most compatible)"
+        profile.Name = "Aster Apple TV (most compatible)"
         profile.DirectPlayProfiles = []
         profile.TranscodingProfiles = [
             TranscodingProfile(Container: "mp4", kind: "Video", VideoCodec: "h264", AudioCodec: "aac", Protocol: "hls"),
@@ -1364,7 +1364,7 @@ nonisolated struct DeviceProfile: Encodable, Sendable {
     /// `maxWidth` pixels wide. The video is copied when it already fits.
     static func download(maxBitrate: Int, maxWidth: Int?, allowHEVC: Bool) -> DeviceProfile {
         var profile = appleTV(maxBitrate: maxBitrate)
-        profile.Name = "AsterFIN Download"
+        profile.Name = "Aster Download"
         profile.DirectPlayProfiles = []
         let videoCodecs = allowHEVC ? "hevc,h264" : "h264"
         profile.TranscodingProfiles = [

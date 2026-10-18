@@ -30,9 +30,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     private func rootTemplate() -> CPTemplate {
         guard session.client != nil else {
-            let template = CPListTemplate(title: "AsterFIN", sections: [])
+            let template = CPListTemplate(title: "Aster", sections: [])
             template.emptyViewTitleVariants = ["Sign in on your iPhone"]
-            template.emptyViewSubtitleVariants = ["Open AsterFIN on your iPhone and sign in to your Jellyfin server."]
+            template.emptyViewSubtitleVariants = ["Open Aster on your iPhone and sign in to your Jellyfin server."]
             return template
         }
         return CPTabBarTemplate(templates: [

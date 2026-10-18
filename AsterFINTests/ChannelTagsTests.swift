@@ -20,52 +20,52 @@ struct ChannelTagsTests {
     }
 
     @Test func allTheTagsAreRead() {
-        let tags = ChannelTags(tags: ["Family", "asterfin:channel", "asterfin:number=101", "asterfin:mode=blocks", "asterfin:logo=on"])
+        let tags = ChannelTags(tags: ["Family", "aster:channel", "aster:number=101", "aster:mode=blocks", "aster:logo=on"])
         #expect(tags == ChannelTags(isChannel: true, number: 101, mode: .blocks, showsLogo: true))
     }
 
     @Test func caseAndSpacesDontMatter() {
-        let tags = ChannelTags(tags: [" AsterFIN:Channel ", "ASTERFIN:MODE=Sequential", "asterfin:Logo = ON"])
+        let tags = ChannelTags(tags: [" AsterFIN:Channel ", "ASTERFIN:MODE=Sequential", "aster:Logo = ON"])
         #expect(tags.isChannel)
         #expect(tags.mode == .sequential)
         #expect(tags.showsLogo)
     }
 
     @Test func badValuesFallBackToDefaults() {
-        let tags = ChannelTags(tags: ["asterfin:channel", "asterfin:number=abc", "asterfin:number=-4", "asterfin:mode=loud"])
+        let tags = ChannelTags(tags: ["aster:channel", "aster:number=abc", "aster:number=-4", "aster:mode=loud"])
         #expect(tags.isChannel)
         #expect(tags.number == nil)
         #expect(tags.mode == .rotation)
     }
 
     @Test func offTurnsThingsOff() {
-        let tags = ChannelTags(tags: ["asterfin:channel=off", "asterfin:logo=no"])
+        let tags = ChannelTags(tags: ["aster:channel=off", "aster:logo=no"])
         #expect(!tags.isChannel)
         #expect(!tags.showsLogo)
     }
 
     @Test func writingKeepsEveryOtherTag() {
-        let existing = ["Family", "asterfin:channel", "asterfin:theme=retro", "asterfin:mode=shuffle", "Halloween"]
+        let existing = ["Family", "aster:channel", "aster:theme=retro", "aster:mode=shuffle", "Halloween"]
         let written = ChannelTags(isChannel: true, number: 7, mode: .blocks).applied(to: existing)
         #expect(written == [
-            "Family", "asterfin:theme=retro", "Halloween", "asterfin:channel", "asterfin:number=7", "asterfin:mode=blocks",
-            "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off",
-            "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all",
+            "Family", "aster:theme=retro", "Halloween", "aster:channel", "aster:number=7", "aster:mode=blocks",
+            "aster:reshuffle=day", "aster:blocks=2-4", "aster:seed=0", "aster:logo=off", "aster:bug=off",
+            "aster:bug-location=bottom-right", "aster:bug-size=100%", "aster:bug-hide=off", "aster:bug-opacity=45%", "aster:type=all",
         ])
         #expect(ChannelTags(tags: written) == ChannelTags(isChannel: true, number: 7, mode: .blocks))
     }
 
     /// Defaults are written too, so every setting shows in Jellyfin.
     @Test func everySettingIsWritten() {
-        let defaults = ["asterfin:mode=rotation", "asterfin:reshuffle=day", "asterfin:blocks=2-4", "asterfin:seed=0", "asterfin:logo=off", "asterfin:bug=off", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all"]
-        #expect(ChannelTags(isChannel: true).applied(to: []) == ["asterfin:channel"] + defaults)
-        #expect(ChannelTags().applied(to: ["asterfin:channel", "Family"]) == ["Family", "asterfin:channel=off"] + defaults)
+        let defaults = ["aster:mode=rotation", "aster:reshuffle=day", "aster:blocks=2-4", "aster:seed=0", "aster:logo=off", "aster:bug=off", "aster:bug-location=bottom-right", "aster:bug-size=100%", "aster:bug-hide=off", "aster:bug-opacity=45%", "aster:type=all"]
+        #expect(ChannelTags(isChannel: true).applied(to: []) == ["aster:channel"] + defaults)
+        #expect(ChannelTags().applied(to: ["aster:channel", "Family"]) == ["Family", "aster:channel=off"] + defaults)
         #expect(ChannelTags(tags: ChannelTags(isChannel: true).applied(to: [])) == ChannelTags(isChannel: true))
     }
 
     @Test func aKeyLeftToItsDefaultIsNoticed() {
-        #expect(ChannelTags.sets("logo", in: ["asterfin:channel", "AsterFIN:Logo=off"]))
-        #expect(!ChannelTags.sets("logo", in: ["asterfin:channel", "logo=on"]))
+        #expect(ChannelTags.sets("logo", in: ["aster:channel", "AsterFIN:Logo=off"]))
+        #expect(!ChannelTags.sets("logo", in: ["aster:channel", "logo=on"]))
         #expect(!ChannelTags.sets("logo", in: nil))
     }
 
@@ -96,8 +96,8 @@ struct ChannelTagsTests {
 
     @Test func theNewerTagsAreRead() {
         let tags = ChannelTags(tags: [
-            "asterfin:channel", "asterfin:reshuffle=Week", "asterfin:seed=3", "asterfin:blocks=3-6",
-            "asterfin:bug=on", "asterfin:channel-name=Tooniverse 90s",
+            "aster:channel", "aster:reshuffle=Week", "aster:seed=3", "aster:blocks=3-6",
+            "aster:bug=on", "aster:channel-name=Tooniverse 90s",
         ])
         #expect(tags.reshuffle == .week)
         #expect(tags.seed == 3)
@@ -109,20 +109,20 @@ struct ChannelTagsTests {
 
     @Test func theNameKeepsItsCaseAndAnyEquals() {
         #expect(ChannelTags(tags: ["ASTERFIN:CHANNEL-NAME=  KTV = Kids TV "]).name == "KTV = Kids TV")
-        #expect(ChannelTags(tags: ["asterfin:channel-name="]).name == nil)
+        #expect(ChannelTags(tags: ["aster:channel-name="]).name == nil)
     }
 
     @Test func badNewerValuesFallBackToDefaults() {
-        let tags = ChannelTags(tags: ["asterfin:reshuffle=hourly", "asterfin:seed=lots", "asterfin:blocks=6-3"])
+        let tags = ChannelTags(tags: ["aster:reshuffle=hourly", "aster:seed=lots", "aster:blocks=6-3"])
         #expect(tags.reshuffle == .day)
         #expect(tags.seed == 0)
         #expect(tags.blocks == 2...4)
         #expect(tags.lineup == ChannelLineup())
-        #expect(ChannelTags(tags: ["asterfin:seed=-2"]).seed == 0)
-        #expect(ChannelTags(tags: ["asterfin:blocks=0"]).blocks == 2...4)
-        #expect(ChannelTags(tags: ["asterfin:blocks=21"]).blocks == 2...4)
-        #expect(ChannelTags(tags: ["asterfin:blocks=3-"]).blocks == 2...4)
-        #expect(ChannelTags(tags: ["asterfin:blocks=4"]).blocks == 4...4)
+        #expect(ChannelTags(tags: ["aster:seed=-2"]).seed == 0)
+        #expect(ChannelTags(tags: ["aster:blocks=0"]).blocks == 2...4)
+        #expect(ChannelTags(tags: ["aster:blocks=21"]).blocks == 2...4)
+        #expect(ChannelTags(tags: ["aster:blocks=3-"]).blocks == 2...4)
+        #expect(ChannelTags(tags: ["aster:blocks=4"]).blocks == 4...4)
     }
 
     @Test func theNewerTagsRoundTrip() {
@@ -135,35 +135,35 @@ struct ChannelTagsTests {
         }
         let written = tags.applied(to: ["Family"])
         #expect(written == [
-            "Family", "asterfin:channel", "asterfin:mode=blocks", "asterfin:reshuffle=month", "asterfin:blocks=4",
-            "asterfin:seed=2", "asterfin:logo=off", "asterfin:bug=on", "asterfin:bug-location=bottom-right", "asterfin:bug-size=100%", "asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all",
-            "asterfin:channel-name=Late Night",
+            "Family", "aster:channel", "aster:mode=blocks", "aster:reshuffle=month", "aster:blocks=4",
+            "aster:seed=2", "aster:logo=off", "aster:bug=on", "aster:bug-location=bottom-right", "aster:bug-size=100%", "aster:bug-hide=off", "aster:bug-opacity=45%", "aster:type=all",
+            "aster:channel-name=Late Night",
         ])
         #expect(ChannelTags(tags: written) == tags)
     }
 
     @Test func theBugsCornerAndSizeAreRead() {
-        let tags = ChannelTags(tags: ["asterfin:bug=on", "asterfin:bug-location=Top-Left", "asterfin:bug-size=150%"])
+        let tags = ChannelTags(tags: ["aster:bug=on", "aster:bug-location=Top-Left", "aster:bug-size=150%"])
         #expect(tags.bugCorner == .topLeft)
         #expect(tags.bugSize == 150)
-        #expect(ChannelTags(tags: ["asterfin:bug-size=75"]).bugSize == 75)
-        #expect(ChannelTags(tags: ["asterfin:bug-size=500%"]).bugSize == 100)
-        #expect(ChannelTags(tags: ["asterfin:bug-size=big"]).bugSize == 100)
-        #expect(ChannelTags(tags: ["asterfin:bug-location=middle"]).bugCorner == .bottomRight)
+        #expect(ChannelTags(tags: ["aster:bug-size=75"]).bugSize == 75)
+        #expect(ChannelTags(tags: ["aster:bug-size=500%"]).bugSize == 100)
+        #expect(ChannelTags(tags: ["aster:bug-size=big"]).bugSize == 100)
+        #expect(ChannelTags(tags: ["aster:bug-location=middle"]).bugCorner == .bottomRight)
         let written = tags.with { $0.isChannel = true }.applied(to: [])
-        #expect(written.contains("asterfin:bug-location=top-left"))
-        #expect(written.contains("asterfin:bug-size=150%"))
+        #expect(written.contains("aster:bug-location=top-left"))
+        #expect(written.contains("aster:bug-size=150%"))
         #expect(ChannelTags(tags: written) == tags.with { $0.isChannel = true })
     }
 
     @Test func theBugCanHideItself() {
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=30"]).bugHideAfter == 30)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=45s"]).bugHideAfter == 45)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=off", "asterfin:bug-opacity=45%", "asterfin:type=all"]).bugHideAfter == 0)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=soon"]).bugHideAfter == 0)
-        #expect(ChannelTags(tags: ["asterfin:bug-hide=99999"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["aster:bug-hide=30"]).bugHideAfter == 30)
+        #expect(ChannelTags(tags: ["aster:bug-hide=45s"]).bugHideAfter == 45)
+        #expect(ChannelTags(tags: ["aster:bug-hide=off", "aster:bug-opacity=45%", "aster:type=all"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["aster:bug-hide=soon"]).bugHideAfter == 0)
+        #expect(ChannelTags(tags: ["aster:bug-hide=99999"]).bugHideAfter == 0)
         let written = ChannelTags(isChannel: true).with { $0.bugHideAfter = 30 }.applied(to: [])
-        #expect(written.contains("asterfin:bug-hide=30"))
+        #expect(written.contains("aster:bug-hide=30"))
         #expect(ChannelTags(tags: written).bugHideAfter == 30)
     }
 
@@ -171,13 +171,13 @@ struct ChannelTagsTests {
 
     @Test func genresTypeAndLibrariesAreRead() {
         let tags = ChannelTags(tags: [
-            "asterfin:channel", "asterfin:genre=Horror", "asterfin:GENRE=Thriller, Mystery", "asterfin:genre=horror",
-            "asterfin:type=Shows", "asterfin:library=TV Shows", "asterfin:library=Anime",
+            "aster:channel", "aster:genre=Horror", "aster:GENRE=Thriller, Mystery", "aster:genre=horror",
+            "aster:type=Shows", "aster:library=TV Shows", "aster:library=Anime",
         ])
         #expect(tags.genres == ["Horror", "Thriller", "Mystery"])
         #expect(tags.content == .shows)
         #expect(tags.libraries == ["TV Shows", "Anime"])
-        #expect(ChannelTags(tags: ["asterfin:type=cartoons"]).content == .all)
+        #expect(ChannelTags(tags: ["aster:type=cartoons"]).content == .all)
     }
 
     @Test func genresRoundTrip() {
@@ -187,10 +187,10 @@ struct ChannelTagsTests {
             $0.libraries = ["Movies"]
         }
         let written = tags.applied(to: ["Family"])
-        #expect(written.contains("asterfin:genre=Action & Adventure"))
-        #expect(written.contains("asterfin:genre=Comedy"))
-        #expect(written.contains("asterfin:type=movies"))
-        #expect(written.contains("asterfin:library=Movies"))
+        #expect(written.contains("aster:genre=Action & Adventure"))
+        #expect(written.contains("aster:genre=Comedy"))
+        #expect(written.contains("aster:type=movies"))
+        #expect(written.contains("aster:library=Movies"))
         #expect(ChannelTags(tags: written) == tags)
     }
 
@@ -201,35 +201,35 @@ struct ChannelTagsTests {
     }
 
     @Test func theBugsOpacityIsRead() {
-        #expect(ChannelTags(tags: ["asterfin:bug-opacity=60%"]).bugOpacity == 60)
-        #expect(ChannelTags(tags: ["asterfin:bug-opacity=100"]).bugOpacity == 100)
-        #expect(ChannelTags(tags: ["asterfin:bug-opacity=0%"]).bugOpacity == 45)
-        #expect(ChannelTags(tags: ["asterfin:bug-opacity=solid"]).bugOpacity == 45)
+        #expect(ChannelTags(tags: ["aster:bug-opacity=60%"]).bugOpacity == 60)
+        #expect(ChannelTags(tags: ["aster:bug-opacity=100"]).bugOpacity == 100)
+        #expect(ChannelTags(tags: ["aster:bug-opacity=0%"]).bugOpacity == 45)
+        #expect(ChannelTags(tags: ["aster:bug-opacity=solid"]).bugOpacity == 45)
         let written = ChannelTags(isChannel: true).with { $0.bugOpacity = 75 }.applied(to: [])
-        #expect(written.contains("asterfin:bug-opacity=75%"))
+        #expect(written.contains("aster:bug-opacity=75%"))
         #expect(ChannelTags(tags: written).bugOpacity == 75)
     }
 
     @Test func networksCollectionsYearsAndRatingsAreRead() {
         let tags = ChannelTags(tags: [
-            "asterfin:channel", "asterfin:network=NBC", "asterfin:network=Cartoon Network, Inc.",
-            "asterfin:collection=Star Wars Collection", "asterfin:years=1985-1999", "asterfin:rating=TV-PG, PG",
+            "aster:channel", "aster:network=NBC", "aster:network=Cartoon Network, Inc.",
+            "aster:collection=Star Wars Collection", "aster:years=1985-1999", "aster:rating=TV-PG, PG",
         ])
         #expect(tags.networks == ["NBC", "Cartoon Network, Inc."])
         #expect(tags.collections == ["Star Wars Collection"])
         #expect(tags.years == 1985...1999)
         #expect(tags.ratings == ["TV-PG", "PG"])
         #expect(tags.hasSources)
-        #expect(ChannelTags(tags: ["asterfin:years=1994"]).years == 1994...1994)
-        #expect(ChannelTags(tags: ["asterfin:years=1999-1985"]).years == 1985...1999)
-        #expect(ChannelTags(tags: ["asterfin:years=eighties"]).years == nil)
-        #expect(!ChannelTags(tags: ["asterfin:channel", "asterfin:years=1994"]).hasSources)
+        #expect(ChannelTags(tags: ["aster:years=1994"]).years == 1994...1994)
+        #expect(ChannelTags(tags: ["aster:years=1999-1985"]).years == 1985...1999)
+        #expect(ChannelTags(tags: ["aster:years=eighties"]).years == nil)
+        #expect(!ChannelTags(tags: ["aster:channel", "aster:years=1994"]).hasSources)
     }
 
     @Test func weightsAndLengthsAreRead() {
         let tags = ChannelTags(tags: [
-            "asterfin:weight=Friends:2", "asterfin:weight=Star Trek: The Next Generation:3", "asterfin:weight=Cheers:9",
-            "asterfin:weight=Frasier", "asterfin:min-length=20", "asterfin:max-length=60",
+            "aster:weight=Friends:2", "aster:weight=Star Trek: The Next Generation:3", "aster:weight=Cheers:9",
+            "aster:weight=Frasier", "aster:min-length=20", "aster:max-length=60",
         ])
         #expect(tags.weights.map(\.show) == ["Friends", "Star Trek: The Next Generation", "Cheers"])
         #expect(tags.weights.map(\.weight) == [2, 3, 5])
@@ -238,7 +238,7 @@ struct ChannelTagsTests {
         #expect(tags.lineup.weights == ["friends": 2, "star trek: the next generation": 3, "cheers": 5])
         #expect(tags.lineup.minLength == 1200)
         #expect(tags.lineup.maxLength == 3600)
-        #expect(ChannelTags(tags: ["asterfin:min-length=0"]).minLength == nil)
+        #expect(ChannelTags(tags: ["aster:min-length=0"]).minLength == nil)
     }
 
     @Test func theNewTagsRoundTrip() {
@@ -252,17 +252,17 @@ struct ChannelTagsTests {
             $0.maxLength = 45
         }
         let written = tags.applied(to: ["Family"])
-        #expect(written.contains("asterfin:network=NBC"))
-        #expect(written.contains("asterfin:collection=Cars Collection"))
-        #expect(written.contains("asterfin:years=1980-1989"))
-        #expect(written.contains("asterfin:weight=Friends:2"))
-        #expect(written.contains("asterfin:min-length=15"))
-        #expect(written.contains("asterfin:max-length=45"))
+        #expect(written.contains("aster:network=NBC"))
+        #expect(written.contains("aster:collection=Cars Collection"))
+        #expect(written.contains("aster:years=1980-1989"))
+        #expect(written.contains("aster:weight=Friends:2"))
+        #expect(written.contains("aster:min-length=15"))
+        #expect(written.contains("aster:max-length=45"))
         #expect(written.contains("Family"))
         #expect(ChannelTags(tags: written) == tags)
         // Unset, they aren't written.
         let plain = ChannelTags(isChannel: true).applied(to: [])
-        #expect(!plain.contains { $0.hasPrefix("asterfin:years") || $0.hasPrefix("asterfin:min-length") || $0.hasPrefix("asterfin:max-length") })
+        #expect(!plain.contains { $0.hasPrefix("aster:years") || $0.hasPrefix("aster:min-length") || $0.hasPrefix("aster:max-length") })
     }
 
     @Test func aCollectionsTitlesAreFiltered() {
@@ -272,25 +272,33 @@ struct ChannelTagsTests {
             item.officialRating = rating
             return item
         }
-        let tags = ChannelTags(tags: ["asterfin:collection=x", "asterfin:years=1980-1989", "asterfin:rating=pg", "asterfin:type=movies"])
+        let tags = ChannelTags(tags: ["aster:collection=x", "aster:years=1980-1989", "aster:rating=pg", "aster:type=movies"])
         #expect(ChannelsModel.passes(item(.movie, year: 1984, rating: "PG"), tags))
         #expect(!ChannelsModel.passes(item(.movie, year: 1994, rating: "PG"), tags))
         #expect(!ChannelsModel.passes(item(.movie, year: 1984, rating: "R"), tags))
         #expect(!ChannelsModel.passes(item(.movie, year: nil, rating: "PG"), tags))
         #expect(!ChannelsModel.passes(item(.series, year: 1984, rating: "PG"), tags))
-        #expect(ChannelsModel.passes(item(.series, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
-        #expect(!ChannelsModel.passes(item(.audioBook, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
+        #expect(ChannelsModel.passes(item(.series, year: 2001, rating: nil), ChannelTags(tags: ["aster:collection=x"])))
+        #expect(!ChannelsModel.passes(item(.audioBook, year: 2001, rating: nil), ChannelTags(tags: ["aster:collection=x"])))
     }
 
-    @Test func tagsFromTheNewNameAreReadToo() {
-        let tags = ChannelTags(tags: ["aster:channel", "Aster:Number=7", "aster:mode=blocks"])
+    @Test func tagsFromTheOldNameStillRead() {
+        let tags = ChannelTags(tags: ["asterfin:channel", "AsterFIN:Number=7", "asterfin:mode=blocks"])
         #expect(tags.isChannel)
         #expect(tags.number == 7)
         #expect(tags.mode == .blocks)
-        // Saving replaces them rather than adding a second set.
-        let written = tags.applied(to: ["aster:channel", "aster:number=7", "Family"])
-        #expect(!written.contains { $0.lowercased().hasPrefix("aster:") })
-        #expect(written.contains("asterfin:number=7"))
+        // Saving writes them under the new name and drops the old ones.
+        let written = tags.applied(to: ["asterfin:channel", "asterfin:number=7", "Family"])
+        #expect(!written.contains { $0.lowercased().hasPrefix("asterfin:") })
+        #expect(written.contains("aster:number=7"))
         #expect(written.contains("Family"))
+    }
+
+    @Test func oldTagsAreConverted() {
+        let converted = ChannelTags.converted(["asterfin:channel", " AsterFIN:channel-name=Late Night", "Family", "aster:seed=2", "asterfin:future=1"])
+        #expect(converted == ["aster:channel", "aster:channel-name=Late Night", "Family", "aster:seed=2", "aster:future=1"])
+        #expect(ChannelTags.converted(["aster:channel", "Family"]) == nil)
+        #expect(ChannelTags.converted(nil) == nil)
+        #expect(ChannelTags(tags: converted) == ChannelTags(tags: ["asterfin:channel", "asterfin:channel-name=Late Night", "asterfin:seed=2"]))
     }
 }

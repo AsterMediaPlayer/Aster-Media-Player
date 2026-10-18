@@ -3,7 +3,7 @@
 //  AsterFIN
 //
 //  A Channel's logo, faint in a corner while it plays, as a TV network's
-//  bug. Shown for a channel tagged asterfin:bug=on with a logo (its one
+//  bug. Shown for a channel tagged aster:bug=on with a logo (its one
 //  series' clear logo, or the playlist's picture), in the corner and at the
 //  size its bug-location= and bug-size=
 //  tags ask for. It sits in the corner of the picture itself, so a 4:3

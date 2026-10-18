@@ -121,13 +121,20 @@ final class ThemeDeck {
 }
 
 /// The panel: the picture, Now Playing, the progress and controls, and what
-/// the theme is. With nothing playing it offers to play them all.
+/// the theme is. With nothing playing it previews the focused card, or
+/// offers to play them all.
 struct ThemeNowPlayingPanel: View {
     let deck: ThemeDeck
+    /// The card focus is on, previewed while nothing plays.
+    var focused: OpEdTheme?
     var artwork: URL?
     var seasonName: (OpEdTheme) -> String?
     var playAll: () -> Void
     var fullScreen: (OpEdTheme) -> Void
+
+    @Environment(AppSession.self) private var session
+    /// The focused theme's frame, from the cards' cache.
+    @State private var focusedPreview: ThemePreview?
 
     private enum Metrics {
         #if os(tvOS)
@@ -154,6 +161,8 @@ struct ThemeNowPlayingPanel: View {
 
             if let theme = deck.current {
                 playing(theme)
+            } else if let focused {
+                preview(focused)
             } else {
                 idle
             }
@@ -161,6 +170,13 @@ struct ThemeNowPlayingPanel: View {
         .padding(Metrics.padding)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Metrics.corner))
         .tvFocusSection()
+        .task(id: focused?.id) {
+            guard let focused, let client = session.client else {
+                focusedPreview = nil
+                return
+            }
+            focusedPreview = await ThemePreviews.shared.preview(for: focused, client: client)
+        }
     }
 
     @ViewBuilder
@@ -169,6 +185,14 @@ struct ThemeNowPlayingPanel: View {
             VideoLayerView(player: deck.player)
                 .background(.black)
                 .accessibilityHidden(true)
+        } else if deck.current == nil, focused != nil, let image = focusedPreview?.image {
+            Color.black.overlay {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            }
+            .clipped()
+            .accessibilityHidden(true)
         } else {
             RemoteImage(url: artwork, systemImage: "music.note.tv")
                 .overlay {
@@ -195,6 +219,34 @@ struct ThemeNowPlayingPanel: View {
             }
             .buttonStyle(.borderedProminent)
             .keyboardTarget(action: playAll)
+        }
+    }
+
+    /// The focused card, before it plays: what it is, and Play.
+    @ViewBuilder
+    private func preview(_ theme: OpEdTheme) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(theme.isOpening ? "Opening \(theme.sequence)" : "Ending \(theme.sequence)", systemImage: "music.note")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(theme.spoiler || theme.nsfw ? (theme.nsfw ? "NSFW" : "Spoiler") : (theme.songTitle ?? theme.code))
+                .font(Metrics.titleFont)
+                .lineLimit(2)
+            if !theme.artists.isEmpty, !theme.spoiler, !theme.nsfw {
+                Text(theme.artists.joined(separator: ", "))
+                    .font(.callout)
+                    .lineLimit(1)
+            }
+            if let seconds = focusedPreview?.seconds {
+                Text(Self.time(Double(seconds)))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        // Not a button: on the TV, Select on the card plays it, and focus
+        // moving here would move the panel.
+        if !theme.spoiler, !theme.nsfw {
+            details(theme)
         }
     }
 

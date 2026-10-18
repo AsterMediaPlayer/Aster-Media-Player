@@ -41,6 +41,9 @@
 //    aster:break-every=1      a break after every programme, or every 2nd to 10th
 //    aster:align=30           programmes start on the half hour (or 5, 10, 15, 20,
 //                             60 minutes), each break filling the gap; off by default
+//    aster:align-fit=best     lined up, the gap filled with whole clips of every
+//                             kind, as near the mark as they get (or exact: cut the
+//                             last one short to land on it)
 //    aster:filler             on a playlist: it's a filler playlist, of break clips
 //    aster:commercial         on a clip in one: what it is (or promo, trailer,
 //                             interstitial, bumper; bumper=in only closes a break,
@@ -66,7 +69,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "user", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "align-fit", "user", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -252,6 +255,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 breaks.minutes = value.flatMap(Self.minutes).flatMap { (0...Self.longestBreak).contains($0) ? $0 : nil } ?? ChannelBreaks.defaultMinutes
             case "break-every":
                 breaks.every = value.flatMap { Int($0) }.flatMap { (1...Self.longestBreakGap).contains($0) ? $0 : nil } ?? 1
+            case "align-fit":
+                breaks.exactAlign = value?.lowercased() == "exact"
             case "align":
                 breaks.align = value.flatMap(Self.minutes).flatMap { Self.alignments.contains($0) ? $0 : nil } ?? 0
             case "user", "users":
@@ -307,6 +312,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             result.append(Self.prefix + "interstitial-count=\(breaks.interstitialCount)")
             result.append(Self.prefix + "break-every=\(breaks.every)")
             result.append(Self.prefix + (breaks.align > 0 ? "align=\(breaks.align)" : "align=off"))
+            result.append(Self.prefix + "align-fit=" + (breaks.exactAlign ? "exact" : "best"))
         }
         if !users.isEmpty { result.append(Self.prefix + "user=" + users.joined(separator: ",")) }
         if let name { result.append(Self.prefix + "channel-name=\(name)") }

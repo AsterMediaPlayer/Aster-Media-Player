@@ -424,4 +424,14 @@ struct ChannelTagsTests {
         #expect(ChannelTags(tags: written).users == tags.users)
         #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.hasPrefix("aster:user") })
     }
+
+    @Test func alignFitIsBestEffortUnlessExact() {
+        #expect(!ChannelTags(tags: ["aster:align=30"]).breaks.exactAlign)
+        #expect(ChannelTags(tags: ["aster:align=30", "aster:align-fit=EXACT"]).breaks.exactAlign)
+        #expect(!ChannelTags(tags: ["aster:align-fit=best"]).breaks.exactAlign)
+        let written = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"]; $0.breaks.align = 30 }.applied(to: [])
+        #expect(written.contains("aster:align-fit=best"))
+        let exact = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"]; $0.breaks.exactAlign = true }
+        #expect(ChannelTags(tags: exact.applied(to: [])) == exact)
+    }
 }

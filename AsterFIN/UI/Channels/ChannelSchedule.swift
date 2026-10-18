@@ -20,7 +20,9 @@
 //  a bumper back in. Each
 //  break's clips are dealt from the channel's seed and the break's start, so
 //  it's the same everywhere too. With `align`, each break runs on to the
-//  next mark (the half hour, say), the last clip cut short to land on it.
+//  next mark (the half hour, say): by default as near as whole clips get
+//  without passing it (best effort), or, with `exactAlign`, onto it, the
+//  last clip cut short to land there.
 //  The guide folds a programme's break into it (`programs`); the players go
 //  through the clips one by one (`segments`).
 //
@@ -138,6 +140,10 @@ nonisolated struct ChannelBreaks: Hashable, Sendable {
     /// Programmes start on a multiple of this many minutes past the hour,
     /// each break running on to the mark; 0 for off.
     var align = 0
+    /// Lined up, the last filler clip is cut short so programmes start
+    /// exactly on the mark; otherwise (best effort) clips play whole and a
+    /// programme can start a few seconds before it.
+    var exactAlign = false
 }
 
 /// The clips a channel's breaks play, from the playlists its `bumpers=`,
@@ -513,11 +519,46 @@ nonisolated enum ChannelSchedule {
             let end: Date
         }
 
+        /// Whole clips of every kind the channel has (bumpers only those for
+        /// either end) filling as much of `seconds` as they can without
+        /// going over: chosen at random while there's room for any, then the
+        /// longest that still fits, so the gap left is as small as the clips
+        /// allow. Grouped as a break runs: commercials, promos, trailers,
+        /// interstitials, bumpers.
+        func bestFill(seconds: TimeInterval, after previous: String?, next: () -> UInt64) -> [(Entry, ProgramRole, TimeInterval)] {
+            let order: [ProgramRole] = [.commercial, .promo, .trailer, .interstitial, .bumper]
+            let pool: [(Entry, ProgramRole)] = commercials.map { ($0, .commercial) } + promos.map { ($0, .promo) }
+                + trailers.map { ($0, .trailer) } + interstitials.map { ($0, .interstitial) }
+                + bumpers.filter { ChannelTags.bumperSide($0.item.tags) == .both }.map { ($0, .bumper) }
+            guard let longest = pool.map(\.0.length).max() else { return [] }
+            var chosen: [(Entry, ProgramRole)] = []
+            var remaining = seconds
+            var last = previous
+            while chosen.count < 2000 {
+                var fitting = pool.filter { $0.0.length <= remaining && $0.0.item.id != last }
+                if fitting.isEmpty { fitting = pool.filter { $0.0.length <= remaining } }
+                guard !fitting.isEmpty else { break }
+                let clip = remaining > longest
+                    ? fitting[Int(next() % UInt64(fitting.count))]
+                    : fitting.max { ($0.0.length, $1.0.item.id) < ($1.0.length, $0.0.item.id) }!
+                chosen.append(clip)
+                remaining -= clip.0.length
+                last = clip.0.item.id
+            }
+            return chosen
+                .enumerated()
+                .sorted { (order.firstIndex(of: $0.element.1)!, $0.offset) < (order.firstIndex(of: $1.element.1)!, $1.offset) }
+                .map { ($0.element.0, $0.element.1, $0.element.0.length) }
+        }
+
         /// The break after a programme ending at `start`: a bumper out,
         /// commercials filling `minutes` with whole clips, promos, trailers,
         /// then interstitials, and a bumper back in. Lined up on a mark, the
-        /// interstitials fill to it instead (commercials, then promos, then
-        /// bumpers on a channel without any), the last cut short to land on it.
+        /// rest of the way to it is filled with every kind of clip the
+        /// channel has, whole, as near to the mark as they get without
+        /// passing it (best effort); or, exactly, with interstitials
+        /// (commercials, then promos, then bumpers on a channel without
+        /// any), the last cut short to land on it.
         func deal(after start: Date, breaks: ChannelBreaks, seed: UInt64, calendar: Calendar) -> [Clip] {
             var random = ChannelSchedule.mix(seed ^ 0x2545_F491_4F6C_DD1D ^ UInt64(bitPattern: Int64(start.timeIntervalSince1970.rounded())))
             func next() -> UInt64 {
@@ -575,7 +616,11 @@ nonisolated enum ChannelSchedule {
             let closing = !closers.isEmpty && breaks.bumpersAt != .out ? pick(closers, avoiding: parts.first?.0.item.id) : nil
 
             var mark: Date?
-            if breaks.align > 0 {
+            if breaks.align > 0, !breaks.exactAlign {
+                let used = parts.reduce(0) { $0 + $1.2 } + (closing?.length ?? 0)
+                let target = ChannelSchedule.nextMark(after: start.addingTimeInterval(used), every: breaks.align, calendar: calendar)
+                parts += bestFill(seconds: target.timeIntervalSince(start) - used, after: parts.last?.0.item.id, next: next)
+            } else if breaks.align > 0 {
                 let used = parts.reduce(0) { $0 + $1.2 } + (closing?.length ?? 0)
                 let target = ChannelSchedule.nextMark(after: start.addingTimeInterval(used), every: breaks.align, calendar: calendar)
                 // Bumpers fill only when nothing else can, and never one

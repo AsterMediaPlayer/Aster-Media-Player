@@ -476,7 +476,7 @@ struct ChannelScheduleTests {
 
     @Test(arguments: [30, 15, 60])
     func linedUpProgrammesStartOnTheMark(minutes: Int) {
-        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: minutes)), from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 16, 8))
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: minutes, exactAlign: true)), from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 16, 8))
         let programmes = segments.filter { $0.role == .programme }
         #expect(programmes.count > 5)
         for programme in programmes.dropFirst() {
@@ -495,7 +495,7 @@ struct ChannelScheduleTests {
     @Test func linedUpWithoutInterstitialsFillsWithCommercials() {
         var clips = Self.clips
         clips.interstitials = []
-        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: clips, from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 15, 20))
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30, exactAlign: true)), clips: clips, from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 15, 20))
         for programme in segments.filter({ $0.role == .programme }).dropFirst() {
             #expect(Self.calendar.component(.minute, from: programme.start) % 30 == 0)
         }
@@ -529,12 +529,60 @@ struct ChannelScheduleTests {
         #expect(!breaks.isEmpty)
         #expect(breaks.allSatisfy { $0 == [.bumper, .commercial, .commercial, .commercial, .commercial, .promo, .trailer, .trailer, .interstitial, .bumper] }, "\(breaks)")
         // Lined up, the interstitials still do the filling, and every trailer plays whole.
-        let lined = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: clips, from: from, to: to)
+        let lined = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30, exactAlign: true)), clips: clips, from: from, to: to)
         for segment in lined where segment.role == .trailer {
             #expect(abs(segment.duration - 150) < 0.001)
         }
         for programme in lined.filter({ $0.role == .programme }).dropFirst() {
             #expect(Self.calendar.component(.minute, from: programme.start) % 30 == 0)
+        }
+    }
+
+    // MARK: Best effort
+
+    /// How far before its mark each programme after the first starts, in seconds.
+    private static func earliness(_ segments: [ScheduledProgram], every minutes: Int) -> [TimeInterval] {
+        segments.filter { $0.role == .programme }.dropFirst().map { programme in
+            let midnight = Self.calendar.startOfDay(for: programme.start)
+            let step = TimeInterval(minutes * 60)
+            let into = programme.start.timeIntervalSince(midnight)
+            let mark = (into / step).rounded(.up) * step
+            return mark - into
+        }
+    }
+
+    @Test(arguments: [30, 60])
+    func bestEffortLandsJustBeforeTheMarkWithWholeClips(minutes: Int) {
+        var clips = Self.clips
+        clips.trailers = (0..<2).map { Self.clip("trailer\($0)", seconds: 150) }
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: minutes)), clips: clips, from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 16, 8))
+        let early = Self.earliness(segments, every: minutes)
+        #expect(early.count > 5)
+        // Never after the mark, and never further before it than the
+        // shortest clip that could have filled the gap (5 seconds).
+        #expect(early.allSatisfy { $0 >= 0 && $0 < 5 }, "\(early)")
+        // Every clip plays whole.
+        for segment in segments where segment.role.isBreak {
+            #expect(abs(segment.duration - TimeInterval(segment.item.runTimeTicks ?? 0) / 10_000_000) < 0.001)
+        }
+        // Kinds the channel has all go into the filling.
+        let roles = Set(segments.map(\.role))
+        #expect(roles.isSuperset(of: [.commercial, .promo, .trailer, .interstitial, .bumper]))
+        for (a, b) in zip(segments, segments.dropFirst()) { #expect(abs(a.end.timeIntervalSince(b.start)) < 0.001) }
+    }
+
+    @Test func bestEffortWithLongClipsOnlyStillNeverRunsLate() {
+        // Just trailers and a countdown bumper, as on Hellaverse: the gap is
+        // filled with whole trailers, then the countdown leads into the show.
+        var countdown = Self.clip("countdown", seconds: 10)
+        countdown.tags = ["aster:bumper=in"]
+        let clips = ChannelBreakClips(bumpers: [countdown], trailers: [Self.clip("t1", seconds: 150), Self.clip("t2", seconds: 140)])
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: clips, from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 15, 20))
+        let early = Self.earliness(segments, every: 30)
+        #expect(early.allSatisfy { $0 >= 0 && $0 < 140 }, "\(early)")
+        for breakRoles in Self.breaks(in: segments) { #expect(breakRoles.last == .bumper) }
+        for (index, segment) in segments.enumerated() where segment.item.id == "countdown" && segments.indices.contains(index + 1) {
+            #expect(segments[index + 1].role == .programme)
         }
     }
 

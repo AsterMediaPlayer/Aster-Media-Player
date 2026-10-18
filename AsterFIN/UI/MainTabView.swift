@@ -199,6 +199,7 @@ struct MainTabView: View {
             session.noteLibraries(views)
             await session.refreshUpcoming()
             await session.detectAnimeLibraries(among: views)
+            await session.detectAnimeMusic(among: views)
             await followPendingLinks()
         }
         // Back from the background: changes made on another device since.

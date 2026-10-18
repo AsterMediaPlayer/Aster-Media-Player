@@ -502,6 +502,24 @@ nonisolated final class JellyfinClient: Sendable {
         try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
     }
 
+    /// The OP/ED plugin's published libraries; nil without the plugin (or
+    /// before 0.2).
+    func opEdLibraries() async -> OpEdLibraries? {
+        try? await get(OpEdLibraries.self, "/OpEd/Library")
+    }
+
+    /// A library's newest music videos, for a shelf.
+    func latestMusicVideos(inLibrary libraryId: String, limit: Int = 20) async -> [BaseItem] {
+        (try? await items([
+            "parentId": libraryId,
+            "includeItemTypes": "MusicVideo",
+            "recursive": "true",
+            "sortBy": "DateCreated,SortName",
+            "sortOrder": "Descending",
+            "limit": String(limit),
+        ]).items) ?? []
+    }
+
     /// A plugin media path (e.g. `VideoMp4Url`) as a URL AVPlayer can open,
     /// with the token in the query string.
     func opEdMediaURL(_ path: String) -> URL {

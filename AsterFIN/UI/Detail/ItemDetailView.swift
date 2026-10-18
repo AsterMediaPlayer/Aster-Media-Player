@@ -558,7 +558,8 @@ struct ItemDetailView: View {
             // player; it was already OK'd if it's a spoiler.
             ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
                               deck: themeDeck, panelBesidePage: themePanelBesidePage,
-                              fullScreen: { entry in themeFullScreen(entry) })
+                              fullScreen: { entry in themeFullScreen(entry) },
+                              addToPlaylist: { ids in playlistRequest = PlaylistRequest(itemIds: ids) })
         case .extras:
             extrasShelf
         case .related:

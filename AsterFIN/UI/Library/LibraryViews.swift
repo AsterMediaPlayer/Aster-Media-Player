@@ -177,7 +177,7 @@ struct LibraryGridView: View {
     @State private var sort: LibrarySort = .name
 
     private var landscape: Bool {
-        parent.collectionType == "homevideos" || parent.collectionType == "tvshows" && false
+        parent.collectionType == "homevideos" || parent.collectionType == "musicvideos"
     }
 
     private var query: [String: String?] {
@@ -195,6 +195,10 @@ struct LibraryGridView: View {
             query["recursive"] = "true"
         case "boxsets":
             query["includeItemTypes"] = "BoxSet"
+            query["recursive"] = "true"
+        case "musicvideos":
+            // Every video, not the folders (one per show or artist) they're in.
+            query["includeItemTypes"] = "MusicVideo"
             query["recursive"] = "true"
         default:
             break

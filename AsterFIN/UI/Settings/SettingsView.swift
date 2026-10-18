@@ -319,6 +319,12 @@ private struct SettingsMultiChoicePage: View {
 // MARK: - Playback
 
 private struct PlaybackSettingsView: View {
+    private var chosenMusicVideoLibraries: [String] {
+        animeMusicVideoLibraries.split(separator: "\n").map(String.init)
+    }
+
+    @Environment(AppSession.self) private var session
+    @AppStorage(AppSettings.animeMusicVideoLibrariesKey) private var animeMusicVideoLibraries = ""
     @AppStorage(AppSettings.maxBitrateKey) private var maxBitrate = 120_000_000
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
@@ -378,6 +384,18 @@ private struct PlaybackSettingsView: View {
             Section("Anime") {
                 Toggle("Song card at openings and endings", isOn: $themeCards)
                 SettingsNote("As an episode's opening or ending starts, and again as it finishes, the song and artist show in the corner, like a music channel. Found from the episode's OP and ED chapters, with the song named by the OP/ED plugin when the server has it.")
+                // Every music video library but the OP/ED plugin's, which
+                // the Anime tab always shows.
+                let choices = session.musicVideoLibraries.filter { library in
+                    !session.animeMusicVideoLibraries.contains { $0.id == library.id } || chosenMusicVideoLibraries.contains(library.displayTitle)
+                }.map(\.displayTitle)
+                if !choices.isEmpty {
+                    SettingsMultiChoiceRow(title: "Music Videos in Anime", options: choices, selection: chosenMusicVideoLibraries) { picked in
+                        animeMusicVideoLibraries = picked.joined(separator: "\n")
+                        session.updateAnimeMusicVideoLibraries()
+                    }
+                    SettingsNote("Music video libraries, such as your AMVs, that get a shelf in the Anime tab. The OP/ED plugin's Openings & Endings library is always there.")
+                }
             }
             #if canImport(AetherEngine)
             Section("Player") {

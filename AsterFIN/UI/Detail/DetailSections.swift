@@ -109,6 +109,8 @@ struct ThemeMusicSection: View {
     var panelBesidePage: Bool
     /// The panel's Full Screen, on a phone.
     var fullScreen: (OpeningEnding) -> Void
+    /// Adds library items (the plugin's published music videos) to a playlist.
+    var addToPlaylist: ([String]) -> Void
 
     @Environment(AppSession.self) private var session
     /// A spoiler or NSFW theme waiting for the go-ahead.
@@ -123,6 +125,11 @@ struct ThemeMusicSection: View {
     /// The ones that play without asking.
     private var unflagged: [OpeningEnding] {
         queue.filter(\.playsUnasked)
+    }
+
+    /// The music videos the OP/ED plugin published these as, in the rows' order.
+    private var publishedIds: [String] {
+        queue.compactMap { if case .theme(let theme) = $0 { theme.libraryItemId } else { nil } }
     }
 
     var body: some View {
@@ -170,6 +177,16 @@ struct ThemeMusicSection: View {
             }
             .buttonStyle(.bordered)
             .keyboardTarget { shuffle() }
+
+            if !publishedIds.isEmpty {
+                Button {
+                    addToPlaylist(publishedIds)
+                } label: {
+                    Label("Add All to Playlist", systemImage: "text.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .keyboardTarget { addToPlaylist(publishedIds) }
+            }
         }
         .padding(.horizontal, Lockup.screenPadding)
         .tvFocusSection()
@@ -234,7 +251,8 @@ struct ThemeMusicSection: View {
     private func card(_ entry: OpeningEnding) -> some View {
         switch entry {
         case .theme(let theme):
-            ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
+            ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
+                      addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } }) { pressed(entry) }
         case .chapter(let clip):
             ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
         }
@@ -278,6 +296,8 @@ struct ThemeCard: View {
     var fallbackArtwork: URL?
     /// Whether it's the one in the Now Playing panel.
     var isPlaying = false
+    /// For a theme the plugin published as a music video: adds it to a playlist.
+    var addToPlaylist: (() -> Void)?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -326,6 +346,11 @@ struct ThemeCard: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
+            .contextMenu {
+                if let addToPlaylist {
+                    Button("Add to Playlist", systemImage: "text.badge.plus", action: addToPlaylist)
+                }
+            }
             .keyboardTarget(action: play)
             .disabled(theme.isPreparing)
             .accessibilityLabel(accessibilityText)

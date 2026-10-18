@@ -107,6 +107,34 @@ final class AppSession {
         }
     }
 
+    /// Every music video library on the server: the choices for the Anime
+    /// tab's music video setting.
+    private(set) var musicVideoLibraries: [BaseItem] = []
+    /// The OP/ED plugin's published Music Videos library, when it has one.
+    private(set) var opEdVideosLibraryId: String?
+    /// The music video libraries the Anime tab shows: the OP/ED plugin's,
+    /// and those chosen in Settings (AMVs).
+    private(set) var animeMusicVideoLibraries: [BaseItem] = []
+
+    func detectAnimeMusic(among views: [BaseItem]) async {
+        musicVideoLibraries = views.filter { $0.collectionType == "musicvideos" }
+        opEdVideosLibraryId = await client?.opEdLibraries()?.videosLibraryId
+        updateAnimeMusicVideoLibraries()
+    }
+
+    /// After the Settings choice changes, or the libraries are found.
+    func updateAnimeMusicVideoLibraries() {
+        let chosen = Set((UserDefaults.standard.string(forKey: AppSettings.animeMusicVideoLibrariesKey) ?? "")
+            .split(separator: "\n").map(String.init))
+        let opEd = opEdVideosLibraryId.map(Self.plainId)
+        animeMusicVideoLibraries = musicVideoLibraries.filter { Self.plainId($0.id) == opEd || chosen.contains($0.displayTitle) }
+    }
+
+    /// An id as Jellyfin writes it either way: lowercase, without dashes.
+    private static func plainId(_ id: String) -> String {
+        id.lowercased().replacingOccurrences(of: "-", with: "")
+    }
+
     func detectAnimeLibraries(among views: [BaseItem]) async {
         guard let client else { return }
         let libraries = await client.animeLibraries(among: views)
@@ -274,6 +302,9 @@ final class AppSession {
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
+    /// line; the OP/ED plugin's own library is always shown.
+    static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"
     static let maxBitrateKey = "AsterFIN.maxBitrate"
     static let discMenuSoundsKey = "AsterFIN.discMenuSounds"
     static let autoplayNextKey = "AsterFIN.autoplayNext"

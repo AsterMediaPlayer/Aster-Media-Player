@@ -1092,6 +1092,18 @@ nonisolated struct PlaybackReport: Encodable, Sendable {
 
 // MARK: - OP/ED plugin
 
+/// `GET /OpEd/Library` (plugin 0.2): the libraries the plugin publishes its
+/// themes in, each nil until it exists.
+nonisolated struct OpEdLibraries: Decodable, Sendable {
+    var videosLibraryId: String?
+    var songsLibraryId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case videosLibraryId = "VideosLibraryId"
+        case songsLibraryId = "SongsLibraryId"
+    }
+}
+
 /// `GET /OpEd/Items/{itemId}/Themes` from the OP/ED server plugin: anime
 /// openings and endings the server owner supplied as files.
 nonisolated struct OpEdThemeList: Decodable, Sendable {
@@ -1132,6 +1144,10 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
     /// `AudioUrl` is often Ogg/Opus, which tvOS can't play, so it isn't used.
     var audioM4aUrl: String?
     var audioM4aStatus: String?
+    /// The MusicVideo item it was published as in the plugin's Music Videos
+    /// library (plugin 0.2), and its song's Audio item; nil when not.
+    var libraryItemId: String?
+    var songItemId: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -1155,6 +1171,8 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
         case videoMp4Status = "VideoMp4Status"
         case audioM4aUrl = "AudioM4aUrl"
         case audioM4aStatus = "AudioM4aStatus"
+        case libraryItemId = "LibraryItemId"
+        case songItemId = "SongItemId"
     }
 
     var isOpening: Bool { type.uppercased() == "OP" }

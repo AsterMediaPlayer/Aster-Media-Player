@@ -464,6 +464,10 @@ nonisolated enum ChannelSchedule {
     /// the server), sorted by id so every device deals from the same list.
     private struct BreakPool {
         let bumpers: [Entry]
+        /// The bumpers that can open a break, and close one: all but those
+        /// tagged for the other end (`aster:bumper=in`, a countdown, say).
+        let openers: [Entry]
+        let closers: [Entry]
         let promos: [Entry]
         let commercials: [Entry]
         let interstitials: [Entry]
@@ -479,6 +483,8 @@ nonisolated enum ChannelSchedule {
                 .sorted { $0.item.id < $1.item.id }
             }
             bumpers = playable(clips.bumpers)
+            openers = bumpers.filter { ChannelTags.bumperSide($0.item.tags) != .in }
+            closers = bumpers.filter { ChannelTags.bumperSide($0.item.tags) != .out }
             promos = playable(clips.promos)
             commercials = playable(clips.commercials)
             interstitials = playable(clips.interstitials)
@@ -488,7 +494,7 @@ nonisolated enum ChannelSchedule {
 
         /// For the checkpoint key: the clips and how breaks use them.
         func key(_ breaks: ChannelBreaks) -> String {
-            let ids = [bumpers, promos, commercials, interstitials].map { $0.map(\.item.id).joined(separator: ",") }.joined(separator: ";")
+            let ids = [openers, closers, promos, commercials, interstitials].map { $0.map(\.item.id).joined(separator: ",") }.joined(separator: ";")
             return "\(breaks.bumpersAt.rawValue)-\(breaks.promoCount)-\(breaks.interstitialCount)-\(breaks.minutes)-\(breaks.every)-\(breaks.align)-\(ChannelSchedule.seed(of: ids))"
         }
 
@@ -547,24 +553,29 @@ nonisolated enum ChannelSchedule {
 
             var parts: [(Entry, ProgramRole, TimeInterval)] = []
             func add(_ entry: Entry, _ role: ProgramRole) { parts.append((entry, role, entry.length)) }
-            if !bumpers.isEmpty, breaks.bumpersAt != .in { add(pick(bumpers, avoiding: nil), .bumper) }
+            if !openers.isEmpty, breaks.bumpersAt != .in { add(pick(openers, avoiding: nil), .bumper) }
             if !commercials.isEmpty, breaks.minutes > 0 {
                 parts += fill(commercials, .commercial, seconds: TimeInterval(breaks.minutes * 60), cutting: false, after: parts.last?.0.item.id)
             }
             if !promos.isEmpty {
                 for _ in 0..<breaks.promoCount { add(pick(promos, avoiding: parts.last?.0.item.id), .promo) }
             }
-            let closing = !bumpers.isEmpty && breaks.bumpersAt != .out ? pick(bumpers, avoiding: parts.first?.0.item.id) : nil
+            let closing = !closers.isEmpty && breaks.bumpersAt != .out ? pick(closers, avoiding: parts.first?.0.item.id) : nil
 
             var mark: Date?
             if breaks.align > 0 {
                 let used = parts.reduce(0) { $0 + $1.2 } + (closing?.length ?? 0)
                 let target = ChannelSchedule.nextMark(after: start.addingTimeInterval(used), every: breaks.align, calendar: calendar)
+                // Bumpers fill only when nothing else can, and never one
+                // meant for one end of a break (a countdown, say).
                 let filler: ([Entry], ProgramRole) = !interstitials.isEmpty ? (interstitials, .interstitial)
                     : !commercials.isEmpty ? (commercials, .commercial)
-                    : !promos.isEmpty ? (promos, .promo) : (bumpers, .bumper)
-                parts += fill(filler.0, filler.1, seconds: target.timeIntervalSince(start) - used, cutting: true, after: parts.last?.0.item.id)
-                mark = target
+                    : !promos.isEmpty ? (promos, .promo)
+                    : (bumpers.filter { ChannelTags.bumperSide($0.item.tags) == .both }, .bumper)
+                if !filler.0.isEmpty {
+                    parts += fill(filler.0, filler.1, seconds: target.timeIntervalSince(start) - used, cutting: true, after: parts.last?.0.item.id)
+                    mark = target
+                }
             } else if !interstitials.isEmpty {
                 for _ in 0..<breaks.interstitialCount { add(pick(interstitials, avoiding: parts.last?.0.item.id), .interstitial) }
             }

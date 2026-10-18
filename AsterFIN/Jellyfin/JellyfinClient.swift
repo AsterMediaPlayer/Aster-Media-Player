@@ -820,7 +820,8 @@ nonisolated final class JellyfinClient: Sendable {
         let user = try requireUser()
         return try await get(ItemsResult.self, "/Playlists/\(playlistId)/Items", query: [
             "userId": user,
-            "fields": Self.listFields,
+            // Tags too, for a break clip's `aster:bumper=in`.
+            "fields": Self.listFields + ",Tags",
             // Logo too, so an episode carries its series' clear logo.
             "enableImageTypes": "Primary,Logo",
             "imageTypeLimit": "1",

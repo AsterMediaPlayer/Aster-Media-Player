@@ -521,6 +521,30 @@ struct ChannelScheduleTests {
         #expect(back.allSatisfy { $0.first != .bumper && $0.last == .bumper })
     }
 
+    @Test func aBumperTaggedForOneEndStaysThere() {
+        var countdown = Self.clip("countdown", seconds: 10)
+        countdown.tags = ["aster:bumper=in"]
+        var rightBack = Self.clip("right-back", seconds: 5)
+        rightBack.tags = ["aster:bumper=out"]
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        // Only the countdown: it closes every break, and nothing opens one.
+        let alone = Self.segments(ChannelLineup(), clips: ChannelBreakClips(bumpers: [countdown]), from: from, to: to)
+        let breaks = Self.breaks(in: alone)
+        #expect(!breaks.isEmpty && breaks.allSatisfy { $0 == [.bumper] })
+        #expect(alone.filter { $0.role == .bumper }.allSatisfy { $0.item.id == "countdown" })
+        // With both, each keeps to its end, right before the programme for the countdown.
+        let both = Self.segments(ChannelLineup(), clips: ChannelBreakClips(bumpers: [countdown, rightBack], commercials: Self.clips.commercials), from: from, to: to)
+        for (index, segment) in both.enumerated() where segment.role == .bumper {
+            if segment.item.id == "countdown" {
+                #expect(both.indices.contains(index + 1) == false || both[index + 1].role == .programme)
+            } else {
+                #expect(both[index - 1].role == .programme)
+            }
+        }
+        #expect(ChannelTags.bumperSide(["aster:bumper=OUT"]) == .out)
+        #expect(ChannelTags.bumperSide(["Family"]) == .both)
+    }
+
     @Test func theGuideFoldsEachBreakIntoItsProgramme() {
         let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
         let lineup = ChannelLineup(breaks: ChannelBreaks(align: 30))

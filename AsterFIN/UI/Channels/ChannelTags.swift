@@ -41,6 +41,8 @@
 //    aster:break-every=1      a break after every programme, or every 2nd to 10th
 //    aster:align=30           programmes start on the half hour (or 5, 10, 15, 20,
 //                             60 minutes), each break filling the gap; off by default
+//    aster:bumper=in          on a bumper itself: it only closes a break (or out,
+//                             only opens one; both, the default, either)
 //    aster:bumpers            on a playlist of clips, rather than a channel: what
 //                             it holds (or promos, commercials, interstitials)
 //    aster:channel-name=…     the channel's name, in place of the playlist's
@@ -361,6 +363,16 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             guard !name.isEmpty, !list.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
             list.append(name)
         }
+    }
+
+    /// Where a bumper goes, from its own `aster:bumper=in` (or `out`) tag:
+    /// either end of a break unless it says.
+    static func bumperSide(_ tags: [String]?) -> BumperPlacement {
+        for tag in tags ?? [] {
+            guard let (key, value) = parse(tag), key == "bumper" else { continue }
+            return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
+        }
+        return .both
     }
 
     /// `tags` marked as a playlist of `kind` break clips (or not, for nil),

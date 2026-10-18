@@ -121,20 +121,13 @@ final class ThemeDeck {
 }
 
 /// The panel: the picture, Now Playing, the progress and controls, and what
-/// the theme is. With nothing playing it previews the focused card, or
-/// offers to play them all.
+/// the theme is. Nothing while nothing plays. When the screen is too short
+/// for all of it, what the theme is gives way first.
 struct ThemeNowPlayingPanel: View {
     let deck: ThemeDeck
-    /// The card focus is on, previewed while nothing plays.
-    var focused: OpEdTheme?
     var artwork: URL?
     var seasonName: (OpEdTheme) -> String?
-    var playAll: () -> Void
     var fullScreen: (OpEdTheme) -> Void
-
-    @Environment(AppSession.self) private var session
-    /// The focused theme's frame, from the cards' cache.
-    @State private var focusedPreview: ThemePreview?
 
     private enum Metrics {
         #if os(tvOS)
@@ -153,100 +146,44 @@ struct ThemeNowPlayingPanel: View {
     }
 
     var body: some View {
+        if let theme = deck.current {
+            ViewThatFits(in: .vertical) {
+                panel(theme, showsDetails: true)
+                panel(theme, showsDetails: false)
+            }
+        }
+    }
+
+    private func panel(_ theme: OpEdTheme, showsDetails: Bool) -> some View {
         VStack(alignment: .leading, spacing: Metrics.spacing) {
             picture
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: Metrics.corner / 1.6))
-
-            if let theme = deck.current {
-                playing(theme)
-            } else if let focused {
-                preview(focused)
-            } else {
-                idle
+            playing(theme)
+            if showsDetails {
+                details(theme)
             }
         }
         .padding(Metrics.padding)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Metrics.corner))
         .tvFocusSection()
-        .task(id: focused?.id) {
-            guard let focused, let client = session.client else {
-                focusedPreview = nil
-                return
-            }
-            focusedPreview = await ThemePreviews.shared.preview(for: focused, client: client)
-        }
     }
 
     @ViewBuilder
     private var picture: some View {
-        if deck.current != nil, deck.hasVideo {
+        if deck.hasVideo {
             VideoLayerView(player: deck.player)
                 .background(.black)
                 .accessibilityHidden(true)
-        } else if deck.current == nil, focused != nil, let image = focusedPreview?.image {
-            Color.black.overlay {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            }
-            .clipped()
-            .accessibilityHidden(true)
         } else {
             RemoteImage(url: artwork, systemImage: "music.note.tv")
                 .overlay {
-                    if deck.current != nil {
-                        Image(systemName: "music.note")
-                            .font(.largeTitle)
-                            .padding()
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    Image(systemName: "music.note")
+                        .font(.largeTitle)
+                        .padding()
+                        .background(.black.opacity(0.5), in: Circle())
                 }
-        }
-    }
-
-    private var idle: some View {
-        VStack(alignment: .leading, spacing: Metrics.spacing) {
-            Label("Now Playing", systemImage: "music.note")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text("Pick an opening or ending to play it here.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Button(action: playAll) {
-                Label("Play All", systemImage: "play.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardTarget(action: playAll)
-        }
-    }
-
-    /// The focused card, before it plays: what it is, and Play.
-    @ViewBuilder
-    private func preview(_ theme: OpEdTheme) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(theme.isOpening ? "Opening \(theme.sequence)" : "Ending \(theme.sequence)", systemImage: "music.note")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(theme.spoiler || theme.nsfw ? (theme.nsfw ? "NSFW" : "Spoiler") : (theme.songTitle ?? theme.code))
-                .font(Metrics.titleFont)
-                .lineLimit(2)
-            if !theme.artists.isEmpty, !theme.spoiler, !theme.nsfw {
-                Text(theme.artists.joined(separator: ", "))
-                    .font(.callout)
-                    .lineLimit(1)
-            }
-            if let seconds = focusedPreview?.seconds {
-                Text(Self.time(Double(seconds)))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        // Not a button: on the TV, Select on the card plays it, and focus
-        // moving here would move the panel.
-        if !theme.spoiler, !theme.nsfw {
-            details(theme)
         }
     }
 
@@ -284,11 +221,10 @@ struct ThemeNowPlayingPanel: View {
             control("backward.fill", label: "Previous") { deck.previous() }
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
             control("forward.fill", label: "Next") { deck.next() }
+            control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)
             control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(theme) }
         }
-
-        details(theme)
     }
 
     private func control(_ systemImage: String, label: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {

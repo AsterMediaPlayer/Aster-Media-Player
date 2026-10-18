@@ -262,6 +262,12 @@ struct ItemDetailView: View {
     @State private var showDiscMenu = false
     /// The tab a show's page is on.
     @State private var section: DetailSection = .episodes
+    /// The Music tab's openings and endings, playing in the Now Playing
+    /// panel; it keeps going across tabs, and stops on leaving the page.
+    @State private var themeDeck = ThemeDeck()
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
     @State private var message: String?
     @State private var notice: String?
     @State private var playlistRequest: PlaylistRequest?
@@ -305,6 +311,10 @@ struct ItemDetailView: View {
                     }
                 }
                 .padding(.bottom, 80)
+                // Room for the Now Playing panel on the right: everything,
+                // the header's description too, moves over beside it.
+                .padding(.trailing, showsThemePanel ? ThemePanelMetrics.width + ThemePanelMetrics.gap : 0)
+                .animation(.smooth(duration: 0.4), value: showsThemePanel)
             }
             .scrollClipDisabled()
             #if os(macOS)
@@ -329,6 +339,34 @@ struct ItemDetailView: View {
             }
         }
         .ignoresSafeArea()
+        // The Now Playing panel, fixed on the right of the screen (within
+        // the safe area) whatever the page is scrolled to.
+        .overlay(alignment: .topTrailing) {
+            if showsThemePanel {
+                ThemeNowPlayingPanel(
+                    deck: themeDeck,
+                    artwork: session.client?.landscapeURL(for: detail, width: 800),
+                    seasonName: { ThemeMusicSection.seasonName($0, in: model.seasons) },
+                    fullScreen: { theme in themeFullScreen(theme) }
+                )
+                .frame(width: ThemePanelMetrics.width)
+                .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                .padding(.trailing, ThemePanelMetrics.trailing)
+                .padding(.vertical, ThemePanelMetrics.vertical)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.4), value: showsThemePanel)
+        // The show's theme behind the page goes quiet while the panel
+        // plays, and comes back after, unless a video has the screen.
+        .onChange(of: themeDeck.isActive) { _, active in
+            if active {
+                session.theme.suspend()
+            } else if !(playback != nil || urlPlayback != nil || showDiscMenu) {
+                session.theme.resume()
+            }
+        }
         #if !os(tvOS)
         // No remote Back here: this ends the opening, back to the page. An
         // overlay keeps to the safe area, clear of the camera.
@@ -394,11 +432,13 @@ struct ItemDetailView: View {
         .onAppear { session.theme.pageAppeared(for: item) }
         .onDisappear {
             if watchingOpening { stopWatchingOpening() }
+            themeDeck.stop()
             session.theme.pageDisappeared(for: item)
         }
         .onChange(of: playback != nil || urlPlayback != nil || showDiscMenu) { _, covered in
             // Quiet the theme while a video or disc menu is on screen.
             if covered {
+                themeDeck.stop()
                 session.theme.suspend()
             } else {
                 session.theme.resume()
@@ -517,8 +557,9 @@ struct ItemDetailView: View {
             // The panel's Full Screen hands its theme to the full-screen
             // player; it was already OK'd if it's a spoiler.
             ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
+                              deck: themeDeck, panelBesidePage: themePanelBesidePage,
                               play: { entry in playThemeCard(entry) },
-                              fullScreen: { theme in play(theme) })
+                              fullScreen: { theme in themeFullScreen(theme) })
         case .extras:
             extrasShelf
         case .related:
@@ -589,6 +630,42 @@ struct ItemDetailView: View {
 
         InformationSection(item: detail)
             .padding(.horizontal, Lockup.screenPadding)
+    }
+
+    /// The Now Playing panel's size and place. It sits inside the safe area,
+    /// which on the TV already keeps it off the screen's edges.
+    private enum ThemePanelMetrics {
+        #if os(tvOS)
+        static let width: CGFloat = 560
+        static let gap: CGFloat = 40
+        static let trailing: CGFloat = 0
+        static let vertical: CGFloat = 0
+        #else
+        static let width: CGFloat = 340
+        static let gap: CGFloat = 24
+        static let trailing: CGFloat = 20
+        static let vertical: CGFloat = 16
+        #endif
+    }
+
+    /// Whether the panel goes on the right of the page: not on a phone,
+    /// where it's in the Music tab instead.
+    private var themePanelBesidePage: Bool {
+        #if os(iOS)
+        sizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    private var showsThemePanel: Bool {
+        themeDeck.isActive && themePanelBesidePage && usesSections && !watchingOpening
+    }
+
+    /// The panel's Full Screen: the full-screen player takes the theme (it
+    /// was OK'd if it's a spoiler), and covering the page stops the panel.
+    private func themeFullScreen(_ theme: OpEdTheme) {
+        play(theme)
     }
 
     /// A theme's card pressed: a plugin theme asks first when it's marked as
@@ -1089,6 +1166,7 @@ struct ItemDetailView: View {
     /// lower left. Plugin themes marked as spoilers or NSFW ask first, as
     /// their cards do (they never play behind the page).
     private func watch(_ entry: OpeningEnding) {
+        themeDeck.stop()
         let entryId: String
         let info: ThemeInfo
         switch entry {

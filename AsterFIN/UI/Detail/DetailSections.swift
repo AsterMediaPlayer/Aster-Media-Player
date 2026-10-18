@@ -95,111 +95,55 @@ struct DetailSectionBar: View {
 
 /// An anime's openings and endings, each in its own row: the OP/ED plugin's
 /// themes when the server has them, else clips found in the episodes'
-/// chapters. The plugin's play in the Now Playing panel beside the rows (on
-/// a phone, above them); chapter clips, which are stretches of episodes,
-/// play full screen as before.
+/// chapters. The plugin's play in the page's Now Playing panel, which the
+/// page draws on the right of the screen (on a phone, it shows here, above
+/// the rows); chapter clips, which are stretches of episodes, play full
+/// screen as before.
 struct ThemeMusicSection: View {
     let entries: [OpeningEnding]
     let seasons: [BaseItem]
     /// The show's own picture, for a theme before (or without) its frame.
     let fallbackArtwork: URL?
+    /// The page's player: it keeps going when the tab changes.
+    let deck: ThemeDeck
+    /// Whether the page shows the panel beside everything (not on a phone).
+    var panelBesidePage: Bool
     /// A chapter clip pressed.
     var play: (OpeningEnding) -> Void
-    /// The panel's Full Screen.
+    /// The panel's Full Screen, on a phone.
     var fullScreen: (OpEdTheme) -> Void
 
     @Environment(AppSession.self) private var session
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    #endif
-    @State private var deck = ThemeDeck()
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
-    /// Going full screen: the full-screen player keeps the show's theme
-    /// quiet, so the panel stopping mustn't bring it back.
-    @State private var handingOff = false
-    /// The theme card focus is on (the TV), which the panel previews and
-    /// moves beside.
-    @State private var focusedTheme: OpEdTheme?
-    /// Where each row starts down the section (true: Openings), for the
-    /// panel to line up with.
-    @State private var rowTops: [Bool: CGFloat] = [:]
-
-    private enum Metrics {
-        #if os(tvOS)
-        static let panelWidth: CGFloat = 560
-        static let gap: CGFloat = 40
-        #else
-        static let panelWidth: CGFloat = 340
-        static let gap: CGFloat = 20
-        #endif
-    }
-
-    /// The row the panel floats beside: the focused card's, else the one
-    /// playing's, else Openings.
-    private var panelTop: CGFloat {
-        let theme = focusedTheme ?? deck.current
-        let opening = theme?.isOpening ?? true
-        return rowTops[opening] ?? rowTops[!opening] ?? 0
-    }
-
-    /// Room for the panel beside the rows: not on a phone.
-    private var isWide: Bool {
-        #if os(iOS)
-        sizeClass == .regular
-        #else
-        true
-        #endif
-    }
 
     /// The plugin's themes, in the order the rows show them.
     private var themes: [OpEdTheme] {
         (sorted(opening: true) + sorted(opening: false)).compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
     }
 
+    /// The ones that play without asking.
+    private var unflagged: [OpEdTheme] {
+        themes.filter { $0.playablePath != nil && !$0.spoiler && !$0.nsfw }
+    }
+
     var body: some View {
-        Group {
-            if themes.isEmpty {
-                rows
-            } else if isWide {
-                // The rows leave a lane on the right, and the panel floats
-                // in it, gliding up or down to sit beside the row in use.
-                ZStack(alignment: .topTrailing) {
-                    rows
-                        .padding(.trailing, Metrics.panelWidth + Metrics.gap)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    panel
-                        .frame(width: Metrics.panelWidth)
-                        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-                        .padding(.trailing, Lockup.screenPadding)
-                        .padding(.top, panelTop)
-                        .animation(.smooth(duration: 0.35), value: panelTop)
-                }
-                .coordinateSpace(.named(Self.space))
-            } else {
-                VStack(alignment: .leading, spacing: 24) {
-                    if deck.isActive {
-                        panel
-                            .padding(.horizontal, Lockup.screenPadding)
-                    }
-                    rows
-                }
+        VStack(alignment: .leading, spacing: 24) {
+            if !unflagged.isEmpty {
+                playButtons
             }
-        }
-        // The show's theme behind the page goes quiet while one plays here.
-        .onChange(of: deck.isActive) { _, active in
-            if active {
-                session.theme.suspend()
-            } else if handingOff {
-                handingOff = false
-            } else {
-                session.theme.resume()
+            if !panelBesidePage, deck.isActive {
+                ThemeNowPlayingPanel(deck: deck, artwork: fallbackArtwork, seasonName: { Self.seasonName($0, in: seasons) }, fullScreen: fullScreen)
+                    .padding(.horizontal, Lockup.screenPadding)
             }
+            row(title: "Openings", subtitle: "The songs that start each episode.", opening: true)
+            row(title: "Endings", subtitle: "The songs over the closing credits.", opening: false)
         }
-        .onDisappear { deck.stop() }
+        // On a phone the panel is part of this tab, so it stops with it.
+        .onDisappear { if !panelBesidePage { deck.stop() } }
         .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
             Button("Play") {
-                if let theme = confirming { start(theme) }
+                if let theme = confirming { start(theme, in: themes) }
                 confirming = nil
             }
             Button("Cancel", role: .cancel) { confirming = nil }
@@ -210,30 +154,32 @@ struct ThemeMusicSection: View {
         }
     }
 
-    private static let space = "music"
+    /// Play All, in the rows' order, and Shuffle.
+    private var playButtons: some View {
+        HStack(spacing: 16) {
+            Button {
+                if let first = unflagged.first { start(first, in: themes) }
+            } label: {
+                Label("Play All", systemImage: "play.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardTarget { if let first = unflagged.first { start(first, in: themes) } }
 
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            row(title: "Openings", subtitle: "The songs that start each episode.", opening: true)
-            row(title: "Endings", subtitle: "The songs over the closing credits.", opening: false)
+            Button {
+                shuffle()
+            } label: {
+                Label("Shuffle", systemImage: "shuffle")
+            }
+            .buttonStyle(.bordered)
+            .keyboardTarget { shuffle() }
         }
+        .padding(.horizontal, Lockup.screenPadding)
+        .tvFocusSection()
     }
 
-    private var panel: some View {
-        ThemeNowPlayingPanel(
-            deck: deck,
-            focused: focusedTheme,
-            artwork: fallbackArtwork,
-            seasonName: seasonName,
-            playAll: {
-                if let first = themes.first(where: { $0.playablePath != nil && !$0.spoiler && !$0.nsfw }) { start(first) }
-            },
-            fullScreen: { theme in
-                handingOff = true
-                deck.stop()
-                fullScreen(theme)
-            }
-        )
+    private func shuffle() {
+        let order = unflagged.shuffled()
+        if let first = order.first { start(first, in: order) }
     }
 
     /// A theme's card pressed: it plays in the panel, after asking when it's
@@ -242,13 +188,13 @@ struct ThemeMusicSection: View {
         if theme.spoiler || theme.nsfw {
             confirming = theme
         } else {
-            start(theme)
+            start(theme, in: themes)
         }
     }
 
-    private func start(_ theme: OpEdTheme) {
+    private func start(_ theme: OpEdTheme, in queue: [OpEdTheme]) {
         guard let client = session.client else { return }
-        deck.play(theme, in: themes, client: client)
+        deck.play(theme, in: queue, client: client)
     }
 
     @ViewBuilder
@@ -256,34 +202,33 @@ struct ThemeMusicSection: View {
         let entries = sorted(opening: opening)
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label(title, systemImage: "music.note")
-                        .font(.title3.weight(.semibold))
-                    Spacer()
-                    Text(entries.count == 1 ? "1 song" : "\(entries.count) songs")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label(title, systemImage: "music.note")
+                            .font(.title3.weight(.semibold))
+                        Spacer()
+                        Text(entries.count == 1 ? "1 song" : "\(entries.count) songs")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, Lockup.screenPadding)
-
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: Lockup.shelfSpacing) {
-                    ForEach(entries) { entry in
-                        card(entry)
-                    }
-                }
                 .padding(.horizontal, Lockup.screenPadding)
-                .padding(.vertical, Lockup.shelfVerticalPadding)
+
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: Lockup.shelfSpacing) {
+                        ForEach(entries) { entry in
+                            card(entry)
+                        }
+                    }
+                    .padding(.horizontal, Lockup.screenPadding)
+                    .padding(.vertical, Lockup.shelfVerticalPadding)
+                }
+                .scrollClipDisabled()
+                .tvFocusSection()
             }
-            .scrollClipDisabled()
-            .tvFocusSection()
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).minY } action: { rowTops[opening] = $0 }
         }
     }
 
@@ -291,10 +236,7 @@ struct ThemeMusicSection: View {
     private func card(_ entry: OpeningEnding) -> some View {
         switch entry {
         case .theme(let theme):
-            ThemeCard(theme: theme, seasonName: seasonName(theme), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == theme.id,
-                      // Kept when focus moves on to the panel, so the panel
-                      // doesn't move away from it.
-                      focusChanged: { focused in if focused { focusedTheme = theme } }) { pressed(theme) }
+            ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == theme.id) { pressed(theme) }
         case .chapter(let clip):
             ThemeClipLockup(clip: clip) { play(entry) }
         }
@@ -302,7 +244,7 @@ struct ThemeMusicSection: View {
 
     /// A season's name when the show has more than one, since OP 1 comes
     /// round again each season.
-    private func seasonName(_ theme: OpEdTheme) -> String? {
+    static func seasonName(_ theme: OpEdTheme, in seasons: [BaseItem]) -> String? {
         guard seasons.filter({ ($0.indexNumber ?? 0) > 0 }).count > 1, let id = theme.seasonId else { return nil }
         return seasons.first { $0.id == id }?.displayTitle
     }
@@ -338,13 +280,10 @@ struct ThemeCard: View {
     var fallbackArtwork: URL?
     /// Whether it's the one in the Now Playing panel.
     var isPlaying = false
-    /// Focus coming to the card, or leaving it.
-    var focusChanged: ((Bool) -> Void)?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
     @State private var preview: ThemePreview?
-    @FocusState private var focused: Bool
 
     private var hidden: Bool { theme.spoiler || theme.nsfw }
 
@@ -389,8 +328,6 @@ struct ThemeCard: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
-            .focused($focused)
-            .onChange(of: focused) { _, now in focusChanged?(now) }
             .keyboardTarget(action: play)
             .disabled(theme.isPreparing)
             .accessibilityLabel(accessibilityText)

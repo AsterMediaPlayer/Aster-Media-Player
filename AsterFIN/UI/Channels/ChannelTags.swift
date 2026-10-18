@@ -69,7 +69,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "align-fit", "user", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-playlist", "filler-types", "filler-type", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "align-fit", "user", "users", "channel-name"]
 
     var isChannel = false
     var number: Int?

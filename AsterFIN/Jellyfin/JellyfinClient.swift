@@ -256,6 +256,19 @@ nonisolated final class JellyfinClient: Sendable {
         ]).items
     }
 
+    /// Every show on the server, by name, for making a channel of one.
+    func seriesList() async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await allItems([
+            "userId": user,
+            "recursive": "true",
+            "includeItemTypes": "Series",
+            "sortBy": "SortName",
+            "enableImages": "false",
+            "enableUserData": "false",
+        ])
+    }
+
     /// The studios and networks of the server's movies and shows, by name.
     func videoStudios() async throws -> [BaseItem] {
         let user = try requireUser()

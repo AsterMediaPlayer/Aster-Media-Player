@@ -326,15 +326,26 @@ struct ChannelTagsTests {
     }
 
     @Test func aClipsOwnTagSaysWhatItIs() {
-        #expect(ChannelTags.clipKind(["aster:bumper=in"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:bumper-in"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:Bumper-Out"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:bumper"]) == .bumpers)
         #expect(ChannelTags.clipKind(["Family", "Aster:Commercial"]) == .commercials)
         #expect(ChannelTags.clipKind(["aster:promos"]) == .promos)
         #expect(ChannelTags.clipKind(["aster:interstitial"]) == .interstitials)
-        #expect(ChannelTags.clipKind(["Family"]) == .interstitials)
-        #expect(ChannelTags.clipKind(nil) == .interstitials)
-        #expect(ChannelTags.bumperSide(["aster:bumper=in"]) == .in)
-        #expect(ChannelTags.bumperSide(["aster:bumpers=out"]) == .out)
+        // A clip that doesn't say isn't anything.
+        #expect(ChannelTags.clipKind(["Family"]) == nil)
+        #expect(ChannelTags.clipKind(nil) == nil)
+        #expect(ChannelTags.bumperSide(["aster:bumper-in"]) == .in)
+        #expect(ChannelTags.bumperSide(["aster:bumper-out"]) == .out)
         #expect(ChannelTags.bumperSide(["aster:bumper"]) == .both)
+        // The earlier aster:bumper=in still reads.
+        #expect(ChannelTags.bumperSide(["aster:bumper=in"]) == .in)
+        // A filler playlist says so.
+        #expect(ChannelTags.isFillerPlaylist(["Family", "aster:filler"]))
+        #expect(ChannelTags.isFillerPlaylist(["asterfin:Filler"]))
+        #expect(!ChannelTags.isFillerPlaylist(["aster:filler=off"]))
+        #expect(!ChannelTags.isFillerPlaylist(["aster:channel"]))
+        #expect(!ChannelTags.isFillerPlaylist(nil))
     }
 
     @Test func breakTagsRoundTrip() {
@@ -356,9 +367,14 @@ struct ChannelTagsTests {
     }
 
     @Test func fillerClipsAreSortedByTheirOwnTags() {
-        func playlist(_ id: String, _ name: String) -> BaseItem { BaseItem(id: id, name: name, type: "Playlist") }
-        let playlists = [playlist("a", "Hazbin Bumpers"), playlist("b", "80s Ads"), playlist("c", "Tooniverse")]
-        let tags = ChannelTags(tags: ["aster:filler-playlists=hazbin bumpers", "aster:filler-playlists=80s Ads", "aster:filler-playlists=Missing"])
+        func playlist(_ id: String, _ name: String, filler: Bool = true) -> BaseItem {
+            var item = BaseItem(id: id, name: name, type: "Playlist")
+            item.tags = filler ? ["aster:filler"] : []
+            return item
+        }
+        let playlists = [playlist("a", "Hazbin Bumpers"), playlist("b", "80s Ads"), playlist("c", "Tooniverse", filler: false)]
+        let tags = ChannelTags(tags: ["aster:filler-playlists=hazbin bumpers", "aster:filler-playlists=80s Ads", "aster:filler-playlists=Tooniverse", "aster:filler-playlists=Missing"])
+        // Only playlists tagged aster:filler count.
         #expect(ChannelsModel.fillerPlaylists(named: tags, in: playlists).map(\.id) == ["a", "b"])
 
         func clip(_ id: String, _ tags: [String]) -> BaseItem {
@@ -366,13 +382,14 @@ struct ChannelTagsTests {
             item.tags = tags
             return item
         }
-        let items = [clip("countdown", ["aster:bumper=in"]), clip("kool-aid", ["aster:commercial"]),
-                     clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("short", [])]
+        let items = [clip("countdown", ["aster:bumper-in"]), clip("kool-aid", ["aster:commercial"]),
+                     clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("untagged", [])]
         let all = ChannelsModel.breakClips(from: items, types: Set(BreakKind.allCases))
         #expect(all.bumpers.map(\.id) == ["countdown"])
         #expect(all.commercials.map(\.id) == ["kool-aid"])
         #expect(all.promos.map(\.id) == ["next-week"])
-        #expect(all.interstitials.map(\.id) == ["psa", "short"])
+        // The untagged clip is left out.
+        #expect(all.interstitials.map(\.id) == ["psa"])
         let some = ChannelsModel.breakClips(from: items, types: [.bumpers, .commercials])
         #expect(some.promos.isEmpty && some.interstitials.isEmpty && some.bumpers.count == 1 && some.commercials.count == 1)
     }

@@ -328,21 +328,23 @@ final class ChannelsModel {
         return true
     }
 
-    /// The playlists a channel's `filler-playlists=` tags name, matched by
-    /// name whatever the case; a name no playlist has is left out.
+    /// The filler playlists (tagged `aster:filler`) a channel's
+    /// `filler-playlists=` tags name, matched by name whatever the case; a
+    /// name no filler playlist has is left out.
     nonisolated static func fillerPlaylists(named tags: ChannelTags, in playlists: [BaseItem]) -> [BaseItem] {
-        tags.fillerPlaylists.compactMap { name in
-            playlists.first { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
+        let fillers = playlists.filter { ChannelTags.isFillerPlaylist($0.tags) }
+        return tags.fillerPlaylists.compactMap { name in
+            fillers.first { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
         }
     }
 
     /// Break clips sorted by what each one's own tag says it is, keeping
-    /// only the kinds the channel's `filler-types=` asks for.
+    /// only the kinds the channel's `filler-types=` asks for; a clip with
+    /// no kind tag is left out.
     nonisolated static func breakClips(from items: [BaseItem], types: Set<BreakKind>) -> ChannelBreakClips {
         var clips = ChannelBreakClips()
         for item in items {
-            let kind = ChannelTags.clipKind(item.tags)
-            guard types.contains(kind) else { continue }
+            guard let kind = ChannelTags.clipKind(item.tags), types.contains(kind) else { continue }
             switch kind {
             case .bumpers: clips.bumpers.append(item)
             case .promos: clips.promos.append(item)

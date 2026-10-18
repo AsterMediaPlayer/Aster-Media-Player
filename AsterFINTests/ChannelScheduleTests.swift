@@ -540,9 +540,9 @@ struct ChannelScheduleTests {
 
     @Test func aBumperTaggedForOneEndStaysThere() {
         var countdown = Self.clip("countdown", seconds: 10)
-        countdown.tags = ["aster:bumper=in"]
+        countdown.tags = ["aster:bumper-in"]
         var rightBack = Self.clip("right-back", seconds: 5)
-        rightBack.tags = ["aster:bumper=out"]
+        rightBack.tags = ["aster:bumper-out"]
         let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
         // Only the countdown: it closes every break, and nothing opens one.
         let alone = Self.segments(ChannelLineup(), clips: ChannelBreakClips(bumpers: [countdown]), from: from, to: to)
@@ -558,7 +558,7 @@ struct ChannelScheduleTests {
                 #expect(both[index - 1].role == .programme)
             }
         }
-        #expect(ChannelTags.bumperSide(["aster:bumper=OUT"]) == .out)
+        #expect(ChannelTags.bumperSide(["aster:BUMPER-OUT"]) == .out)
         #expect(ChannelTags.bumperSide(["Family"]) == .both)
     }
 

@@ -30,7 +30,7 @@
 //    aster:weight=Friends:2   a show takes turns this many times as often (1-5)
 //    aster:min-length=15      leaves out titles shorter than this, in minutes
 //    aster:max-length=120     leaves out titles longer than this, in minutes
-//    aster:filler-playlists=… a playlist of clips for the breaks; repeat for more
+//    aster:filler-playlists=… a filler playlist for the breaks; repeat for more
 //    aster:filler-types=…     the kinds of clip to play: bumpers, promos,
 //                             commercials, trailers, interstitials (all, the default)
 //    aster:bumpers-at=both    a bumper opens and closes each break (or out, in)
@@ -41,9 +41,10 @@
 //    aster:break-every=1      a break after every programme, or every 2nd to 10th
 //    aster:align=30           programmes start on the half hour (or 5, 10, 15, 20,
 //                             60 minutes), each break filling the gap; off by default
-//    aster:commercial         on a clip itself: what it is (or bumper, promo,
-//                             trailer, interstitial, the default); aster:bumper=in only closes
-//                             a break, aster:bumper=out only opens one
+//    aster:filler             on a playlist: it's a filler playlist, of break clips
+//    aster:commercial         on a clip in one: what it is (or promo, trailer,
+//                             interstitial, bumper; bumper-in only closes a break,
+//                             bumper-out only opens one); untagged clips aren't played
 //    aster:user=peppy,jd      only these users get the channel (by Jellyfin user
 //                             name; everyone without the tag); repeat for more
 //    aster:channel-name=…     the channel's name, in place of the playlist's
@@ -355,29 +356,44 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         }
     }
 
-    /// What a break clip is, from its own tag (`aster:commercial`,
-    /// `aster:bumper=in` and so on); an interstitial, the general filler,
-    /// when it doesn't say.
-    static func clipKind(_ tags: [String]?) -> BreakKind {
+    /// Whether a playlist's tags make it a filler playlist (`aster:filler`):
+    /// one of break clips, which channels can take theirs from.
+    static func isFillerPlaylist(_ tags: [String]?) -> Bool {
+        (tags ?? []).contains { tag in parse(tag).map { $0.key == "filler" && ($0.value.map { !isOff($0) } ?? true) } ?? false }
+    }
+
+    /// What a break clip is, from its own tag: `aster:commercial`,
+    /// `aster:promo`, `aster:trailer`, `aster:interstitial`, or
+    /// `aster:bumper` (`bumper-in`, `bumper-out`). Nil for a clip that
+    /// doesn't say, which breaks leave out.
+    static func clipKind(_ tags: [String]?) -> BreakKind? {
         for tag in tags ?? [] {
             if let (key, _) = parse(tag), let kind = kind(key) { return kind }
         }
-        return .interstitials
+        return nil
     }
 
-    /// Where a bumper goes, from its own `aster:bumper=in` (or `out`) tag:
-    /// either end of a break unless it says.
+    /// Where a bumper goes: `aster:bumper-in` only closes a break (a
+    /// countdown into the show), `aster:bumper-out` only opens one, and a
+    /// plain `aster:bumper` goes at either end.
     static func bumperSide(_ tags: [String]?) -> BumperPlacement {
         for tag in tags ?? [] {
-            guard let (key, value) = parse(tag), kind(key) == .bumpers else { continue }
-            return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
+            guard let (key, value) = parse(tag) else { continue }
+            switch key {
+            case "bumper-in": return .in
+            case "bumper-out": return .out
+            case "bumper", "bumpers": return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
+            default: continue
+            }
         }
         return .both
     }
 
-    /// "bumper" or "bumpers", "commercial" or "commercials" and so on, as a kind.
+    /// "bumper" (or "bumper-in", "bumper-out"), "commercial" or
+    /// "commercials" and so on, as a kind.
     private static func kind(_ word: String) -> BreakKind? {
         let word = word.lowercased()
+        if word == "bumper-in" || word == "bumper-out" { return .bumpers }
         return BreakKind(rawValue: word) ?? BreakKind(rawValue: word + "s")
     }
 

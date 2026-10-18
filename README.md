@@ -1,18 +1,18 @@
 <p align="center">
-  <img src="docs/screenshots/home.jpg" alt="AsterFIN Home screen" width="100%">
+  <img src="docs/screenshots/home.jpg" alt="Aster Media Player Home screen" width="100%">
 </p>
 
-# AsterFIN
+# Aster Media Player
 
 A native Jellyfin client for Apple TV, iPhone, iPad and the Mac, written in SwiftUI.
 
-AsterFIN covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
+Aster covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
 
-> AsterFIN is in beta (0.5). Expect rough edges, and please report what you find.
+> Aster is in beta (0.5). Expect rough edges, and please report what you find.
 
-## Get AsterFIN
+## Get Aster
 
-AsterFIN is open source, and there are three ways to get it:
+Aster Media Player (formerly AsterFIN) is open source, and there are three ways to get it:
 
 - **App Store** (coming soon): one purchase covers Apple TV, iPhone, iPad and the Mac. It installs in one click, updates automatically and supports development. The beta is on TestFlight now.
 - **Free IPA**: download it from [Releases](https://github.com/AsterFIN-app/AsterFIN/releases) when one is posted. Apple TV, iPhone and iPad only run signed apps, so you need to re-sign the IPA with your own Apple ID before installing it. With a free Apple ID the signature expires after 7 days; with a paid Apple Developer account it lasts a year.
@@ -69,10 +69,10 @@ Taken on Apple TV.
   - **Scrub previews:** Jellyfin's trickplay images when the server has made them, else stills from what's already downloaded.
   - **Now Playing:** the lock screen, Control Center and headphone buttons on iPhone and iPad, and the Mac's Now Playing.
   - **Pause screen:** on Apple TV and the Mac, the title's logo and details appear, with a long description scrolling slowly.
-- **System player** (Settings ▸ Playback ▸ "Use the system player"): Apple's player. AsterFIN direct plays when it can and asks the server to transcode when it can't. If a stream fails, it retries with a fresh H.264/AAC encode. Playlists (Play All, Shuffle), downloads and opening/ending clips always use it.
+- **System player** (Settings ▸ Playback ▸ "Use the system player"): Apple's player. Aster direct plays when it can and asks the server to transcode when it can't. If a stream fails, it retries with a fresh H.264/AAC encode. Playlists (Play All, Shuffle), downloads and opening/ending clips always use it.
 
 ### Subtitles
-- **Text subtitles:** AsterFIN draws them itself from Jellyfin's cue data, so they work in direct play as well as HLS.
+- **Text subtitles:** Aster draws them itself from Jellyfin's cue data, so they work in direct play as well as HLS.
 - **ASS/SSA:** drawn with [libass](https://github.com/libass/libass) as the release intended: signs where they belong, vector drawings, blur and clips, in the fonts embedded in the file. You can turn this off for plain text in Settings ▸ Audio & Subtitles.
 
 ### Anime
@@ -99,20 +99,20 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
 
   | Tag | Meaning | Default |
   | --- | --- | --- |
-  | `asterfin:channel` | This playlist is a channel | not a channel |
-  | `asterfin:number=101` | Its channel number | numbered after the rest, by name |
-  | `asterfin:mode=blocks` | `rotation`, `blocks`, `shuffle` or `sequential` | `rotation` |
-  | `asterfin:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
-  | `asterfin:reshuffle=week` | How long one order of shows lasts: `day`, `week` (Monday to Monday) or `month` | `day` |
-  | `asterfin:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
-  | `asterfin:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
-  | `asterfin:bug=on` | The logo, faint in the corner while the channel plays | off |
-  | `asterfin:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
-  | `asterfin:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
-  | `asterfin:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
-  | `asterfin:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
+  | `aster:channel` | This playlist is a channel | not a channel |
+  | `aster:number=101` | Its channel number | numbered after the rest, by name |
+  | `aster:mode=blocks` | `rotation`, `blocks`, `shuffle` or `sequential` | `rotation` |
+  | `aster:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
+  | `aster:reshuffle=week` | How long one order of shows lasts: `day`, `week` (Monday to Monday) or `month` | `day` |
+  | `aster:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
+  | `aster:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
+  | `aster:bug=on` | The logo, faint in the corner while the channel plays | off |
+  | `aster:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
+  | `aster:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
+  | `aster:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
+  | `aster:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
-  Turning a playlist on in AsterFIN writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `asterfin:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value AsterFIN doesn't understand falls back to the default. Channels set up in an earlier version are turned into tags the first time an administrator opens this one.
+  Turning a playlist on in Aster writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `aster:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value Aster doesn't understand falls back to the default. Tags written before the app was renamed (`asterfin:…`) still work, and are rewritten as `aster:…` the first time an administrator signs in.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
 - **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
 - **A week ahead:** the guide covers the next 7 days, with a day picker at the top.
@@ -120,7 +120,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
 - **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
 
 ### Disc menus
-- AsterFIN renders DVD/Blu-ray-style menus from the **JellyDisc** plugin. They support backgrounds, chapter and trailer screens, and theme songs.
+- Aster renders DVD/Blu-ray-style menus from the **JellyDisc** plugin. They support backgrounds, chapter and trailer screens, and theme songs.
 - Screens change with fade, slide, rise, zoom or wipe transitions. Menu music and click, chime or beep sounds are built in, or a menu can ship its own sound files.
 - Conformance tests check the menu rules against the plugin's published test vectors.
 
@@ -133,13 +133,13 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   - A sidebar and a Settings window (⌘,).
   - Videos play full screen (or in the window, if you'd rather).
   - Keyboard shortcuts: Space to play or pause, ← → to jump, Esc to close.
-- **Deep links:** `asterfin://item/{id}` opens a title page, and `asterfin://play/{id}` starts playback.
+- **Deep links:** `aster://item/{id}` opens a title page, and `aster://play/{id}` starts playback.
 - **Sign-in:** password or Quick Connect, with multiple users per server.
-- **Settings that follow you:** Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in AsterFIN's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
+- **Settings that follow you:** Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in Aster's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
 
 ## Server requirements
 
-AsterFIN works with a recent Jellyfin server (10.10 or later recommended). All plugins are optional, and features that depend on them turn on when they're present:
+Aster works with a recent Jellyfin server (10.10 or later recommended). All plugins are optional, and features that depend on them turn on when they're present:
 
 | Plugin | Enables |
 | --- | --- |
@@ -162,7 +162,7 @@ git clone https://github.com/AsterFIN-app/AsterFIN.git
 open AsterFIN/AsterFIN.xcodeproj
 ```
 
-Xcode fetches the Swift packages on first open. Select the **AsterFIN** scheme and an Apple TV, iPhone, iPad or Mac destination, then build and run.
+Xcode fetches the Swift packages on first open. Select the **AsterFIN** scheme (the project keeps its earlier name for now) and an Apple TV, iPhone, iPad or Mac destination, then build and run.
 
 To run on a device, set your own development team in **Signing & Capabilities** for both the `AsterFIN` and `AsterFINTopShelf` targets. Top Shelf needs an App Group that both targets share (`group.app.asterfin` by default), so change it to one your team owns.
 
@@ -186,12 +186,12 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Picture-based subtitles (PGS, VobSub) are burned in by the server, which forces a transcode.
   - A transcoded stream has one audio track, so switching audio needs direct play.
   - Use AetherEngine for both.
-- **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). AsterFIN avoids this by drawing subtitles itself.
+- **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). Aster avoids this by drawing subtitles itself.
 - **AetherEngine:**
   - No Picture in Picture yet.
   - A converted stream (AV1 on Apple TV, or a lower quality) carries one audio track, so switching audio asks the server for a new stream.
   - Video the engine decodes in software has no system Now Playing info.
-  - The Apple TV's Control Center doesn't list AsterFIN's video, with either player.
+  - The Apple TV's Control Center doesn't list Aster's video, with either player.
 - **Channels (beta):**
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
@@ -213,8 +213,8 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 
 ## License
 
-AsterFIN is licensed under the [Mozilla Public License 2.0](LICENSE). You're free to use, modify and redistribute it. If you distribute a modified version, the files of AsterFIN you changed must stay available under the MPL. New files you add can use any license. The components above keep their own licenses.
+Aster is licensed under the [Mozilla Public License 2.0](LICENSE). You're free to use, modify and redistribute it. If you distribute a modified version, the files of Aster you changed must stay available under the MPL. New files you add can use any license. The components above keep their own licenses.
 
-The AsterFIN name and app icon aren't covered by the license. If you publish your own build, for example on the App Store, give it a different name and icon so people don't confuse it with the official app.
+The Aster name and app icon aren't covered by the license. If you publish your own build, for example on the App Store, give it a different name and icon so people don't confuse it with the official app.
 
-AsterFIN isn't affiliated with or endorsed by the Jellyfin project.
+Aster isn't affiliated with or endorsed by the Jellyfin project.

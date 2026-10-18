@@ -448,7 +448,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AsterFIN;
+				INFOPLIST_KEY_CFBundleDisplayName = Aster;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -498,7 +498,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AsterFIN;
+				INFOPLIST_KEY_CFBundleDisplayName = Aster;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -589,7 +589,7 @@
 				DEVELOPMENT_TEAM = SH9CNA2U95;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AsterFINTopShelf;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -621,7 +621,7 @@
 				DEVELOPMENT_TEAM = SH9CNA2U95;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AsterFINTopShelf;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

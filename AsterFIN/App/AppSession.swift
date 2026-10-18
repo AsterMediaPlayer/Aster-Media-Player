@@ -175,6 +175,21 @@ final class AppSession {
         if let config = me.configuration {
             userConfiguration = config
         }
+        if canEditChannels { await convertOldChannelTags() }
+    }
+
+    /// Renames channel tags from the app's earlier name, "asterfin:…", to
+    /// "aster:…" on every playlist that still has them. It only finds any
+    /// the first time an administrator signs in after the change (or if
+    /// someone types an old one in Jellyfin); old tags are read meanwhile.
+    private func convertOldChannelTags() async {
+        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        var converted = false
+        for playlist in playlists {
+            guard let tags = ChannelTags.converted(playlist.tags) else { continue }
+            if (try? await client.setTags(tags, onItem: playlist.id)) != nil { converted = true }
+        }
+        if converted { await refreshChannels() }
     }
 
     /// Changes one or more settings and saves them to the server, keeping the

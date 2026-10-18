@@ -22,7 +22,7 @@ struct ServerConnectView: View {
                         Image(systemName: "opticaldisc.fill")
                             .font(.system(size: Onboarding.logoSize, weight: .thin))
                             .foregroundStyle(.white)
-                        Text("AsterFIN")
+                        Text("Aster")
                             .font(.system(size: Onboarding.titleSize, weight: .bold))
                         Text("Connect to your Jellyfin server")
                             .font(.title3)

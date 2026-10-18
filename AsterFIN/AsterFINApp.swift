@@ -51,7 +51,7 @@ struct AsterFINApp: App {
         }
         #endif
         #if os(macOS)
-        // AsterFIN › Settings… (⌘,).
+        // Aster › Settings… (⌘,).
         Settings {
             MacSettingsView()
                 .environment(session)

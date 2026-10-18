@@ -88,7 +88,7 @@ struct SettingsView: View {
 }
 
 #if os(macOS)
-/// The Mac's Settings window (AsterFIN › Settings…, ⌘,): a pane per section,
+/// The Mac's Settings window (Aster › Settings…, ⌘,): a pane per section,
 /// as Mac apps do, in place of the Settings tab the other platforms have.
 struct MacSettingsView: View {
     @Environment(AppSession.self) private var session
@@ -517,7 +517,7 @@ struct ChannelSettingsView: View {
                 }
                 Section {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
-                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: asterfin:channel, asterfin:number=3, asterfin:mode=blocks (or rotation, shuffle, sequential), asterfin:reshuffle=week (or day, month), asterfin:blocks=3-6, asterfin:seed=2, asterfin:logo=on, asterfin:bug=on (with asterfin:bug-location=top-left, top-right, bottom-left or bottom-right, asterfin:bug-size=150% and asterfin:bug-hide=30) and asterfin:channel-name=Your Name.")
+                    SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: aster:channel, aster:number=3, aster:mode=blocks (or rotation, shuffle, sequential), aster:reshuffle=week (or day, month), aster:blocks=3-6, aster:seed=2, aster:logo=on, aster:bug=on (with aster:bug-location=top-left, top-right, bottom-left or bottom-right, aster:bug-size=150% and aster:bug-hide=30) and aster:channel-name=Your Name.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -903,7 +903,7 @@ private struct AboutSettingsView: View {
             // Focusable rows give the page somewhere for focus to land; with
             // nothing focused, tvOS never delivers the Back press to pop it.
             Section {
-                LabeledContent("AsterFIN", value: "1.0")
+                LabeledContent("Aster Media Player", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     .focusable()
                 SettingsNote("A Jellyfin client for Apple TV, iPhone, iPad and Mac with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
                     .focusable()

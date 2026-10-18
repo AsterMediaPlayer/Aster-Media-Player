@@ -47,7 +47,7 @@ struct ChannelsView: View {
                     channels: guide.channels,
                     select: select,
                     playChannel: tuneIn(channelId:),
-                    emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it asterfin:channel in Jellyfin."
+                    emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it aster:channel in Jellyfin."
                 )
                 // A new guide (other channels, or the next day) starts afresh.
                 .id(ObjectIdentifier(guide))

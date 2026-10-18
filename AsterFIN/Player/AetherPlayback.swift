@@ -496,6 +496,25 @@ final class AetherPlayback {
         play(live.item, entry: live.entry)
     }
 
+    /// Leaves the channel for `itemId` played on its own, as if picked from
+    /// its show or the library: from where it was left off, with progress
+    /// saved, its markers, and Up Next after it. The channel plays on until
+    /// the title is found.
+    func goTo(_ itemId: String) {
+        guard !stopped, entry.channelId != nil else { return }
+        let client = client
+        Task { [weak self] in
+            let found = try? await client.item(itemId)
+            guard let self, !self.stopped, self.entry.channelId != nil else { return }
+            guard let found else {
+                self.showTuneMessage("Couldn't open that title")
+                return
+            }
+            self.endServerSession()
+            self.play(found, entry: PlaybackQueueItem(itemId: found.id, startTicks: found.userData?.playbackPositionTicks ?? 0))
+        }
+    }
+
     /// The engine says the live source can't go on (the server restarted
     /// its stream, or it stopped arriving): a fresh stream from the server,
     /// a few times at most before giving the channel to the system player.

@@ -4,8 +4,8 @@
 //
 //  The channel row the Apple TV player opens with Up (see `ChannelFlick`):
 //  what's on the picked channel across the top, and the channels either
-//  side of it in a row beneath, over the picture, which plays on. The
-//  remote is the player's own; this only draws.
+//  side of it in a row beneath, over the picture, which plays on, and Go to
+//  Episode above the row. The remote is the player's own; this only draws.
 //
 
 #if os(tvOS)
@@ -17,7 +17,7 @@ struct ChannelFlickBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 30) {
             if let channel = model.selectedChannel {
-                ChannelFlickDetail(channel: channel, isCurrent: channel.id == model.currentId)
+                ChannelFlickDetail(channel: channel, isCurrent: channel.id == model.currentId, isOnGoTo: model.isOnGoTo)
                     .id(channel.id)
                     .transition(.opacity)
             }
@@ -33,12 +33,13 @@ struct ChannelFlickBar: View {
             .frame(maxWidth: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: model.selectedChannel?.id)
-        .padding(EdgeInsets(top: 60, leading: 90, bottom: 60, trailing: 90))
+        .animation(.easeInOut(duration: 0.15), value: model.isOnGoTo)
+        .padding(40)
+        // A pane of glass over the picture, which shows through blurred;
+        // tinted a little dark so white text holds up on a bright scene.
+        .glassEffect(.regular.tint(.black.opacity(0.3)), in: .rect(cornerRadius: 44))
+        .padding(EdgeInsets(top: 60, leading: 70, bottom: 50, trailing: 70))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .background {
-            LinearGradient(colors: [.clear, .black.opacity(0.92)], startPoint: UnitPoint(x: 0.5, y: 0.2), endPoint: .bottom)
-                .ignoresSafeArea()
-        }
         .foregroundStyle(.white)
     }
 }
@@ -47,6 +48,8 @@ struct ChannelFlickBar: View {
 private struct ChannelFlickDetail: View {
     let channel: FlickChannel
     let isCurrent: Bool
+    /// Go to Episode is picked rather than the channel.
+    let isOnGoTo: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 36) {
@@ -84,10 +87,15 @@ private struct ChannelFlickDetail: View {
                 if let program = channel.now {
                     ChannelFlickTime(program: program)
                 }
-                Label(isCurrent ? "Watching" : "Press Select to Watch", systemImage: isCurrent ? "play.tv" : "circle.circle")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(isCurrent ? .white.opacity(0.6) : .white)
-                    .padding(.top, 4)
+                HStack(spacing: 28) {
+                    if let program = channel.now, program.itemId != nil {
+                        ChannelFlickGoTo(title: program.isMovie ? "Go to Movie" : "Go to Episode", isPicked: isOnGoTo)
+                    }
+                    Label(isCurrent ? "Watching" : "Press Select to Watch", systemImage: isCurrent ? "play.tv" : "circle.circle")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(isCurrent || isOnGoTo ? .white.opacity(0.6) : .white)
+                }
+                .padding(.top, 4)
             }
             // Clear of the bug, which sits in the top right corner beside the
             // channel and what's on without pushing the lines below apart.
@@ -107,6 +115,33 @@ private struct ChannelFlickDetail: View {
     }
 
     private static let bugWidth: CGFloat = 280
+}
+
+/// Go to Episode (or Movie): white when picked, as the player's buttons are
+/// when focused, and Up's way to it shown otherwise.
+private struct ChannelFlickGoTo: View {
+    let title: String
+    let isPicked: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isPicked ? "play.rectangle.fill" : "chevron.up")
+            Text(title)
+                .lineLimit(1)
+        }
+        .font(.callout.weight(.semibold))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .foregroundStyle(isPicked ? .black : .white)
+        .background {
+            if isPicked {
+                Capsule().fill(.white.opacity(0.85))
+            } else {
+                Capsule().fill(.ultraThinMaterial)
+            }
+        }
+        .scaleEffect(isPicked ? 1.05 : 1)
+    }
 }
 
 /// "8:00 – 8:30 PM", how far into it the channel is, and the time left.

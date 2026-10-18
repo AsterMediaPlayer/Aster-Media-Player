@@ -275,11 +275,16 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         return low...high
     }
 
-    /// "asterfin:Number=101" → ("number", "101"); nil for a tag that isn't AsterFIN's.
+    /// What the tags begin with once the app is called Aster; read already,
+    /// so a playlist a newer build has rewritten stays a channel here.
+    static let newPrefix = "aster:"
+
+    /// "asterfin:Number=101" (or "aster:Number=101") → ("number", "101");
+    /// nil for a tag that isn't AsterFIN's.
     private static func parse(_ tag: String) -> (key: String, value: String?)? {
         let trimmed = tag.trimmingCharacters(in: .whitespaces)
-        guard trimmed.lowercased().hasPrefix(prefix) else { return nil }
-        let body = trimmed.dropFirst(prefix.count)
+        guard let start = [prefix, newPrefix].first(where: { trimmed.lowercased().hasPrefix($0) }) else { return nil }
+        let body = trimmed.dropFirst(start.count)
         let parts = body.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
         guard let key = parts.first?.lowercased(), !key.isEmpty else { return nil }
         let value = parts.count > 1 ? parts[1] : nil

@@ -281,4 +281,16 @@ struct ChannelTagsTests {
         #expect(ChannelsModel.passes(item(.series, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
         #expect(!ChannelsModel.passes(item(.audioBook, year: 2001, rating: nil), ChannelTags(tags: ["asterfin:collection=x"])))
     }
+
+    @Test func tagsFromTheNewNameAreReadToo() {
+        let tags = ChannelTags(tags: ["aster:channel", "Aster:Number=7", "aster:mode=blocks"])
+        #expect(tags.isChannel)
+        #expect(tags.number == 7)
+        #expect(tags.mode == .blocks)
+        // Saving replaces them rather than adding a second set.
+        let written = tags.applied(to: ["aster:channel", "aster:number=7", "Family"])
+        #expect(!written.contains { $0.lowercased().hasPrefix("aster:") })
+        #expect(written.contains("asterfin:number=7"))
+        #expect(written.contains("Family"))
+    }
 }

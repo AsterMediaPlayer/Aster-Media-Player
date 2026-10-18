@@ -306,65 +306,74 @@ struct ChannelTagsTests {
 
     @Test func breakTagsAreRead() {
         let tags = ChannelTags(tags: [
-            "aster:channel", "aster:bumpers=Tooniverse Bumpers", "aster:commercials=80s Ads, Part 1", "aster:commercials=90s Ads",
-            "aster:promos=Promos", "aster:interstitials=Shorts", "aster:bumpers-at=out", "aster:break-length=4",
+            "aster:channel", "aster:filler-playlists=Hazbin Bumpers", "aster:filler-playlists=80s Ads, Part 1",
+            "aster:filler-types=commercials, Bumpers, nonsense", "aster:bumpers-at=out", "aster:break-length=4",
             "aster:promo-count=2", "aster:interstitial-count=0", "aster:break-every=3", "aster:align=:30",
         ])
-        #expect(tags.bumpers == ["Tooniverse Bumpers"])
-        #expect(tags.commercials == ["80s Ads, Part 1", "90s Ads"])
-        #expect(tags.promos == ["Promos"])
-        #expect(tags.interstitials == ["Shorts"])
+        #expect(tags.fillerPlaylists == ["Hazbin Bumpers", "80s Ads, Part 1"])
+        #expect(tags.fillerTypes == [.commercials, .bumpers])
         #expect(tags.hasBreaks)
-        #expect(tags.breakKind == nil)
         #expect(tags.lineup.breaks == ChannelBreaks(bumpersAt: .out, promoCount: 2, interstitialCount: 0, minutes: 4, every: 3, align: 30))
+        // No types it knows means all of them.
+        #expect(ChannelTags(tags: ["aster:filler-types=ads"]).fillerTypes == Set(BreakKind.allCases))
+        #expect(ChannelTags(tags: ["aster:filler-playlists=Bumpers"]).fillerTypes == Set(BreakKind.allCases))
         // Bad values fall back.
         let bad = ChannelTags(tags: ["aster:align=25", "aster:break-length=99", "aster:promo-count=many", "aster:bumpers-at=sideways", "aster:break-every=0"])
         #expect(bad.breaks == ChannelBreaks())
+        #expect(!bad.hasBreaks)
         #expect(ChannelTags(tags: ["aster:align=60m"]).breaks.align == 60)
         #expect(ChannelTags(tags: ["aster:align=off"]).breaks.align == 0)
     }
 
-    @Test func aBarePlaylistTagSaysWhatItHolds() {
-        #expect(ChannelTags(tags: ["aster:bumpers"]).breakKind == .bumpers)
-        #expect(ChannelTags(tags: ["Aster:Commercials"]).breakKind == .commercials)
-        #expect(ChannelTags(tags: ["aster:bumpers"]).bumpers.isEmpty)
-        #expect(!ChannelTags(tags: ["aster:interstitials"]).hasBreaks)
-        let marked = ChannelTags.marking(["Family", "aster:promos"], as: .interstitials)
-        #expect(marked == ["Family", "aster:interstitials"])
-        #expect(ChannelTags.marking(marked, as: nil) == ["Family"])
+    @Test func aClipsOwnTagSaysWhatItIs() {
+        #expect(ChannelTags.clipKind(["aster:bumper=in"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["Family", "Aster:Commercial"]) == .commercials)
+        #expect(ChannelTags.clipKind(["aster:promos"]) == .promos)
+        #expect(ChannelTags.clipKind(["aster:interstitial"]) == .interstitials)
+        #expect(ChannelTags.clipKind(["Family"]) == .interstitials)
+        #expect(ChannelTags.clipKind(nil) == .interstitials)
+        #expect(ChannelTags.bumperSide(["aster:bumper=in"]) == .in)
+        #expect(ChannelTags.bumperSide(["aster:bumpers=out"]) == .out)
+        #expect(ChannelTags.bumperSide(["aster:bumper"]) == .both)
     }
 
     @Test func breakTagsRoundTrip() {
         let tags = ChannelTags(isChannel: true).with {
-            $0.bumpers = ["Bumpers"]
-            $0.commercials = ["Ads"]
+            $0.fillerPlaylists = ["Hazbin Bumpers", "80s Ads"]
+            $0.fillerTypes = [.bumpers, .commercials]
             $0.breaks.align = 30
             $0.breaks.promoCount = 0
         }
         let written = tags.applied(to: ["Family"])
-        #expect(written.contains("aster:bumpers=Bumpers"))
-        #expect(written.contains("aster:commercials=Ads"))
+        #expect(written.contains("aster:filler-playlists=Hazbin Bumpers"))
+        #expect(written.contains("aster:filler-playlists=80s Ads"))
+        #expect(written.contains("aster:filler-types=bumpers,commercials"))
         #expect(written.contains("aster:align=30"))
         #expect(written.contains("aster:break-length=2"))
         #expect(ChannelTags(tags: written) == tags)
-        // Without break playlists, none of the break settings are written.
-        #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.contains("break") || $0.contains("align") })
+        // Without filler playlists, none of the break settings are written.
+        #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.contains("filler") || $0.contains("break") || $0.contains("align") })
     }
 
-    @Test func aChannelsBreakPlaylistsAreFoundByName() {
-        func playlist(_ id: String, _ name: String, tags: [String] = []) -> BaseItem {
-            var item = BaseItem(id: id, name: name, type: "Playlist")
+    @Test func fillerClipsAreSortedByTheirOwnTags() {
+        func playlist(_ id: String, _ name: String) -> BaseItem { BaseItem(id: id, name: name, type: "Playlist") }
+        let playlists = [playlist("a", "Hazbin Bumpers"), playlist("b", "80s Ads"), playlist("c", "Tooniverse")]
+        let tags = ChannelTags(tags: ["aster:filler-playlists=hazbin bumpers", "aster:filler-playlists=80s Ads", "aster:filler-playlists=Missing"])
+        #expect(ChannelsModel.fillerPlaylists(named: tags, in: playlists).map(\.id) == ["a", "b"])
+
+        func clip(_ id: String, _ tags: [String]) -> BaseItem {
+            var item = BaseItem(id: id, name: id, type: "Video")
             item.tags = tags
             return item
         }
-        let playlists = [
-            playlist("a", "Bumpers"), playlist("b", "bumpers", tags: ["aster:bumpers"]),
-            playlist("c", "Ads", tags: ["aster:commercials"]), playlist("d", "Tooniverse", tags: ["aster:channel"]),
-        ]
-        let tags = ChannelTags(tags: ["aster:channel", "aster:bumpers=BUMPERS", "aster:commercials=Ads", "aster:promos=Missing"])
-        let found = ChannelsModel.breakPlaylists(named: tags, in: playlists)
-        #expect(found[.bumpers]?.map(\.id) == ["b"])
-        #expect(found[.commercials]?.map(\.id) == ["c"])
-        #expect(found[.promos]?.isEmpty == true)
+        let items = [clip("countdown", ["aster:bumper=in"]), clip("kool-aid", ["aster:commercial"]),
+                     clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("short", [])]
+        let all = ChannelsModel.breakClips(from: items, types: Set(BreakKind.allCases))
+        #expect(all.bumpers.map(\.id) == ["countdown"])
+        #expect(all.commercials.map(\.id) == ["kool-aid"])
+        #expect(all.promos.map(\.id) == ["next-week"])
+        #expect(all.interstitials.map(\.id) == ["psa", "short"])
+        let some = ChannelsModel.breakClips(from: items, types: [.bumpers, .commercials])
+        #expect(some.promos.isEmpty && some.interstitials.isEmpty && some.bumpers.count == 1 && some.commercials.count == 1)
     }
 }

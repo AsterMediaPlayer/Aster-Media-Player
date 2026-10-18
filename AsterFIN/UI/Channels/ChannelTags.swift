@@ -30,10 +30,9 @@
 //    aster:weight=Friends:2   a show takes turns this many times as often (1-5)
 //    aster:min-length=15      leaves out titles shorter than this, in minutes
 //    aster:max-length=120     leaves out titles longer than this, in minutes
-//    aster:bumpers=…          the playlist of idents the breaks play; repeat for more
-//    aster:promos=…           the playlist of promos (ads for shows); repeat
-//    aster:commercials=…      the playlist of commercials; repeat
-//    aster:interstitials=…    the playlist of filler (shorts, PSAs, music videos); repeat
+//    aster:filler-playlists=… a playlist of clips for the breaks; repeat for more
+//    aster:filler-types=…     the kinds of clip to play: bumpers, promos,
+//                             commercials, interstitials (all four by default)
 //    aster:bumpers-at=both    a bumper opens and closes each break (or out, in)
 //    aster:break-length=2     minutes of commercials in each break, 0 to 30
 //    aster:promo-count=1      promos in each break, 0 to 5
@@ -41,10 +40,9 @@
 //    aster:break-every=1      a break after every programme, or every 2nd to 10th
 //    aster:align=30           programmes start on the half hour (or 5, 10, 15, 20,
 //                             60 minutes), each break filling the gap; off by default
-//    aster:bumper=in          on a bumper itself: it only closes a break (or out,
-//                             only opens one; both, the default, either)
-//    aster:bumpers            on a playlist of clips, rather than a channel: what
-//                             it holds (or promos, commercials, interstitials)
+//    aster:commercial         on a clip itself: what it is (or bumper, promo,
+//                             interstitial, the default); aster:bumper=in only closes
+//                             a break, aster:bumper=out only opens one
 //    aster:channel-name=…     the channel's name, in place of the playlist's
 //
 //  "aster:" and the keys and values are read whatever their case (and so
@@ -64,7 +62,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "bumpers", "promos", "commercials", "interstitials", "bumpers-at", "promo-count", "interstitial-count", "break-length", "break-every", "align", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "interstitial-count", "break-length", "break-every", "align", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -105,40 +103,17 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// Whether the channel fills itself from genres, networks or collections.
     var hasSources: Bool { !genres.isEmpty || !networks.isEmpty || !collections.isEmpty }
 
-    /// Playlists, by name, of the clips the breaks between programmes
-    /// play: idents, promos, commercials and filler.
-    var bumpers: [String] = []
-    var promos: [String] = []
-    var commercials: [String] = []
-    var interstitials: [String] = []
+    /// Playlists, by name, of the clips the breaks between programmes play;
+    /// each clip's own tag says what it is (`clipKind`), so one playlist can
+    /// serve many channels.
+    var fillerPlaylists: [String] = []
+    /// The kinds of clip the breaks play from them: all four unless it says.
+    var fillerTypes = Set(BreakKind.allCases)
     /// How each break is made up, and how often one comes.
     var breaks = ChannelBreaks()
-    /// On a playlist of break clips (tagged `aster:bumpers` and so on, with
-    /// no name): what it holds.
-    var breakKind: BreakKind?
 
     /// Whether the channel has breaks between its programmes.
-    var hasBreaks: Bool { !bumpers.isEmpty || !promos.isEmpty || !commercials.isEmpty || !interstitials.isEmpty }
-
-    /// The break playlists the channel names for `kind`.
-    func breakPlaylists(_ kind: BreakKind) -> [String] {
-        switch kind {
-        case .bumpers: bumpers
-        case .promos: promos
-        case .commercials: commercials
-        case .interstitials: interstitials
-        }
-    }
-
-    /// Sets the break playlists the channel names for `kind`.
-    mutating func setBreakPlaylists(_ kind: BreakKind, _ names: [String]) {
-        switch kind {
-        case .bumpers: bumpers = names
-        case .promos: promos = names
-        case .commercials: commercials = names
-        case .interstitials: interstitials = names
-        }
-    }
+    var hasBreaks: Bool { !fillerPlaylists.isEmpty && !fillerTypes.isEmpty }
 
     /// The most promos `promo-count=` (or interstitials
     /// `interstitial-count=`) can ask for; the longest break
@@ -242,17 +217,12 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 minLength = value.flatMap { Int($0) }.flatMap { Self.lengths.contains($0) ? $0 : nil }
             case "max-length":
                 maxLength = value.flatMap { Int($0) }.flatMap { Self.lengths.contains($0) ? $0 : nil }
-            // Named, the playlists a channel's breaks play; bare, what a
-            // playlist of clips holds.
-            case "bumpers", "promos", "commercials", "interstitials":
-                let kind = BreakKind(rawValue: key)!
-                guard let value, !value.isEmpty else {
-                    breakKind = kind
-                    continue
-                }
-                var names = breakPlaylists(kind)
-                Self.collect(value, into: &names, splitting: false)
-                setBreakPlaylists(kind, names)
+            case "filler-playlists", "filler-playlist":
+                Self.collect(value, into: &fillerPlaylists, splitting: false)
+            case "filler-types", "filler-type":
+                // Kinds it doesn't know are ignored; none it does means all.
+                let kinds = Set((value ?? "").split(separator: ",").compactMap { Self.kind($0.trimmingCharacters(in: .whitespaces)) })
+                fillerTypes = kinds.isEmpty ? Set(BreakKind.allCases) : kinds
             case "bumpers-at":
                 breaks.bumpersAt = value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
             case "promo-count":
@@ -307,9 +277,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         if let maxLength { result.append(Self.prefix + "max-length=\(maxLength)") }
         // The break settings only mean something with clips to play.
         if hasBreaks {
-            for kind in BreakKind.allCases {
-                for name in breakPlaylists(kind) { result.append(Self.prefix + "\(kind.rawValue)=\(name)") }
-            }
+            for name in fillerPlaylists { result.append(Self.prefix + "filler-playlists=\(name)") }
+            result.append(Self.prefix + "filler-types=" + BreakKind.allCases.filter(fillerTypes.contains).map(\.rawValue).joined(separator: ","))
             result.append(Self.prefix + "bumpers-at=\(breaks.bumpersAt.rawValue)")
             result.append(Self.prefix + "break-length=\(breaks.minutes)")
             result.append(Self.prefix + "promo-count=\(breaks.promoCount)")
@@ -317,7 +286,6 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             result.append(Self.prefix + "break-every=\(breaks.every)")
             result.append(Self.prefix + (breaks.align > 0 ? "align=\(breaks.align)" : "align=off"))
         }
-        if let breakKind { result.append(Self.prefix + breakKind.rawValue) }
         if let name { result.append(Self.prefix + "channel-name=\(name)") }
         return result
     }
@@ -365,25 +333,30 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         }
     }
 
+    /// What a break clip is, from its own tag (`aster:commercial`,
+    /// `aster:bumper=in` and so on); an interstitial, the general filler,
+    /// when it doesn't say.
+    static func clipKind(_ tags: [String]?) -> BreakKind {
+        for tag in tags ?? [] {
+            if let (key, _) = parse(tag), let kind = kind(key) { return kind }
+        }
+        return .interstitials
+    }
+
     /// Where a bumper goes, from its own `aster:bumper=in` (or `out`) tag:
     /// either end of a break unless it says.
     static func bumperSide(_ tags: [String]?) -> BumperPlacement {
         for tag in tags ?? [] {
-            guard let (key, value) = parse(tag), key == "bumper" else { continue }
+            guard let (key, value) = parse(tag), kind(key) == .bumpers else { continue }
             return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
         }
         return .both
     }
 
-    /// `tags` marked as a playlist of `kind` break clips (or not, for nil),
-    /// every other tag kept as it is.
-    static func marking(_ tags: [String]?, as kind: BreakKind?) -> [String] {
-        var result = (tags ?? []).filter { tag in
-            guard let (key, value) = parse(tag) else { return true }
-            return !(BreakKind(rawValue: key) != nil && (value ?? "").isEmpty)
-        }
-        if let kind { result.append(prefix + kind.rawValue) }
-        return result
+    /// "bumper" or "bumpers", "commercial" or "commercials" and so on, as a kind.
+    private static func kind(_ word: String) -> BreakKind? {
+        let word = word.lowercased()
+        return BreakKind(rawValue: word) ?? BreakKind(rawValue: word + "s")
     }
 
     /// Whether `tags` set `key` at all, as opposed to leaving it to its default.

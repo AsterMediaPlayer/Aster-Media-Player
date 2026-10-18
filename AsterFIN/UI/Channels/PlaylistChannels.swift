@@ -169,9 +169,9 @@ final class ChannelsModel {
             let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
             // The playlists of break clips the channels name, fetched with
             // the channels' own.
-            let breakPlaylists = Dictionary(uniqueKeysWithValues: tagged.map { ($0.playlist.id, Self.breakPlaylists(named: $0.tags, in: playlists)) })
+            let fillers = Dictionary(uniqueKeysWithValues: tagged.map { ($0.playlist.id, Self.fillerPlaylists(named: $0.tags, in: playlists)) })
             var wanted = tagged.map(\.playlist)
-            for playlist in breakPlaylists.values.flatMap({ $0.values.joined() }) where !wanted.contains(where: { $0.id == playlist.id }) {
+            for playlist in fillers.values.joined() where !wanted.contains(where: { $0.id == playlist.id }) {
                 wanted.append(playlist)
             }
             let stale = wanted.filter { playlist in
@@ -194,13 +194,14 @@ final class ChannelsModel {
                 let fromSources = entry.tags.hasSources ? (sourceCache[entry.playlist.id]?.items ?? []) : []
                 let items = Self.merged(own, fromSources).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                let named = breakPlaylists[entry.playlist.id] ?? [:]
-                let clips = { (kind: BreakKind) in (named[kind] ?? []).flatMap { self.itemCache[$0.id]?.items ?? [] } }
+                let clips = entry.tags.hasBreaks
+                    ? Self.breakClips(from: (fillers[entry.playlist.id] ?? []).flatMap { self.itemCache[$0.id]?.items ?? [] }, types: entry.tags.fillerTypes)
+                    : .none
                 return PlaylistChannel(
                     playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup,
                     showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize,
                     bugHideAfter: entry.tags.bugHideAfter, bugOpacity: entry.tags.bugOpacity, customName: entry.tags.name,
-                    breakClips: ChannelBreakClips(bumpers: clips(.bumpers), promos: clips(.promos), commercials: clips(.commercials), interstitials: clips(.interstitials)),
+                    breakClips: clips,
                     seriesLogo: PlaylistChannel.seriesLogo(of: items)
                 )
             }
@@ -326,20 +327,29 @@ final class ChannelsModel {
         return true
     }
 
-    /// The playlists a channel's tags name for its breaks, by kind: matched
-    /// by name whatever the case, one tagged as that kind first where two
-    /// share a name. A name no playlist has is left out.
-    nonisolated static func breakPlaylists(named tags: ChannelTags, in playlists: [BaseItem]) -> [BreakKind: [BaseItem]] {
-        var found: [BreakKind: [BaseItem]] = [:]
-        for kind in BreakKind.allCases {
-            let names = tags.breakPlaylists(kind)
-            guard !names.isEmpty else { continue }
-            found[kind] = names.compactMap { name in
-                let matches = playlists.filter { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
-                return matches.first { ChannelTags(tags: $0.tags).breakKind == kind } ?? matches.first
+    /// The playlists a channel's `filler-playlists=` tags name, matched by
+    /// name whatever the case; a name no playlist has is left out.
+    nonisolated static func fillerPlaylists(named tags: ChannelTags, in playlists: [BaseItem]) -> [BaseItem] {
+        tags.fillerPlaylists.compactMap { name in
+            playlists.first { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
+        }
+    }
+
+    /// Break clips sorted by what each one's own tag says it is, keeping
+    /// only the kinds the channel's `filler-types=` asks for.
+    nonisolated static func breakClips(from items: [BaseItem], types: Set<BreakKind>) -> ChannelBreakClips {
+        var clips = ChannelBreakClips()
+        for item in items {
+            let kind = ChannelTags.clipKind(item.tags)
+            guard types.contains(kind) else { continue }
+            switch kind {
+            case .bumpers: clips.bumpers.append(item)
+            case .promos: clips.promos.append(item)
+            case .commercials: clips.commercials.append(item)
+            case .interstitials: clips.interstitials.append(item)
             }
         }
-        return found
+        return clips
     }
 
     /// Lower-cased names to ids, the first of any name used twice.

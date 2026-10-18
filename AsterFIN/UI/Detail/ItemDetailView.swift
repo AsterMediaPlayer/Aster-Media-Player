@@ -260,6 +260,8 @@ struct ItemDetailView: View {
     /// A spoiler or NSFW theme waiting for the viewer's go-ahead.
     @State private var confirmTheme: OpEdTheme?
     @State private var showDiscMenu = false
+    /// The tab a show's page is on.
+    @State private var section: DetailSection = .episodes
     @State private var message: String?
     @State private var notice: String?
     @State private var playlistRequest: PlaylistRequest?
@@ -293,53 +295,14 @@ struct ItemDetailView: View {
                     header
                         .frame(maxWidth: .infinity, minHeight: headerMinHeight, alignment: .bottomLeading)
 
-                    if detail.kind == .series || detail.kind == .season {
-                        episodesSection
+                    if usesSections {
+                        // A show's page in tabs, so its episodes, songs,
+                        // extras and details aren't one long scroll.
+                        DetailSectionBar(sections: sections, selection: shownSectionBinding)
+                        sectionContent
+                    } else {
+                        shelves
                     }
-
-                    if detail.kind == .episode {
-                        EpisodeStrip(season: model.seasonEpisodes, currentId: detail.id, centerX: playButtonMidX)
-                    }
-
-                    Shelf(title: "Openings & Endings", items: model.openingsEndings) { entry in
-                        switch entry {
-                        case .theme(let theme):
-                            OpEdThemeLockup(
-                                theme: theme,
-                                seasonName: model.seasons.first { $0.id == theme.seasonId }?.displayTitle,
-                                artwork: session.client?.landscapeURL(for: detail, width: 800)
-                            ) {
-                                if theme.spoiler || theme.nsfw {
-                                    confirmTheme = theme
-                                } else {
-                                    play(theme)
-                                }
-                            }
-                        case .chapter(let clip):
-                            // Plays just that stretch of the episode; its resume
-                            // point and watched state are left alone.
-                            ThemeClipLockup(clip: clip) {
-                                playback = PlaybackRequest(clipOf: clip.episode.id, fromTicks: clip.startTicks, toTicks: clip.endTicks, info: info(for: clip))
-                            }
-                        }
-                    }
-
-                    Shelf(title: "Extras", items: model.extras) { extra in
-                        ExtraLockup(item: extra) {
-                            playback = PlaybackRequest(itemId: extra.id)
-                        }
-                    }
-
-                    Shelf(title: "Related", items: model.similar) { related in
-                        LandscapeLockup(item: related)
-                    }
-
-                    Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
-                        PersonLockup(person: person)
-                    }
-
-                    InformationSection(item: detail)
-                        .padding(.horizontal, Lockup.screenPadding)
                 }
                 .padding(.bottom, 80)
             }
@@ -521,6 +484,125 @@ struct ItemDetailView: View {
             Text(downloadError ?? "")
         }
         #endif
+    }
+
+    // MARK: Sections
+
+    /// Shows and seasons are laid out in tabs; everything else is one scroll.
+    private var usesSections: Bool { detail.kind == .series || detail.kind == .season }
+
+    /// The tabs with something in them, in order.
+    private var sections: [DetailSection] {
+        var found: [DetailSection] = [.episodes]
+        if !model.openingsEndings.isEmpty { found.append(.music) }
+        if !model.extras.isEmpty { found.append(.extras) }
+        if !model.similar.isEmpty { found.append(.related) }
+        found.append(.details)
+        return found
+    }
+
+    /// The chosen tab, or Episodes while the chosen one has nothing (yet).
+    private var shownSection: DetailSection { sections.contains(section) ? section : .episodes }
+
+    private var shownSectionBinding: Binding<DetailSection> {
+        Binding(get: { shownSection }, set: { section = $0 })
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch shownSection {
+        case .episodes:
+            episodesSection
+        case .music:
+            ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800)) { entry in
+                playThemeCard(entry)
+            }
+        case .extras:
+            extrasShelf
+        case .related:
+            relatedShelf
+        case .details:
+            detailsContent
+        }
+    }
+
+    /// Everything after the header, one shelf after another: a movie's or
+    /// an episode's page.
+    @ViewBuilder
+    private var shelves: some View {
+        if detail.kind == .episode {
+            EpisodeStrip(season: model.seasonEpisodes, currentId: detail.id, centerX: playButtonMidX)
+        }
+
+        Shelf(title: "Openings & Endings", items: model.openingsEndings) { entry in
+            switch entry {
+            case .theme(let theme):
+                OpEdThemeLockup(
+                    theme: theme,
+                    seasonName: model.seasons.first { $0.id == theme.seasonId }?.displayTitle,
+                    artwork: session.client?.landscapeURL(for: detail, width: 800)
+                ) {
+                    if theme.spoiler || theme.nsfw {
+                        confirmTheme = theme
+                    } else {
+                        play(theme)
+                    }
+                }
+            case .chapter(let clip):
+                // Plays just that stretch of the episode; its resume
+                // point and watched state are left alone.
+                ThemeClipLockup(clip: clip) {
+                    playThemeCard(.chapter(clip))
+                }
+            }
+        }
+
+        extrasShelf
+        relatedShelf
+        detailsContent
+    }
+
+    private var extrasShelf: some View {
+        Shelf(title: "Extras", items: model.extras) { extra in
+            ExtraLockup(item: extra) {
+                playback = PlaybackRequest(itemId: extra.id)
+            }
+        }
+
+    }
+
+    private var relatedShelf: some View {
+        Shelf(title: "Related", items: model.similar) { related in
+            LandscapeLockup(item: related)
+        }
+
+    }
+
+    /// Who's in it, and the facts about it.
+    @ViewBuilder
+    private var detailsContent: some View {
+        Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
+            PersonLockup(person: person)
+        }
+
+        InformationSection(item: detail)
+            .padding(.horizontal, Lockup.screenPadding)
+    }
+
+    /// A theme's card pressed: a plugin theme asks first when it's marked as
+    /// a spoiler or NSFW; a chapter clip plays just that stretch of its
+    /// episode, leaving its resume point and watched state alone.
+    private func playThemeCard(_ entry: OpeningEnding) {
+        switch entry {
+        case .theme(let theme):
+            if theme.spoiler || theme.nsfw {
+                confirmTheme = theme
+            } else {
+                play(theme)
+            }
+        case .chapter(let clip):
+            playback = PlaybackRequest(clipOf: clip.episode.id, fromTicks: clip.startTicks, toTicks: clip.endTicks, info: info(for: clip))
+        }
     }
 
     // MARK: Header

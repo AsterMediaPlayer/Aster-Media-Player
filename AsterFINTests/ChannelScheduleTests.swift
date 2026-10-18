@@ -521,6 +521,23 @@ struct ChannelScheduleTests {
         #expect(back.allSatisfy { $0.first != .bumper && $0.last == .bumper })
     }
 
+    @Test func trailersPlayAfterThePromosAndAreNeverCut() {
+        var clips = Self.clips
+        clips.trailers = (0..<3).map { Self.clip("trailer\($0)", seconds: 150) }
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        let breaks = Self.breaks(in: Self.segments(ChannelLineup(breaks: ChannelBreaks(trailerCount: 2)), clips: clips, from: from, to: to))
+        #expect(!breaks.isEmpty)
+        #expect(breaks.allSatisfy { $0 == [.bumper, .commercial, .commercial, .commercial, .commercial, .promo, .trailer, .trailer, .interstitial, .bumper] }, "\(breaks)")
+        // Lined up, the interstitials still do the filling, and every trailer plays whole.
+        let lined = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: clips, from: from, to: to)
+        for segment in lined where segment.role == .trailer {
+            #expect(abs(segment.duration - 150) < 0.001)
+        }
+        for programme in lined.filter({ $0.role == .programme }).dropFirst() {
+            #expect(Self.calendar.component(.minute, from: programme.start) % 30 == 0)
+        }
+    }
+
     @Test func aBumperTaggedForOneEndStaysThere() {
         var countdown = Self.clip("countdown", seconds: 10)
         countdown.tags = ["aster:bumper=in"]

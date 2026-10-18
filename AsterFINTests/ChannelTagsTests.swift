@@ -376,4 +376,19 @@ struct ChannelTagsTests {
         let some = ChannelsModel.breakClips(from: items, types: [.bumpers, .commercials])
         #expect(some.promos.isEmpty && some.interstitials.isEmpty && some.bumpers.count == 1 && some.commercials.count == 1)
     }
+
+    @Test func trailersAreAFillerType() {
+        #expect(ChannelTags.clipKind(["aster:trailer"]) == .trailers)
+        #expect(ChannelTags(tags: ["aster:filler-types=trailers"]).fillerTypes == [.trailers])
+        #expect(ChannelTags(tags: ["aster:trailer-count=3"]).breaks.trailerCount == 3)
+        #expect(ChannelTags(tags: ["aster:trailer-count=9"]).breaks.trailerCount == 1)
+        // Every kind is written as "all", so a kind added later joins in.
+        let all = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"] }.applied(to: [])
+        #expect(all.contains("aster:filler-types=all"))
+        #expect(all.contains("aster:trailer-count=1"))
+        #expect(ChannelTags(tags: all).fillerTypes == Set(BreakKind.allCases))
+        #expect(ChannelTags(tags: ["aster:filler-types=all"]).fillerTypes == Set(BreakKind.allCases))
+        let clips = ChannelsModel.breakClips(from: [{ var item = BaseItem(id: "t", name: "t", type: "Video"); item.tags = ["aster:trailer"]; return item }()], types: Set(BreakKind.allCases))
+        #expect(clips.trailers.map(\.id) == ["t"])
+    }
 }

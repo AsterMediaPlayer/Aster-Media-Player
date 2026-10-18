@@ -32,16 +32,17 @@
 //    aster:max-length=120     leaves out titles longer than this, in minutes
 //    aster:filler-playlists=… a playlist of clips for the breaks; repeat for more
 //    aster:filler-types=…     the kinds of clip to play: bumpers, promos,
-//                             commercials, interstitials (all four by default)
+//                             commercials, trailers, interstitials (all, the default)
 //    aster:bumpers-at=both    a bumper opens and closes each break (or out, in)
 //    aster:break-length=2     minutes of commercials in each break, 0 to 30
 //    aster:promo-count=1      promos in each break, 0 to 5
+//    aster:trailer-count=1    trailers in each break, 0 to 5
 //    aster:interstitial-count=1 interstitials in each break without align, 0 to 5
 //    aster:break-every=1      a break after every programme, or every 2nd to 10th
 //    aster:align=30           programmes start on the half hour (or 5, 10, 15, 20,
 //                             60 minutes), each break filling the gap; off by default
 //    aster:commercial         on a clip itself: what it is (or bumper, promo,
-//                             interstitial, the default); aster:bumper=in only closes
+//                             trailer, interstitial, the default); aster:bumper=in only closes
 //                             a break, aster:bumper=out only opens one
 //    aster:channel-name=…     the channel's name, in place of the playlist's
 //
@@ -62,7 +63,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "interstitial-count", "break-length", "break-every", "align", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -220,13 +221,16 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             case "filler-playlists", "filler-playlist":
                 Self.collect(value, into: &fillerPlaylists, splitting: false)
             case "filler-types", "filler-type":
-                // Kinds it doesn't know are ignored; none it does means all.
+                // Kinds it doesn't know are ignored; none it does (or "all")
+                // means all, including any added later.
                 let kinds = Set((value ?? "").split(separator: ",").compactMap { Self.kind($0.trimmingCharacters(in: .whitespaces)) })
                 fillerTypes = kinds.isEmpty ? Set(BreakKind.allCases) : kinds
             case "bumpers-at":
                 breaks.bumpersAt = value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
             case "promo-count":
                 breaks.promoCount = value.flatMap { Int($0) }.flatMap { (0...Self.mostPromos).contains($0) ? $0 : nil } ?? 1
+            case "trailer-count":
+                breaks.trailerCount = value.flatMap { Int($0) }.flatMap { (0...Self.mostPromos).contains($0) ? $0 : nil } ?? 1
             case "interstitial-count":
                 breaks.interstitialCount = value.flatMap { Int($0) }.flatMap { (0...Self.mostPromos).contains($0) ? $0 : nil } ?? 1
             case "break-length":
@@ -278,10 +282,11 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         // The break settings only mean something with clips to play.
         if hasBreaks {
             for name in fillerPlaylists { result.append(Self.prefix + "filler-playlists=\(name)") }
-            result.append(Self.prefix + "filler-types=" + BreakKind.allCases.filter(fillerTypes.contains).map(\.rawValue).joined(separator: ","))
+            result.append(Self.prefix + "filler-types=" + (fillerTypes.count == BreakKind.allCases.count ? "all" : BreakKind.allCases.filter(fillerTypes.contains).map(\.rawValue).joined(separator: ",")))
             result.append(Self.prefix + "bumpers-at=\(breaks.bumpersAt.rawValue)")
             result.append(Self.prefix + "break-length=\(breaks.minutes)")
             result.append(Self.prefix + "promo-count=\(breaks.promoCount)")
+            result.append(Self.prefix + "trailer-count=\(breaks.trailerCount)")
             result.append(Self.prefix + "interstitial-count=\(breaks.interstitialCount)")
             result.append(Self.prefix + "break-every=\(breaks.every)")
             result.append(Self.prefix + (breaks.align > 0 ? "align=\(breaks.align)" : "align=off"))

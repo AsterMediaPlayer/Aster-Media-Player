@@ -346,6 +346,7 @@ final class ChannelsModel {
             case .bumpers: clips.bumpers.append(item)
             case .promos: clips.promos.append(item)
             case .commercials: clips.commercials.append(item)
+            case .trailers: clips.trailers.append(item)
             case .interstitials: clips.interstitials.append(item)
             }
         }

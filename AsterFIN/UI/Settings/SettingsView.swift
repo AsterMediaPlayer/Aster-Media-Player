@@ -632,7 +632,7 @@ struct ChannelSettingsView: View {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
                     SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: aster:channel, aster:number=3, aster:mode=blocks (or rotation, shuffle, sequential, airdate), aster:reshuffle=week (or day, month), aster:blocks=3-6, aster:seed=2, aster:logo=on, aster:bug=on (with aster:bug-location=top-left, top-right, bottom-left or bottom-right, aster:bug-size=150%, aster:bug-hide=30 and aster:bug-opacity=60%), aster:channel-name=Your Name, aster:min-length=20 and aster:max-length=60 (in minutes), aster:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel aster:genre=Horror, aster:network=NBC and aster:collection=Star Wars (once each), narrowed by aster:type=movies (or shows, all), aster:years=1980-1989, aster:rating=TV-PG,PG and aster:library=TV Shows (once per library, for genres and networks).")
                     SettingsNote("A channel with genres, networks or collections plays every movie and every episode of every show in them (any of them), as well as anything in its playlist. Air Date plays them all in the order they first aired.")
-                    SettingsNote("A channel with filler playlists has a break after its programmes: a bumper, commercials, promos, interstitials, and a bumper back. Put the clips in Jellyfin as videos, tag each one with what it is (aster:bumper, aster:promo, aster:commercial or aster:interstitial; a bumper tagged aster:bumper=in only closes a break, and aster:bumper=out only opens one), put them in playlists, and name those on a channel with aster:filler-playlists=Its Name. aster:filler-types=commercials,bumpers keeps to some kinds; aster:bumpers-at=both (or out, in), aster:break-length=2 (minutes of commercials), aster:promo-count=1, aster:interstitial-count=1 and aster:break-every=1 shape each break. With aster:align=30, every programme starts on the hour or half hour, the interstitials filling each break up to it.")
+                    SettingsNote("A channel with filler playlists has a break after its programmes: a bumper, commercials, promos, trailers, interstitials, and a bumper back. Put the clips in Jellyfin as videos, tag each one with what it is (aster:bumper, aster:promo, aster:commercial, aster:trailer or aster:interstitial; a bumper tagged aster:bumper=in only closes a break, and aster:bumper=out only opens one), put them in playlists, and name those on a channel with aster:filler-playlists=Its Name. aster:filler-types=commercials,bumpers keeps to some kinds; aster:bumpers-at=both (or out, in), aster:break-length=2 (minutes of commercials), aster:promo-count=1, aster:trailer-count=1, aster:interstitial-count=1 and aster:break-every=1 shape each break. With aster:align=30, every programme starts on the hour or half hour, the interstitials filling each break up to it.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -896,6 +896,16 @@ struct ChannelSettingsView: View {
                     selection: Binding(
                         get: { tags.breaks.promoCount },
                         set: { count in save(playlist, tags.with { $0.breaks.promoCount = count }) }
+                    )
+                )
+            }
+            if tags.fillerTypes.contains(.trailers) {
+                SettingsChoiceRow(
+                    title: "Trailers per Break",
+                    options: (0...ChannelTags.mostPromos).map { ($0, "\($0)") },
+                    selection: Binding(
+                        get: { tags.breaks.trailerCount },
+                        set: { count in save(playlist, tags.with { $0.breaks.trailerCount = count }) }
                     )
                 )
             }

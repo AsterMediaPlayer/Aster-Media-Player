@@ -161,11 +161,12 @@ final class ChannelsModel {
     /// Finds the playlists tagged as channels and loads their movies and
     /// episodes, in channel-number order. A tagged playlist with neither is
     /// left out.
-    func load(client: JellyfinClient, force: Bool = false) async {
+    /// Loads the channels `userName` gets (`aster:user=`), every one for nil.
+    func load(client: JellyfinClient, userName: String? = nil, force: Bool = false) async {
         errorMessage = nil
         do {
             let playlists = try await client.playlists(mediaType: "Video")
-            let tagged = Self.taggedChannels(in: playlists)
+            let tagged = Self.taggedChannels(in: playlists).filter { userName == nil || $0.tags.isShown(to: userName) }
             let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
             // The playlists of break clips the channels name, fetched with
             // the channels' own.

@@ -522,6 +522,8 @@ struct ChannelSettingsView: View {
     @State private var networkNames: [String] = []
     @State private var collectionNames: [String] = []
     @State private var ratingNames: [String] = []
+    /// Everyone's user names on the server, for who gets a channel.
+    @State private var userNames: [String] = []
     @State private var newGenreChannelName = ""
     @State private var isCreating = false
 
@@ -633,7 +635,7 @@ struct ChannelSettingsView: View {
                     SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: aster:channel, aster:number=3, aster:mode=blocks (or rotation, shuffle, sequential, airdate), aster:reshuffle=week (or day, month), aster:blocks=3-6, aster:seed=2, aster:logo=on, aster:bug=on (with aster:bug-location=top-left, top-right, bottom-left or bottom-right, aster:bug-size=150%, aster:bug-hide=30 and aster:bug-opacity=60%), aster:channel-name=Your Name, aster:min-length=20 and aster:max-length=60 (in minutes), aster:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel aster:genre=Horror, aster:network=NBC and aster:collection=Star Wars (once each), narrowed by aster:type=movies (or shows, all), aster:years=1980-1989, aster:rating=TV-PG,PG and aster:library=TV Shows (once per library, for genres and networks).")
                     SettingsNote("A channel with genres, networks or collections plays every movie and every episode of every show in them (any of them), as well as anything in its playlist. Air Date plays them all in the order they first aired.")
                     SettingsNote("A channel with filler playlists has a break after its programmes: a bumper, commercials, promos, trailers, interstitials, and a bumper back. Put the clips in Jellyfin as videos, tag each one with what it is (aster:bumper, aster:promo, aster:commercial, aster:trailer or aster:interstitial; a bumper tagged aster:bumper=in only closes a break, and aster:bumper=out only opens one), put them in playlists, and name those on a channel with aster:filler-playlists=Its Name. aster:filler-types=commercials,bumpers keeps to some kinds; aster:bumpers-at=both (or out, in), aster:break-length=2 (minutes of commercials), aster:promo-count=1, aster:trailer-count=1, aster:interstitial-count=1 and aster:break-every=1 shape each break. With aster:align=30, every programme starts on the hour or half hour, the interstitials filling each break up to it.")
-                    SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
+                    SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public. Users (aster:user=peppy,jd) keeps a channel to certain people in Aster's Channels tab; it still lists every channel here, and doesn't hide the playlist in Jellyfin.")
                 }
             }
         }
@@ -693,6 +695,7 @@ struct ChannelSettingsView: View {
         if let count = playlist.childCount { parts.append(count == 1 ? "1 title" : "\(count) titles") }
         if tags.showsLogo { parts.append("Logo") }
         if tags.showsBug { parts.append("Bug") }
+        if !tags.users.isEmpty { parts.append("Only " + tags.users.formatted(.list(type: .and))) }
         if tags.hasBreaks { parts.append(tags.breaks.align > 0 ? "Breaks, \(Self.alignTitle(tags.breaks.align).lowercased())" : "Breaks") }
         return parts.joined(separator: " · ")
     }
@@ -708,6 +711,12 @@ struct ChannelSettingsView: View {
         }
         ChannelNameField(playlistName: playlist.displayTitle, name: tags.name) { name in
             save(playlist, tags.with { $0.name = name })
+        }
+        let users = userNames + tags.users.filter { name in !userNames.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+        if !users.isEmpty {
+            SettingsMultiChoiceRow(title: "Users", options: users, selection: tags.users, none: "Everyone") { names in
+                save(playlist, tags.with { $0.users = names })
+            }
         }
         SettingsChoiceRow(
             title: "Number",
@@ -1016,6 +1025,7 @@ struct ChannelSettingsView: View {
         async let studios = client.videoStudios()
         async let boxSets = client.collections()
         async let ratings = client.videoRatings()
+        async let users = client.userNames()
         do {
             playlists = try await client.playlists(mediaType: "Video")
             errorMessage = nil
@@ -1030,6 +1040,7 @@ struct ChannelSettingsView: View {
         // Empty collections (book series often are, to video) are left out.
         collectionNames = ((try? await boxSets) ?? []).filter { ($0.childCount ?? 1) > 0 }.map(\.displayTitle)
         ratingNames = (try? await ratings) ?? []
+        userNames = (try? await users) ?? []
         loaded = true
     }
 

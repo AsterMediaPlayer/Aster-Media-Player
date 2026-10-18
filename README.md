@@ -130,6 +130,7 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `aster:interstitial-count=2` | With breaks, not lined up: interstitials in each break, 0 to 5 | `1` |
   | `aster:break-every=2` | With breaks, not lined up: a break after every programme, or every 2nd to 10th | `1` |
   | `aster:align=30` | With breaks: every programme starts on the half hour (or every 5, 10, 15, 20 or 60 minutes), its break running on to the mark | `off` |
+  | `aster:user=peppy,jd` | Only these users (by Jellyfin user name) get the channel in Aster; repeat for more. It doesn't hide the playlist in Jellyfin | everyone |
   | `aster:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
   Turning a playlist on in Aster writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `aster:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value Aster doesn't understand falls back to the default. Tags written before the app was renamed (`asterfin:…`) still work, and are rewritten as `aster:…` the first time an administrator signs in.

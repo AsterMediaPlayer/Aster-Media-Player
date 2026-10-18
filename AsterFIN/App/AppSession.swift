@@ -165,7 +165,7 @@ final class AppSession {
 
     func refreshChannels() async {
         guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
-        hasChannels = !ChannelsModel.taggedChannels(in: playlists).isEmpty
+        hasChannels = ChannelsModel.taggedChannels(in: playlists).contains { $0.tags.isShown(to: userName) }
     }
 
     func refreshUserConfiguration() async {

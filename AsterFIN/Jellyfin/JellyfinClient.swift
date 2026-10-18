@@ -552,6 +552,12 @@ nonisolated final class JellyfinClient: Sendable {
     // MARK: Playback
 
     /// The signed-in user, including their server-side settings.
+    /// Everyone's user names on the server, which only an administrator
+    /// can list.
+    func userNames() async throws -> [String] {
+        try await get([JellyfinUser].self, "/Users").map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     func me() async throws -> JellyfinUser {
         try await get(JellyfinUser.self, "/Users/Me")
     }

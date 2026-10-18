@@ -60,7 +60,7 @@ struct ChannelsView: View {
             Task {
                 guard let client = session.client else { return }
                 let before = model.channels
-                await model.load(client: client)
+                await model.load(client: client, userName: session.userName)
                 // The guide covers a week from when it was made: it's made
                 // again when the channels changed, or once it's an hour behind.
                 if guide == nil || model.channels != before || guide.map({ Date().timeIntervalSince($0.guideStart) > 3600 }) == true {

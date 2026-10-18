@@ -391,4 +391,21 @@ struct ChannelTagsTests {
         let clips = ChannelsModel.breakClips(from: [{ var item = BaseItem(id: "t", name: "t", type: "Video"); item.tags = ["aster:trailer"]; return item }()], types: Set(BreakKind.allCases))
         #expect(clips.trailers.map(\.id) == ["t"])
     }
+
+    @Test func aChannelCanBeKeptToSomeUsers() {
+        let tags = ChannelTags(tags: ["aster:channel", "aster:user=peppy, JD", "aster:users=kobe", "aster:user=peppy"])
+        #expect(tags.users == ["peppy", "JD", "kobe"])
+        #expect(tags.isShown(to: "Peppy"))
+        #expect(tags.isShown(to: "jd"))
+        #expect(!tags.isShown(to: "roman"))
+        #expect(!tags.isShown(to: nil))
+        // No user tag: everyone.
+        #expect(ChannelTags(tags: ["aster:channel"]).isShown(to: "roman"))
+        #expect(ChannelTags(tags: ["aster:channel"]).isShown(to: nil))
+        // Written as one tag, read back the same.
+        let written = tags.applied(to: [])
+        #expect(written.contains("aster:user=peppy,JD,kobe"))
+        #expect(ChannelTags(tags: written).users == tags.users)
+        #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.hasPrefix("aster:user") })
+    }
 }

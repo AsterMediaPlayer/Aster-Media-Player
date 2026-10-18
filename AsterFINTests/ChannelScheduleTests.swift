@@ -409,7 +409,7 @@ struct ChannelScheduleTests {
 
     // MARK: Breaks
 
-    private static func clip(_ id: String, seconds: Double) -> BaseItem {
+    nonisolated private static func clip(_ id: String, seconds: Double) -> BaseItem {
         var item = BaseItem(id: id, name: id, type: "Video")
         item.runTimeTicks = Int64(seconds * 10_000_000)
         return item
@@ -417,7 +417,7 @@ struct ChannelScheduleTests {
 
     /// Three 5-second bumpers, two 15-second promos, four 30-second
     /// commercials and three 20-second interstitials.
-    private static let clips = ChannelBreakClips(
+    nonisolated private static let clips = ChannelBreakClips(
         bumpers: (0..<3).map { clip("bumper\($0)", seconds: 5) },
         promos: (0..<2).map { clip("promo\($0)", seconds: 15) },
         commercials: (0..<4).map { clip("ad\($0)", seconds: 30) },

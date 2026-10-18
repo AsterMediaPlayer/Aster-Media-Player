@@ -44,6 +44,8 @@
 //    aster:commercial         on a clip itself: what it is (or bumper, promo,
 //                             trailer, interstitial, the default); aster:bumper=in only closes
 //                             a break, aster:bumper=out only opens one
+//    aster:user=peppy,jd      only these users get the channel (by Jellyfin user
+//                             name; everyone without the tag); repeat for more
 //    aster:channel-name=…     the channel's name, in place of the playlist's
 //
 //  "aster:" and the keys and values are read whatever their case (and so
@@ -63,7 +65,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-types", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "user", "channel-name"]
 
     var isChannel = false
     var number: Int?
@@ -135,6 +137,18 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     static let heaviestWeight = 5
     /// The lengths `min-length=` and `max-length=` can ask for, in minutes.
     static let lengths = 1...600
+    /// The users, by Jellyfin user name, who get the channel; none for
+    /// everyone. It hides the channel in Aster, nothing more: whoever the
+    /// playlist is shared with can still open it in Jellyfin.
+    var users: [String] = []
+
+    /// Whether `userName` gets the channel: everyone does unless it names users.
+    func isShown(to userName: String?) -> Bool {
+        guard !users.isEmpty else { return true }
+        guard let userName else { return false }
+        return users.contains { $0.caseInsensitiveCompare(userName) == .orderedSame }
+    }
+
     /// Nil for the playlist's own name.
     var name: String?
 
@@ -239,6 +253,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 breaks.every = value.flatMap { Int($0) }.flatMap { (1...Self.longestBreakGap).contains($0) ? $0 : nil } ?? 1
             case "align":
                 breaks.align = value.flatMap(Self.minutes).flatMap { Self.alignments.contains($0) ? $0 : nil } ?? 0
+            case "user", "users":
+                Self.collect(value, into: &users)
             case "channel-name":
                 name = value.flatMap { $0.isEmpty ? nil : $0 }
             default:
@@ -291,6 +307,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
             result.append(Self.prefix + "break-every=\(breaks.every)")
             result.append(Self.prefix + (breaks.align > 0 ? "align=\(breaks.align)" : "align=off"))
         }
+        if !users.isEmpty { result.append(Self.prefix + "user=" + users.joined(separator: ",")) }
         if let name { result.append(Self.prefix + "channel-name=\(name)") }
         return result
     }

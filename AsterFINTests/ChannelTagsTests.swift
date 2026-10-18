@@ -301,4 +301,70 @@ struct ChannelTagsTests {
         #expect(ChannelTags.converted(nil) == nil)
         #expect(ChannelTags(tags: converted) == ChannelTags(tags: ["asterfin:channel", "asterfin:channel-name=Late Night", "asterfin:seed=2"]))
     }
+
+    // MARK: Breaks
+
+    @Test func breakTagsAreRead() {
+        let tags = ChannelTags(tags: [
+            "aster:channel", "aster:bumpers=Tooniverse Bumpers", "aster:commercials=80s Ads, Part 1", "aster:commercials=90s Ads",
+            "aster:promos=Promos", "aster:interstitials=Shorts", "aster:bumpers-at=out", "aster:break-length=4",
+            "aster:promo-count=2", "aster:interstitial-count=0", "aster:break-every=3", "aster:align=:30",
+        ])
+        #expect(tags.bumpers == ["Tooniverse Bumpers"])
+        #expect(tags.commercials == ["80s Ads, Part 1", "90s Ads"])
+        #expect(tags.promos == ["Promos"])
+        #expect(tags.interstitials == ["Shorts"])
+        #expect(tags.hasBreaks)
+        #expect(tags.breakKind == nil)
+        #expect(tags.lineup.breaks == ChannelBreaks(bumpersAt: .out, promoCount: 2, interstitialCount: 0, minutes: 4, every: 3, align: 30))
+        // Bad values fall back.
+        let bad = ChannelTags(tags: ["aster:align=25", "aster:break-length=99", "aster:promo-count=many", "aster:bumpers-at=sideways", "aster:break-every=0"])
+        #expect(bad.breaks == ChannelBreaks())
+        #expect(ChannelTags(tags: ["aster:align=60m"]).breaks.align == 60)
+        #expect(ChannelTags(tags: ["aster:align=off"]).breaks.align == 0)
+    }
+
+    @Test func aBarePlaylistTagSaysWhatItHolds() {
+        #expect(ChannelTags(tags: ["aster:bumpers"]).breakKind == .bumpers)
+        #expect(ChannelTags(tags: ["Aster:Commercials"]).breakKind == .commercials)
+        #expect(ChannelTags(tags: ["aster:bumpers"]).bumpers.isEmpty)
+        #expect(!ChannelTags(tags: ["aster:interstitials"]).hasBreaks)
+        let marked = ChannelTags.marking(["Family", "aster:promos"], as: .interstitials)
+        #expect(marked == ["Family", "aster:interstitials"])
+        #expect(ChannelTags.marking(marked, as: nil) == ["Family"])
+    }
+
+    @Test func breakTagsRoundTrip() {
+        let tags = ChannelTags(isChannel: true).with {
+            $0.bumpers = ["Bumpers"]
+            $0.commercials = ["Ads"]
+            $0.breaks.align = 30
+            $0.breaks.promoCount = 0
+        }
+        let written = tags.applied(to: ["Family"])
+        #expect(written.contains("aster:bumpers=Bumpers"))
+        #expect(written.contains("aster:commercials=Ads"))
+        #expect(written.contains("aster:align=30"))
+        #expect(written.contains("aster:break-length=2"))
+        #expect(ChannelTags(tags: written) == tags)
+        // Without break playlists, none of the break settings are written.
+        #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.contains("break") || $0.contains("align") })
+    }
+
+    @Test func aChannelsBreakPlaylistsAreFoundByName() {
+        func playlist(_ id: String, _ name: String, tags: [String] = []) -> BaseItem {
+            var item = BaseItem(id: id, name: name, type: "Playlist")
+            item.tags = tags
+            return item
+        }
+        let playlists = [
+            playlist("a", "Bumpers"), playlist("b", "bumpers", tags: ["aster:bumpers"]),
+            playlist("c", "Ads", tags: ["aster:commercials"]), playlist("d", "Tooniverse", tags: ["aster:channel"]),
+        ]
+        let tags = ChannelTags(tags: ["aster:channel", "aster:bumpers=BUMPERS", "aster:commercials=Ads", "aster:promos=Missing"])
+        let found = ChannelsModel.breakPlaylists(named: tags, in: playlists)
+        #expect(found[.bumpers]?.map(\.id) == ["b"])
+        #expect(found[.commercials]?.map(\.id) == ["c"])
+        #expect(found[.promos]?.isEmpty == true)
+    }
 }

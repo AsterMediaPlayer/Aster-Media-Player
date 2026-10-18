@@ -406,4 +406,131 @@ struct ChannelScheduleTests {
         let start = try #require(ids.firstIndex(of: "alpha-s1e1"))
         #expect(Array(ids[start...].prefix(5)) == cycle)
     }
+
+    // MARK: Breaks
+
+    private static func clip(_ id: String, seconds: Double) -> BaseItem {
+        var item = BaseItem(id: id, name: id, type: "Video")
+        item.runTimeTicks = Int64(seconds * 10_000_000)
+        return item
+    }
+
+    /// Three 5-second bumpers, two 15-second promos, four 30-second
+    /// commercials and three 20-second interstitials.
+    private static let clips = ChannelBreakClips(
+        bumpers: (0..<3).map { clip("bumper\($0)", seconds: 5) },
+        promos: (0..<2).map { clip("promo\($0)", seconds: 15) },
+        commercials: (0..<4).map { clip("ad\($0)", seconds: 30) },
+        interstitials: (0..<3).map { clip("short\($0)", seconds: 20) }
+    )
+
+    private static func segments(_ lineup: ChannelLineup, clips: ChannelBreakClips = clips, from: Date, to: Date) -> [ScheduledProgram] {
+        ChannelSchedule.segments(channelId: "channel-a", items: movies, lineup: lineup, breaks: clips, from: from, to: to, calendar: calendar)
+    }
+
+    /// The breaks in `segments`, as their clips' roles, between programmes.
+    private static func breaks(in segments: [ScheduledProgram]) -> [[ProgramRole]] {
+        var breaks: [[ProgramRole]] = []
+        var current: [ProgramRole]?
+        for segment in segments {
+            if segment.role == .programme {
+                if let current { breaks.append(current) }
+                current = []
+            } else {
+                current?.append(segment.role)
+            }
+        }
+        return breaks
+    }
+
+    @Test func aBreakFollowsEachProgramme() {
+        let segments = Self.segments(ChannelLineup(), from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 15, 20))
+        let breaks = Self.breaks(in: segments)
+        #expect(breaks.count > 3)
+        // Bumper out, two minutes of commercials, a promo, an interstitial, bumper back.
+        #expect(breaks.allSatisfy { $0 == [.bumper, .commercial, .commercial, .commercial, .commercial, .promo, .interstitial, .bumper] }, "\(breaks)")
+        for (a, b) in zip(segments, segments.dropFirst()) { #expect(a.end == b.start) }
+        // Whole clips, at their own lengths.
+        for segment in segments where segment.role.isBreak {
+            #expect(abs(segment.duration - TimeInterval(segment.item.runTimeTicks ?? 0) / 10_000_000) < 0.001)
+        }
+    }
+
+    @Test func breaksAreTheSameEveryTime() {
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        let first = Self.segments(ChannelLineup(), from: from, to: to).map(\.item.id)
+        #expect(first == Self.segments(ChannelLineup(), from: from, to: to).map(\.item.id))
+        // And from a later start, the same clips at the same times.
+        let later = Self.segments(ChannelLineup(), from: Self.date(2026, 10, 15, 14), to: to)
+        let all = Self.segments(ChannelLineup(), from: from, to: to)
+        for segment in later {
+            #expect(all.contains { $0.start == segment.start && $0.item.id == segment.item.id })
+        }
+    }
+
+    @Test func noClipsNoBreaks() {
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        let plain = Self.lineup(ChannelLineup(), from: from, to: to).map(\.item.id)
+        #expect(Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: .none, from: from, to: to).map(\.item.id) == plain)
+    }
+
+    @Test(arguments: [30, 15, 60])
+    func linedUpProgrammesStartOnTheMark(minutes: Int) {
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: minutes)), from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 16, 8))
+        let programmes = segments.filter { $0.role == .programme }
+        #expect(programmes.count > 5)
+        for programme in programmes.dropFirst() {
+            let parts = Self.calendar.dateComponents([.minute, .second, .nanosecond], from: programme.start)
+            #expect((parts.minute ?? 0) % minutes == 0 && parts.second == 0 && (parts.nanosecond ?? 0) < 1_000_000, "\(programme.start)")
+        }
+        for (a, b) in zip(segments, segments.dropFirst()) { #expect(abs(a.end.timeIntervalSince(b.start)) < 0.001) }
+        // The gap is filled with interstitials, the last cut short; the
+        // bumper still closes the break.
+        for breakRoles in Self.breaks(in: segments) {
+            #expect(breakRoles.first == .bumper && breakRoles.last == .bumper)
+            #expect(breakRoles.contains(.interstitial))
+        }
+    }
+
+    @Test func linedUpWithoutInterstitialsFillsWithCommercials() {
+        var clips = Self.clips
+        clips.interstitials = []
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(align: 30)), clips: clips, from: Self.date(2026, 10, 15, 8), to: Self.date(2026, 10, 15, 20))
+        for programme in segments.filter({ $0.role == .programme }).dropFirst() {
+            #expect(Self.calendar.component(.minute, from: programme.start) % 30 == 0)
+        }
+        #expect(!segments.contains { $0.role == .interstitial })
+    }
+
+    @Test func breaksCanComeLessOften() {
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 16, 8)
+        let segments = Self.segments(ChannelLineup(breaks: ChannelBreaks(every: 2)), from: from, to: to)
+        var run = 0
+        var runs: [Int] = []
+        for segment in segments {
+            if segment.role == .programme { run += 1 } else if run > 0 { runs.append(run); run = 0 }
+        }
+        #expect(runs.dropFirst().allSatisfy { $0 == 2 }, "\(runs)")
+    }
+
+    @Test func bumpersCanGoOnOneSideOnly() {
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        let out = Self.breaks(in: Self.segments(ChannelLineup(breaks: ChannelBreaks(bumpersAt: .out)), from: from, to: to))
+        #expect(out.allSatisfy { $0.first == .bumper && $0.last != .bumper })
+        let back = Self.breaks(in: Self.segments(ChannelLineup(breaks: ChannelBreaks(bumpersAt: .in)), from: from, to: to))
+        #expect(back.allSatisfy { $0.first != .bumper && $0.last == .bumper })
+    }
+
+    @Test func theGuideFoldsEachBreakIntoItsProgramme() {
+        let from = Self.date(2026, 10, 15, 8), to = Self.date(2026, 10, 15, 20)
+        let lineup = ChannelLineup(breaks: ChannelBreaks(align: 30))
+        let guide = ChannelSchedule.programs(channelId: "channel-a", items: Self.movies, lineup: lineup, breaks: Self.clips, from: from, to: to, calendar: Self.calendar)
+        let programmes = Self.segments(lineup, from: from.addingTimeInterval(-ChannelSchedule.longestBreak), to: to).filter { $0.role == .programme }
+        #expect(guide.allSatisfy { $0.role == .programme })
+        for (a, b) in zip(guide, guide.dropFirst()) { #expect(a.end == b.start) }
+        for programme in guide {
+            #expect(programmes.contains { $0.start == programme.start && $0.item.id == programme.item.id })
+        }
+        #expect(guide.first.map { $0.start <= from && $0.end > from } == true)
+    }
 }

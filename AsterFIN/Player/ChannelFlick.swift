@@ -164,13 +164,26 @@ final class ChannelFlickModel {
     private static func playlistChannels(client: JellyfinClient) -> [FlickChannel] {
         let now = Date()
         return ChannelTuner.orderedChannels.map { channel in
-            let program = channel.airing(at: now).map { airing in
+            let program = channel.airing(at: now).map { airing -> FlickProgram in
+                // In the break after it: what's coming up, from now to its start.
+                if channel.segment(at: now)?.role.isBreak == true, let next = channel.airing(at: airing.end) {
+                    let (title, subtitle) = Self.titles(of: next.item)
+                    return FlickProgram(
+                        title: "Break",
+                        subtitle: "Up next: " + ([title, subtitle].compactMap { $0 }.joined(separator: " · ")),
+                        overview: next.item.overview,
+                        start: channel.segments(from: airing.start, to: now).first { $0.role.isBreak }?.start,
+                        end: next.start,
+                        imageURL: client.landscapeURL(for: next.item, width: 480),
+                        itemId: next.item.id,
+                        isMovie: next.item.kind == .movie
+                    )
+                }
                 let item = airing.item
-                let isEpisode = item.kind == .episode
-                let subtitle = isEpisode ? [item.episodeCode, item.name].compactMap { $0 }.joined(separator: " · ") : nil
+                let (title, subtitle) = Self.titles(of: item)
                 return FlickProgram(
-                    title: isEpisode ? (item.seriesName ?? item.displayTitle) : item.displayTitle,
-                    subtitle: subtitle?.isEmpty == false ? subtitle : nil,
+                    title: title,
+                    subtitle: subtitle,
                     overview: item.overview,
                     start: airing.start,
                     end: airing.end,
@@ -190,5 +203,12 @@ final class ChannelFlickModel {
                 now: program
             )
         }
+    }
+
+    /// A show's name and "S2, E5 · Name", or a movie's name alone.
+    private static func titles(of item: BaseItem) -> (title: String, subtitle: String?) {
+        guard item.kind == .episode else { return (item.displayTitle, nil) }
+        let subtitle = [item.episodeCode, item.name].compactMap { $0 }.joined(separator: " · ")
+        return (item.seriesName ?? item.displayTitle, subtitle.isEmpty ? nil : subtitle)
     }
 }

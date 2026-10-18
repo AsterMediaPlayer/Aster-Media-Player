@@ -121,9 +121,20 @@ Your Jellyfin video playlists become TV-style channels on a Channels tab, laid o
   | `aster:weight=Friends:2` | This show takes two turns (up to 5) to every other show's one; repeat for more shows | 1 each |
   | `aster:min-length=20` | Leaves out anything shorter, in minutes | none |
   | `aster:max-length=60` | Leaves out anything longer, in minutes | none |
+  | `aster:bumpers=Tooniverse Bumpers` | The playlist of bumpers (the channel's idents) its breaks play; repeat for more | none |
+  | `aster:promos=Promos` | The playlist of promos (ads for shows); repeat for more | none |
+  | `aster:commercials=80s Commercials` | The playlist of commercials; repeat for more | none |
+  | `aster:interstitials=Shorts` | The playlist of interstitials (shorts, PSAs, music videos); repeat for more | none |
+  | `aster:bumpers-at=out` | With breaks: a bumper `both` before and after each break, only before it (`out`), or only after (`in`) | `both` |
+  | `aster:break-length=4` | With breaks: minutes of commercials in each break, 0 to 30 | `2` |
+  | `aster:promo-count=2` | With breaks: promos in each break, 0 to 5 | `1` |
+  | `aster:interstitial-count=2` | With breaks, not lined up: interstitials in each break, 0 to 5 | `1` |
+  | `aster:break-every=2` | With breaks, not lined up: a break after every programme, or every 2nd to 10th | `1` |
+  | `aster:align=30` | With breaks: every programme starts on the half hour (or every 5, 10, 15, 20 or 60 minutes), its break running on to the mark | `off` |
   | `aster:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
 
   Turning a playlist on in Aster writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `aster:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value Aster doesn't understand falls back to the default. Tags written before the app was renamed (`asterfin:…`) still work, and are rewritten as `aster:…` the first time an administrator signs in.
+- **Breaks:** add bumpers, promos, commercials and interstitials to Jellyfin as ordinary videos, put each kind in a playlist, and tag the playlist with what it holds: `aster:bumpers`, `aster:promos`, `aster:commercials` or `aster:interstitials`. A channel naming them (above, or in Edit Channels) plays a break after its programmes: a bumper, its commercials, its promos, its interstitials, and a bumper back. With `aster:align=30`, programmes start on the hour and half hour, the interstitials (or, without any, commercials) filling each break up to the mark, the last one cut short to land on it. Breaks are the same on every device, and the guide folds each one into the programme before it.
 - **Genre, network and collection channels:** New Channel in Edit Channels makes a channel that fills itself from genres (Horror, Comedy, …), networks (NBC, Cartoon Network, …) and collections, narrowed to movies or shows, years, content ratings and libraries if you like, along with anything added to its playlist by hand. A show brings every one of its episodes. It's shared with everyone on the server.
 - **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
 - **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.

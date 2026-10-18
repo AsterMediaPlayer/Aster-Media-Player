@@ -126,6 +126,9 @@ struct AetherPlayerView: View {
             // Given up partway: the system player carries on from here.
             if case .error(let message) = state { playback.fallBack(message) }
         }
+        .onChange(of: playback.wantsToClose) { _, close in
+            if close { onFinished() }
+        }
         .alert("Can't Play", isPresented: Binding(get: { errorMessage != nil }, set: { _ in })) {
             Button("OK", action: onFinished)
         } message: {

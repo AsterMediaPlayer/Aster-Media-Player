@@ -47,6 +47,11 @@ final class AetherPlayback {
     private(set) var endCardVisible = false
     /// Seconds before the next episode starts on its own (autoplay).
     private(set) var countdown: Int?
+    /// A channel came to an end of its own accord (its schedule lost), so
+    /// the player should close.
+    private(set) var wantsToClose = false
+    /// The cut-short break clip playing has reached its cut.
+    @ObservationIgnored private var reachedCut = false
     /// Told each time an item starts, so the page behind can follow when
     /// the next episode plays on its own.
     @ObservationIgnored var onItemStarted: ((BaseItem) -> Void)?
@@ -783,6 +788,7 @@ final class AetherPlayback {
         clearStyledSubtitles()
         clearCues()
         hasStarted = false
+        reachedCut = false
         liveProgram = nil
         // Its artwork covers the screen until it starts.
         item = next
@@ -847,6 +853,13 @@ final class AetherPlayback {
         let seconds = engine.clock.currentTime
         guard seconds.isFinite else { return }
         let ticks = Int64(seconds * 10_000_000)
+        // A break clip cut short to land on the half hour ends at its cut,
+        // as if it had played out.
+        if let cut = entry.channelCutTicks, ticks >= cut, !reachedCut {
+            reachedCut = true
+            if !playbackEnded() { wantsToClose = true }
+            return
+        }
         let inside = segments.first { $0.contains(ticks: ticks) }
         if inside?.id != activeSegment?.id {
             activeSegment = inside

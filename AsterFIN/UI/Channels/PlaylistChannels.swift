@@ -31,6 +31,9 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var bugOpacity = ChannelTags.defaultBugOpacity
     /// From the `channel-name=` tag; nil for the playlist's own name.
     var customName: String?
+    /// The bumpers, promos and interstitials its breaks play; none for a
+    /// channel without breaks.
+    var breakClips = ChannelBreakClips.none
     /// The series' clear logo, when the playlist is all one series' episodes:
     /// the channel's logo and bug then, rather than the playlist's picture.
     var seriesLogo: SeriesLogo?
@@ -65,13 +68,24 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var name: String { customName ?? playlist.displayTitle }
     var mode: ChannelMode { lineup.mode }
 
-    /// What's on now, and from how far in.
+    /// The programme on now, its break included, as the guide shows it.
     func airing(at date: Date = Date()) -> ScheduledProgram? {
-        ChannelSchedule.airing(channelId: id, items: items, lineup: lineup, at: date)
+        programs(from: date, to: date.addingTimeInterval(1)).first
     }
 
+    /// The programmes, each with the break after it, as the guide shows them.
     func programs(from: Date, to: Date) -> [ScheduledProgram] {
-        ChannelSchedule.programs(channelId: id, items: items, lineup: lineup, from: from, to: to)
+        ChannelSchedule.programs(channelId: id, items: items, lineup: lineup, breaks: breakClips, from: from, to: to)
+    }
+
+    /// What's playing now, programme or break clip, and from how far in.
+    func segment(at date: Date = Date()) -> ScheduledProgram? {
+        segments(from: date, to: date.addingTimeInterval(1)).first
+    }
+
+    /// Everything the channel plays, programmes and break clips alike.
+    func segments(from: Date, to: Date) -> [ScheduledProgram] {
+        ChannelSchedule.segments(channelId: id, items: items, lineup: lineup, breaks: breakClips, from: from, to: to)
     }
 }
 
@@ -105,18 +119,24 @@ enum ChannelTuner {
     /// the schedule and it may still be "on"; what follows it then plays
     /// from the start, rather than the last minutes of it again.
     static func live(channelId: String, at date: Date = Date(), after finishedItemId: String? = nil) -> (item: BaseItem, entry: PlaybackQueueItem)? {
-        guard let channel = channels[channelId], var program = channel.airing(at: date) else { return nil }
+        guard let channel = channels[channelId], var program = channel.segment(at: date) else { return nil }
         var offset = program.offset(at: date)
-        // Joining with under a minute left starts what's next instead: the
-        // last seconds can fall after the file's final keyframe, with
-        // nothing to start the picture from.
-        let almostOver = program.end.timeIntervalSince(date) < Self.tooLateToJoin
+        // Joining with under a minute left (a quarter of a short clip)
+        // starts what's next instead: the last seconds can fall after the
+        // file's final keyframe, with nothing to start the picture from.
+        let almostOver = program.end.timeIntervalSince(date) < min(Self.tooLateToJoin, program.duration / 4)
         if almostOver || (finishedItemId != nil && program.item.id == finishedItemId),
-           let next = channel.programs(from: program.end, to: program.end.addingTimeInterval(1)).first {
+           let next = channel.segments(from: program.end, to: program.end.addingTimeInterval(1)).first {
             program = next
             offset = 0
         }
-        let entry = PlaybackQueueItem(itemId: program.item.id, startTicks: Int64(offset * 10_000_000), channelId: channelId)
+        var entry = PlaybackQueueItem(itemId: program.item.id, startTicks: Int64(offset * 10_000_000), channelId: channelId)
+        // A clip cut short to land on the half hour stops where the
+        // schedule says, not at its end.
+        let length = TimeInterval(program.item.runTimeTicks ?? 0) / 10_000_000
+        if program.role.isBreak, program.duration < length - 0.5 {
+            entry.channelCutTicks = Int64(program.duration * 10_000_000)
+        }
         return (program.item, entry)
     }
 }
@@ -144,9 +164,17 @@ final class ChannelsModel {
     func load(client: JellyfinClient, force: Bool = false) async {
         errorMessage = nil
         do {
-            let tagged = Self.taggedChannels(in: try await client.playlists(mediaType: "Video"))
+            let playlists = try await client.playlists(mediaType: "Video")
+            let tagged = Self.taggedChannels(in: playlists)
             let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
-            let stale = tagged.map(\.playlist).filter { playlist in
+            // The playlists of break clips the channels name, fetched with
+            // the channels' own.
+            let breakPlaylists = Dictionary(uniqueKeysWithValues: tagged.map { ($0.playlist.id, Self.breakPlaylists(named: $0.tags, in: playlists)) })
+            var wanted = tagged.map(\.playlist)
+            for playlist in breakPlaylists.values.flatMap({ $0.values.joined() }) where !wanted.contains(where: { $0.id == playlist.id }) {
+                wanted.append(playlist)
+            }
+            let stale = wanted.filter { playlist in
                 force || itemCache[playlist.id] == nil || itemCache[playlist.id]?.count != playlist.childCount
             }
             let fetched = await withTaskGroup(of: (String, [BaseItem]?).self) { group in
@@ -166,7 +194,15 @@ final class ChannelsModel {
                 let fromSources = entry.tags.hasSources ? (sourceCache[entry.playlist.id]?.items ?? []) : []
                 let items = Self.merged(own, fromSources).filter { $0.kind == .movie || $0.kind == .episode }
                 guard !items.isEmpty, let number = numbers[entry.playlist.id] else { return nil }
-                return PlaylistChannel(playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup, showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize, bugHideAfter: entry.tags.bugHideAfter, bugOpacity: entry.tags.bugOpacity, customName: entry.tags.name, seriesLogo: PlaylistChannel.seriesLogo(of: items))
+                let named = breakPlaylists[entry.playlist.id] ?? [:]
+                let clips = { (kind: BreakKind) in (named[kind] ?? []).flatMap { self.itemCache[$0.id]?.items ?? [] } }
+                return PlaylistChannel(
+                    playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup,
+                    showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize,
+                    bugHideAfter: entry.tags.bugHideAfter, bugOpacity: entry.tags.bugOpacity, customName: entry.tags.name,
+                    breakClips: ChannelBreakClips(bumpers: clips(.bumpers), promos: clips(.promos), commercials: clips(.commercials), interstitials: clips(.interstitials)),
+                    seriesLogo: PlaylistChannel.seriesLogo(of: items)
+                )
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
             channels = built
@@ -288,6 +324,22 @@ final class ChannelsModel {
                   tags.ratings.contains(where: { $0.lowercased() == rating }) else { return false }
         }
         return true
+    }
+
+    /// The playlists a channel's tags name for its breaks, by kind: matched
+    /// by name whatever the case, one tagged as that kind first where two
+    /// share a name. A name no playlist has is left out.
+    nonisolated static func breakPlaylists(named tags: ChannelTags, in playlists: [BaseItem]) -> [BreakKind: [BaseItem]] {
+        var found: [BreakKind: [BaseItem]] = [:]
+        for kind in BreakKind.allCases {
+            let names = tags.breakPlaylists(kind)
+            guard !names.isEmpty else { continue }
+            found[kind] = names.compactMap { name in
+                let matches = playlists.filter { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
+                return matches.first { ChannelTags(tags: $0.tags).breakKind == kind } ?? matches.first
+            }
+        }
+        return found
     }
 
     /// Lower-cased names to ids, the first of any name used twice.

@@ -43,6 +43,9 @@ nonisolated struct PlaybackQueueItem: Hashable, Sendable {
     /// its resume point and watched state are left alone, and when it ends
     /// whatever is on the channel then plays next (see `ChannelTuner`).
     var channelId: String?
+    /// A channel's break clip cut short to land on its mark (`align=`):
+    /// where it stops, from its start, rather than at its end.
+    var channelCutTicks: Int64?
     /// A bitrate cap for this playback only, chosen in the player when the
     /// original file was too much for the connection (`StreamQuality`);
     /// nil uses the setting.

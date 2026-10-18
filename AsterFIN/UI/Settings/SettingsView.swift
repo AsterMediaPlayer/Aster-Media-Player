@@ -557,8 +557,21 @@ struct ChannelSettingsView: View {
     private static let blockChoices: [ClosedRange<Int>] = [ChannelLineup.defaultBlocks, 1...2, 1...3, 2...3, 3...4, 3...5, 3...6, 4...6, 4...8, 6...10]
 
     private var others: [BaseItem] {
-        playlists.filter { !ChannelTags(tags: $0.tags).isChannel }
+        playlists.filter { let tags = ChannelTags(tags: $0.tags); return !tags.isChannel && tags.breakKind == nil }
     }
+
+    /// Playlists of break clips, tagged with what they hold.
+    private var breakPlaylists: [BaseItem] {
+        playlists.filter { let tags = ChannelTags(tags: $0.tags); return !tags.isChannel && tags.breakKind != nil }
+    }
+
+    /// The names of the playlists tagged as `kind` break clips.
+    private func breakNames(_ kind: BreakKind) -> [String] {
+        breakPlaylists.filter { ChannelTags(tags: $0.tags).breakKind == kind }.map(\.displayTitle)
+    }
+
+    /// Commercial time offered for each break, in minutes.
+    private static let commercialChoices = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30]
 
     /// Each channel's number in the guide, its own or the next free one.
     private var numbers: [String: Int] {
@@ -604,6 +617,25 @@ struct ChannelSettingsView: View {
                         SettingsNote(clashes.joined(separator: " ") + " Give each its own number.")
                     }
                 }
+                if !breakPlaylists.isEmpty {
+                    Section {
+                        ForEach(breakPlaylists) { playlist in
+                            SettingsChoiceRow(
+                                title: playlist.displayTitle,
+                                options: [(BreakKind?.none, "Not for Breaks")] + BreakKind.allCases.map { (BreakKind?.some($0), $0.title) },
+                                selection: Binding(
+                                    get: { ChannelTags(tags: playlist.tags).breakKind },
+                                    set: { kind in markBreakPlaylist(playlist, as: kind) }
+                                )
+                            )
+                            .disabled(!canEdit)
+                        }
+                    } header: {
+                        Text("Break Playlists")
+                    } footer: {
+                        SettingsNote("Playlists of clips for the breaks between programmes, tagged in Jellyfin with what they hold: aster:bumpers, aster:promos, aster:commercials or aster:interstitials. Pick them for a channel in its settings.")
+                    }
+                }
                 if !others.isEmpty {
                     Section(channels.isEmpty ? "Video Playlists" : "More Playlists") {
                         ForEach(others) { playlist in
@@ -621,6 +653,7 @@ struct ChannelSettingsView: View {
                     SettingsNote("Rotation plays one episode of each show in turn, and Blocks a few in a row; either way a show's episodes come in order and pick up where they left off, each movie takes a turn of its own, and specials are left out. Shuffle plays everything in its own order. These three deal a new order every day, week or month, as Reshuffle says, and Shuffle Again deals a different one. In Order plays the playlist as it's arranged, round and round.")
                     SettingsNote("Channels are saved as tags on the playlists in Jellyfin, so every device finds them. You can set them there too, in the playlist's Edit Metadata ▸ Tags: aster:channel, aster:number=3, aster:mode=blocks (or rotation, shuffle, sequential, airdate), aster:reshuffle=week (or day, month), aster:blocks=3-6, aster:seed=2, aster:logo=on, aster:bug=on (with aster:bug-location=top-left, top-right, bottom-left or bottom-right, aster:bug-size=150%, aster:bug-hide=30 and aster:bug-opacity=60%), aster:channel-name=Your Name, aster:min-length=20 and aster:max-length=60 (in minutes), aster:weight=Friends:2 (a show taking two turns to everyone else's one), and to fill a channel aster:genre=Horror, aster:network=NBC and aster:collection=Star Wars (once each), narrowed by aster:type=movies (or shows, all), aster:years=1980-1989, aster:rating=TV-PG,PG and aster:library=TV Shows (once per library, for genres and networks).")
                     SettingsNote("A channel with genres, networks or collections plays every movie and every episode of every show in them (any of them), as well as anything in its playlist. Air Date plays them all in the order they first aired.")
+                    SettingsNote("A channel with break playlists has a break after its programmes: a bumper, commercials, promos, interstitials, and a bumper back. Tag a playlist of clips aster:bumpers (or aster:promos, aster:commercials, aster:interstitials), then name it on a channel with aster:bumpers=Its Name (and so on), and set aster:bumpers-at=both (or out, in), aster:break-length=2 (minutes of commercials), aster:promo-count=1, aster:interstitial-count=1 and aster:break-every=1. With aster:align=30, every programme starts on the hour or half hour, the interstitials filling each break up to it.")
                     SettingsNote("Other people on your server see a channel only if its playlist is shared with them, or public.")
                 }
             }
@@ -681,6 +714,7 @@ struct ChannelSettingsView: View {
         if let count = playlist.childCount { parts.append(count == 1 ? "1 title" : "\(count) titles") }
         if tags.showsLogo { parts.append("Logo") }
         if tags.showsBug { parts.append("Bug") }
+        if tags.hasBreaks { parts.append(tags.breaks.align > 0 ? "Breaks, \(Self.alignTitle(tags.breaks.align).lowercased())" : "Breaks") }
         return parts.joined(separator: " · ")
     }
 
@@ -755,6 +789,7 @@ struct ChannelSettingsView: View {
                 set: { minutes in save(playlist, tags.with { $0.maxLength = minutes }) }
             )
         )
+        breakSettings(playlist, tags: tags)
         SettingsChoiceRow(
             title: "Mode",
             options: ChannelMode.allCases.map { ($0, $0.title) },
@@ -831,6 +866,107 @@ struct ChannelSettingsView: View {
                     set: { size in save(playlist, tags.with { $0.bugSize = size }) }
                 )
             )
+        }
+    }
+
+    /// The playlists a channel's breaks play, and how its breaks go.
+    @ViewBuilder
+    private func breakSettings(_ playlist: BaseItem, tags: ChannelTags) -> some View {
+        ForEach(BreakKind.allCases) { kind in
+            let chosen = tags.breakPlaylists(kind)
+            let options = breakNames(kind) + chosen.filter { name in !breakNames(kind).contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
+            if !options.isEmpty {
+                SettingsMultiChoiceRow(title: kind.title, options: options, selection: chosen) { names in
+                    save(playlist, tags.with { $0.setBreakPlaylists(kind, names) })
+                }
+            }
+        }
+        if tags.hasBreaks {
+            if !tags.bumpers.isEmpty {
+                SettingsChoiceRow(
+                    title: "Bumpers",
+                    options: BumperPlacement.allCases.map { ($0, $0.title) },
+                    selection: Binding(
+                        get: { tags.breaks.bumpersAt },
+                        set: { at in save(playlist, tags.with { $0.breaks.bumpersAt = at }) }
+                    )
+                )
+            }
+            if !tags.commercials.isEmpty {
+                SettingsChoiceRow(
+                    title: "Commercial Time",
+                    options: (Self.commercialChoices + (Self.commercialChoices.contains(tags.breaks.minutes) ? [] : [tags.breaks.minutes])).sorted().map { ($0, $0 == 0 ? "None" : Self.lengthTitle($0)) },
+                    selection: Binding(
+                        get: { tags.breaks.minutes },
+                        set: { minutes in save(playlist, tags.with { $0.breaks.minutes = minutes }) }
+                    )
+                )
+            }
+            if !tags.promos.isEmpty {
+                SettingsChoiceRow(
+                    title: "Promos per Break",
+                    options: (0...ChannelTags.mostPromos).map { ($0, "\($0)") },
+                    selection: Binding(
+                        get: { tags.breaks.promoCount },
+                        set: { count in save(playlist, tags.with { $0.breaks.promoCount = count }) }
+                    )
+                )
+            }
+            SettingsChoiceRow(
+                title: "Line Up",
+                options: [(0, "Off")] + ChannelTags.alignments.map { ($0, Self.alignTitle($0)) },
+                selection: Binding(
+                    get: { tags.breaks.align },
+                    set: { align in save(playlist, tags.with { $0.breaks.align = align }) }
+                )
+            )
+            if tags.breaks.align == 0 {
+                if !tags.interstitials.isEmpty {
+                    SettingsChoiceRow(
+                        title: "Interstitials per Break",
+                        options: (0...ChannelTags.mostPromos).map { ($0, "\($0)") },
+                        selection: Binding(
+                            get: { tags.breaks.interstitialCount },
+                            set: { count in save(playlist, tags.with { $0.breaks.interstitialCount = count }) }
+                        )
+                    )
+                }
+                SettingsChoiceRow(
+                    title: "Break After",
+                    options: (1...ChannelTags.longestBreakGap).map { ($0, $0 == 1 ? "Every Programme" : "Every \($0) Programmes") },
+                    selection: Binding(
+                        get: { tags.breaks.every },
+                        set: { every in save(playlist, tags.with { $0.breaks.every = every }) }
+                    )
+                )
+            }
+        }
+    }
+
+    /// "On the Half Hour", "On the Hour", "Every 15 Minutes".
+    private static func alignTitle(_ minutes: Int) -> String {
+        switch minutes {
+        case 30: "On the Half Hour"
+        case 60: "On the Hour"
+        default: "Every \(minutes) Minutes"
+        }
+    }
+
+    /// Marks a playlist as holding `kind` break clips, or not.
+    private func markBreakPlaylist(_ playlist: BaseItem, as kind: BreakKind?) {
+        guard canEdit, let client = session.client, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        let previous = playlists[index].tags
+        let updated = ChannelTags.marking(previous, as: kind)
+        playlists[index].tags = updated
+        Task {
+            do {
+                try await client.setTags(updated, onItem: playlist.id)
+                await session.refreshChannels()
+            } catch {
+                if let current = playlists.firstIndex(where: { $0.id == playlist.id }) { playlists[current].tags = previous }
+                if case JellyfinError.http(let code, _) = error, code == 401 || code == 403 { refused = true }
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

@@ -34,12 +34,12 @@ struct ChannelFlickBar: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.selectedChannel?.id)
         .animation(.easeInOut(duration: 0.15), value: model.isOnGoTo)
-        .padding(EdgeInsets(top: 60, leading: 90, bottom: 60, trailing: 90))
+        .padding(40)
+        // A pane of glass over the picture, which shows through blurred;
+        // tinted a little dark so white text holds up on a bright scene.
+        .glassEffect(.regular.tint(.black.opacity(0.3)), in: .rect(cornerRadius: 44))
+        .padding(EdgeInsets(top: 60, leading: 70, bottom: 50, trailing: 70))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .background {
-            LinearGradient(colors: [.clear, .black.opacity(0.92)], startPoint: UnitPoint(x: 0.5, y: 0.2), endPoint: .bottom)
-                .ignoresSafeArea()
-        }
         .foregroundStyle(.white)
     }
 }

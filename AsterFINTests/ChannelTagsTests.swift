@@ -326,8 +326,8 @@ struct ChannelTagsTests {
     }
 
     @Test func aClipsOwnTagSaysWhatItIs() {
-        #expect(ChannelTags.clipKind(["aster:bumper-in"]) == .bumpers)
-        #expect(ChannelTags.clipKind(["aster:Bumper-Out"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:bumper=in"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:Bumper=Out"]) == .bumpers)
         #expect(ChannelTags.clipKind(["aster:bumper"]) == .bumpers)
         #expect(ChannelTags.clipKind(["Family", "Aster:Commercial"]) == .commercials)
         #expect(ChannelTags.clipKind(["aster:promos"]) == .promos)
@@ -335,11 +335,10 @@ struct ChannelTagsTests {
         // A clip that doesn't say isn't anything.
         #expect(ChannelTags.clipKind(["Family"]) == nil)
         #expect(ChannelTags.clipKind(nil) == nil)
-        #expect(ChannelTags.bumperSide(["aster:bumper-in"]) == .in)
-        #expect(ChannelTags.bumperSide(["aster:bumper-out"]) == .out)
-        #expect(ChannelTags.bumperSide(["aster:bumper"]) == .both)
-        // The earlier aster:bumper=in still reads.
         #expect(ChannelTags.bumperSide(["aster:bumper=in"]) == .in)
+        #expect(ChannelTags.bumperSide(["aster:bumper=OUT"]) == .out)
+        #expect(ChannelTags.bumperSide(["aster:bumper"]) == .both)
+        #expect(ChannelTags.bumperSide(["aster:bumper=both"]) == .both)
         // A filler playlist says so.
         #expect(ChannelTags.isFillerPlaylist(["Family", "aster:filler"]))
         #expect(ChannelTags.isFillerPlaylist(["asterfin:Filler"]))
@@ -382,7 +381,7 @@ struct ChannelTagsTests {
             item.tags = tags
             return item
         }
-        let items = [clip("countdown", ["aster:bumper-in"]), clip("kool-aid", ["aster:commercial"]),
+        let items = [clip("countdown", ["aster:bumper=in"]), clip("kool-aid", ["aster:commercial"]),
                      clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("untagged", [])]
         let all = ChannelsModel.breakClips(from: items, types: Set(BreakKind.allCases))
         #expect(all.bumpers.map(\.id) == ["countdown"])

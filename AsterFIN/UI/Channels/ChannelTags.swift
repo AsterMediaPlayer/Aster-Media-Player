@@ -43,8 +43,8 @@
 //                             60 minutes), each break filling the gap; off by default
 //    aster:filler             on a playlist: it's a filler playlist, of break clips
 //    aster:commercial         on a clip in one: what it is (or promo, trailer,
-//                             interstitial, bumper; bumper-in only closes a break,
-//                             bumper-out only opens one); untagged clips aren't played
+//                             interstitial, bumper; bumper=in only closes a break,
+//                             bumper=out only opens one); untagged clips aren't played
 //    aster:user=peppy,jd      only these users get the channel (by Jellyfin user
 //                             name; everyone without the tag); repeat for more
 //    aster:channel-name=…     the channel's name, in place of the playlist's
@@ -364,8 +364,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
 
     /// What a break clip is, from its own tag: `aster:commercial`,
     /// `aster:promo`, `aster:trailer`, `aster:interstitial`, or
-    /// `aster:bumper` (`bumper-in`, `bumper-out`). Nil for a clip that
-    /// doesn't say, which breaks leave out.
+    /// `aster:bumper` (`=in`, `=out`). Nil for a clip that doesn't say,
+    /// which breaks leave out.
     static func clipKind(_ tags: [String]?) -> BreakKind? {
         for tag in tags ?? [] {
             if let (key, _) = parse(tag), let kind = kind(key) { return kind }
@@ -373,27 +373,20 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         return nil
     }
 
-    /// Where a bumper goes: `aster:bumper-in` only closes a break (a
-    /// countdown into the show), `aster:bumper-out` only opens one, and a
+    /// Where a bumper goes: `aster:bumper=in` only closes a break (a
+    /// countdown into the show), `aster:bumper=out` only opens one, and a
     /// plain `aster:bumper` goes at either end.
     static func bumperSide(_ tags: [String]?) -> BumperPlacement {
         for tag in tags ?? [] {
-            guard let (key, value) = parse(tag) else { continue }
-            switch key {
-            case "bumper-in": return .in
-            case "bumper-out": return .out
-            case "bumper", "bumpers": return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
-            default: continue
-            }
+            guard let (key, value) = parse(tag), kind(key) == .bumpers else { continue }
+            return value.flatMap { BumperPlacement(rawValue: $0.lowercased()) } ?? .both
         }
         return .both
     }
 
-    /// "bumper" (or "bumper-in", "bumper-out"), "commercial" or
-    /// "commercials" and so on, as a kind.
+    /// "bumper" or "bumpers", "commercial" or "commercials" and so on, as a kind.
     private static func kind(_ word: String) -> BreakKind? {
         let word = word.lowercased()
-        if word == "bumper-in" || word == "bumper-out" { return .bumpers }
         return BreakKind(rawValue: word) ?? BreakKind(rawValue: word + "s")
     }
 

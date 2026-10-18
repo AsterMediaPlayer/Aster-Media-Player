@@ -94,16 +94,40 @@ Taken on Apple TV.
 - Record single programmes, or set series recording rules with options.
 
 ### Channels (Beta)
-Your Jellyfin video playlists become TV-style channels on a Channels tab, laid out in the same guide as Live TV. Tune in and you join whatever is on, partway through, and when it ends the channel carries on to what's on next.
-- **Quick start:** on the Channels tab, open **Edit Channels** and pick **New Channel ▸ From a Show** (or a genre, network, collection or one of your playlists). That's a channel, playing now. Only a server administrator can make or change channels; everyone else just watches.
-- **Settings:** each channel shows the essentials (name, number, what it plays, mode, logo, breaks) with everything else under **Advanced**. On Apple TV you can also move left onto a channel in the guide and press Select to open its settings.
-- **Breaks:** put commercials, promos, trailers, interstitials and bumpers in a playlist tagged `aster:filler`, tag each clip with what it is, and pick that playlist under **Breaks**. The channel then lines up on the hour and half hour, filling the gaps with whole clips.
-- **Stored on your server:** every setting is a tag on the playlist in Jellyfin, so every device finds the same channels and you can edit them there too. The full list is in [docs/channel-tags.md](docs/channel-tags.md).
-- **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
-- **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
-- **A week ahead:** the guide covers the next 7 days, with a day picker at the top.
-- **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
-- **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
+Channels turn your own movies and shows into TV you can just put on. Each channel runs around the clock on a schedule, with a guide like Live TV's. Tune in and you join whatever's on, partway through, then it carries on to the next thing, the way real TV does. Every device shows the same thing at the same moment.
+
+**Make your first channel** (you need to be a server administrator):
+1. Open the **Channels** tab and choose **Edit Channels**. (If you don't have the tab yet, it's in **Settings ▸ Channels (Beta)**.)
+2. Under **New Channel**, pick **From a Show**, then a show.
+3. That's it: the channel is playing. Go back to the Channels tab, choose it in the guide and press Select to tune in.
+
+You can also make a channel **from a genre** (all your horror, say), **a network** (everything from NBC), **a collection**, or **one of your playlists**. Want a mix, like two shows on one channel? Make a playlist with both in Jellyfin, then pick **From One of Your Playlists**.
+
+**Change a channel:** in Edit Channels, open a channel to see the basics: its name, number, what it plays, how it plays (**Mode**), its logo, and breaks. Everything else is under **Advanced**. On Apple TV you can also move left onto a channel in the guide and press Select to open its settings.
+
+**Add commercial breaks** (optional):
+1. Add your clips to Jellyfin as ordinary videos: commercials, trailers, promos, short filler videos ("interstitials"), and bumpers (the channel's own "We'll be right back" clips).
+2. In Jellyfin, tag each clip with what it is: `aster:commercial`, `aster:trailer`, `aster:promo`, `aster:interstitial` or `aster:bumper`. A clip without one of these tags is skipped.
+3. Put them in a playlist, any mix, and tag the playlist `aster:filler`.
+4. In Edit Channels, pick that playlist under **Breaks**.
+
+Now there's a break after each programme, and the channel lines itself up so shows start on the hour and half hour. One playlist of breaks can serve as many channels as you like.
+
+**How a channel picks what to play:**
+- **Rotation** (the usual): one episode of each show in turn, like a channel of reruns.
+- **Blocks:** two to four episodes of a show in a row, then the next show.
+- **Shuffle:** everything in a random order.
+- **In Order:** the playlist exactly as you arranged it, round and round.
+- **Air Date:** everything in the order it first aired.
+
+Shows always play their episodes in order and pick up where they left off. Specials are left out.
+
+**Good to know:**
+- **Your watch history is safe:** watching a channel doesn't change resume points, watched marks or Continue Watching.
+- **Want to watch something properly?** On Apple TV, press Up for the channel row, then Up again to **Go to Episode**. It plays the episode on its own, from where you left off, with skipping, scrubbing and Up Next. On a channel itself you can pause but not skip, so everyone stays on the same schedule.
+- **Who sees a channel:** everyone on your server, as long as its playlist is shared with them or public. To keep a channel to certain people, pick them under **Advanced ▸ Users**.
+- **The guide covers a week ahead,** with a day picker at the top.
+- **Your channels live on your server:** every setting is saved as a tag on the playlist in Jellyfin, so every device finds the same channels, and you can edit the tags in Jellyfin too. The full list is in [docs/channel-tags.md](docs/channel-tags.md).
 
 ### Disc menus
 - Aster renders DVD/Blu-ray-style menus from the **JellyDisc** plugin. They support backgrounds, chapter and trailer screens, and theme songs.
@@ -181,7 +205,6 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 - **Channels (beta):**
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
-  - There's no channel up/down inside the player yet.
 - **Mac:** the Mac app has no downloads yet.
 - **Anime without the OP/ED plugin:** openings and endings are guessed from chapter names.
 

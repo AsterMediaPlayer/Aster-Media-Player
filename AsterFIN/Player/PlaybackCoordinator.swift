@@ -446,9 +446,10 @@ final class PlaybackCoordinator {
             async let artwork = Self.chapterArtwork(for: item, client: client)
             #endif
             // A clip gets no skip markers (Skip Intro would skip the very
-            // opening asked for) and no Up Next.
+            // opening asked for) and no Up Next; nor does a channel, where
+            // skipping would leave the schedule behind.
             var loadedSegments: [MediaSegment] = []
-            if !isLive, !isClip {
+            if !isLive, !isClip, entry.channelId == nil {
                 do {
                     loadedSegments = try await client.mediaSegments(itemId: entry.itemId)
                 } catch {

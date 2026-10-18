@@ -202,8 +202,10 @@ final class AetherPlayback {
             await begin(item)
             if isLive { return }
             // Markers and the next episode load once it plays, so they never
-            // hold up the start.
-            async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
+            // hold up the start. A channel gets no markers: skipping an
+            // intro, by hand or on its own, would leave the schedule behind.
+            let onChannel = entry.channelId != nil
+            async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
             // A channel goes on to what it's showing, never Up Next.
             let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
             let markers = await loadedSegments

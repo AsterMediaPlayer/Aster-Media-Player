@@ -514,9 +514,11 @@ struct ItemDetailView: View {
         case .episodes:
             episodesSection
         case .music:
-            ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800)) { entry in
-                playThemeCard(entry)
-            }
+            // The panel's Full Screen hands its theme to the full-screen
+            // player; it was already OK'd if it's a spoiler.
+            ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
+                              play: { entry in playThemeCard(entry) },
+                              fullScreen: { theme in play(theme) })
         case .extras:
             extrasShelf
         case .related:

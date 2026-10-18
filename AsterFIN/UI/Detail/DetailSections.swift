@@ -95,19 +95,135 @@ struct DetailSectionBar: View {
 
 /// An anime's openings and endings, each in its own row: the OP/ED plugin's
 /// themes when the server has them, else clips found in the episodes'
-/// chapters.
+/// chapters. The plugin's play in the Now Playing panel beside the rows (on
+/// a phone, above them); chapter clips, which are stretches of episodes,
+/// play full screen as before.
 struct ThemeMusicSection: View {
     let entries: [OpeningEnding]
     let seasons: [BaseItem]
     /// The show's own picture, for a theme before (or without) its frame.
     let fallbackArtwork: URL?
+    /// A chapter clip pressed.
     var play: (OpeningEnding) -> Void
+    /// The panel's Full Screen.
+    var fullScreen: (OpEdTheme) -> Void
+
+    @Environment(AppSession.self) private var session
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+    @State private var deck = ThemeDeck()
+    /// A spoiler or NSFW theme waiting for the go-ahead.
+    @State private var confirming: OpEdTheme?
+    /// Going full screen: the full-screen player keeps the show's theme
+    /// quiet, so the panel stopping mustn't bring it back.
+    @State private var handingOff = false
+
+    private enum Metrics {
+        #if os(tvOS)
+        static let panelWidth: CGFloat = 560
+        #else
+        static let panelWidth: CGFloat = 340
+        #endif
+    }
+
+    /// Room for the panel beside the rows: not on a phone.
+    private var isWide: Bool {
+        #if os(iOS)
+        sizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// The plugin's themes, in the order the rows show them.
+    private var themes: [OpEdTheme] {
+        (sorted(opening: true) + sorted(opening: false)).compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
+    }
 
     var body: some View {
+        Group {
+            if themes.isEmpty {
+                rows
+            } else if isWide {
+                HStack(alignment: .top, spacing: 0) {
+                    rows
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    panel
+                        .frame(width: Metrics.panelWidth)
+                        .padding(.trailing, Lockup.screenPadding)
+                        .padding(.top, 8)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 24) {
+                    if deck.isActive {
+                        panel
+                            .padding(.horizontal, Lockup.screenPadding)
+                    }
+                    rows
+                }
+            }
+        }
+        // The show's theme behind the page goes quiet while one plays here.
+        .onChange(of: deck.isActive) { _, active in
+            if active {
+                session.theme.suspend()
+            } else if handingOff {
+                handingOff = false
+            } else {
+                session.theme.resume()
+            }
+        }
+        .onDisappear { deck.stop() }
+        .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
+            Button("Play") {
+                if let theme = confirming { start(theme) }
+                confirming = nil
+            }
+            Button("Cancel", role: .cancel) { confirming = nil }
+        } message: {
+            Text(confirming?.nsfw == true
+                 ? "This opening or ending is marked as not safe for work."
+                 : "This opening or ending is marked as containing spoilers.")
+        }
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 36) {
             row(title: "Openings", subtitle: "The songs that start each episode.", entries: sorted(opening: true))
             row(title: "Endings", subtitle: "The songs over the closing credits.", entries: sorted(opening: false))
         }
+    }
+
+    private var panel: some View {
+        ThemeNowPlayingPanel(
+            deck: deck,
+            artwork: fallbackArtwork,
+            seasonName: seasonName,
+            playAll: {
+                if let first = themes.first(where: { $0.playablePath != nil && !$0.spoiler && !$0.nsfw }) { start(first) }
+            },
+            fullScreen: { theme in
+                handingOff = true
+                deck.stop()
+                fullScreen(theme)
+            }
+        )
+    }
+
+    /// A theme's card pressed: it plays in the panel, after asking when it's
+    /// marked as a spoiler or NSFW.
+    private func pressed(_ theme: OpEdTheme) {
+        if theme.spoiler || theme.nsfw {
+            confirming = theme
+        } else {
+            start(theme)
+        }
+    }
+
+    private func start(_ theme: OpEdTheme) {
+        guard let client = session.client else { return }
+        deck.play(theme, in: themes, client: client)
     }
 
     @ViewBuilder
@@ -147,7 +263,7 @@ struct ThemeMusicSection: View {
     private func card(_ entry: OpeningEnding) -> some View {
         switch entry {
         case .theme(let theme):
-            ThemeCard(theme: theme, seasonName: seasonName(theme), fallbackArtwork: fallbackArtwork) { play(entry) }
+            ThemeCard(theme: theme, seasonName: seasonName(theme), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == theme.id) { pressed(theme) }
         case .chapter(let clip):
             ThemeClipLockup(clip: clip) { play(entry) }
         }
@@ -189,6 +305,8 @@ struct ThemeCard: View {
     let theme: OpEdTheme
     var seasonName: String?
     var fallbackArtwork: URL?
+    /// Whether it's the one in the Now Playing panel.
+    var isPlaying = false
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -217,8 +335,13 @@ struct ThemeCard: View {
                             .padding(.vertical, 8)
                             .background(.black.opacity(0.6), in: Capsule())
                     }
-                    pill(badge)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    HStack(spacing: 6) {
+                        pill(badge)
+                        if isPlaying {
+                            pill("Playing", systemImage: "speaker.wave.2.fill")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     HStack(spacing: 6) {
                         if theme.isAudioOnly {
                             pill("Audio only", systemImage: "music.note")

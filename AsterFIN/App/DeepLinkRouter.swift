@@ -2,8 +2,8 @@
 //  DeepLinkRouter.swift
 //  AsterFIN
 //
-//  Links into the app, from the Top Shelf: `asterfin://item/{id}` opens a
-//  title's page and `asterfin://play/{id}` starts playing it. A link that
+//  Links into the app, from the Top Shelf: `aster://item/{id}` opens a
+//  title's page and `aster://play/{id}` starts playing it. A link that
 //  arrives before the main screen exists is held until it can be used.
 //
 
@@ -29,7 +29,8 @@ final class DeepLinkRouter {
     }
 
     func handle(_ url: URL) {
-        guard url.scheme?.lowercased() == "asterfin" else { return }
+        // asterfin:// is the app's earlier name, still followed.
+        guard ["aster", "asterfin"].contains(url.scheme?.lowercased() ?? "") else { return }
         let id = url.lastPathComponent
         guard !id.isEmpty, id != "/" else { return }
         switch url.host()?.lowercased() {

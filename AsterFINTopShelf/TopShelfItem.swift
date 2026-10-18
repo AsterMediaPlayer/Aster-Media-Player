@@ -84,7 +84,7 @@ nonisolated struct TopShelfAPI: Sendable {
     let session: TopShelfSession
 
     private var authorization: String {
-        "MediaBrowser Client=\"AsterFIN\", Device=\"Apple TV\", DeviceId=\"\(session.deviceId)\", Version=\"1.0\", Token=\"\(session.accessToken)\""
+        "MediaBrowser Client=\"Aster\", Device=\"Apple TV\", DeviceId=\"\(session.deviceId)\", Version=\"1.0\", Token=\"\(session.accessToken)\""
     }
 
     func items(_ path: String, query: [String: String]) async throws -> [TopShelfItem] {
@@ -120,11 +120,11 @@ nonisolated struct TopShelfAPI: Sendable {
         if let percent = item.userData?.playedPercentage, percent > 0 {
             shelf.playbackProgress = min(max(percent / 100, 0), 1)
         }
-        if let play = URL(string: "asterfin://play/\(item.id)") {
+        if let play = URL(string: "aster://play/\(item.id)") {
             shelf.playAction = TVTopShelfAction(url: play)
         }
         // A channel has no page of its own, so selecting it tunes in too.
-        if let open = URL(string: isChannel ? "asterfin://play/\(item.id)" : "asterfin://item/\(item.id)") {
+        if let open = URL(string: isChannel ? "aster://play/\(item.id)" : "aster://item/\(item.id)") {
             shelf.displayAction = TVTopShelfAction(url: open)
         }
         return shelf

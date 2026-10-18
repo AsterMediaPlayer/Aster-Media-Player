@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "The app's name under its icon.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aster"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "The app's short name, as in the Mac's menu bar.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aster"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

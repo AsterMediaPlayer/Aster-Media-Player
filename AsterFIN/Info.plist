@@ -9,6 +9,7 @@
 			<string>app.asterfin.tvos</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>aster</string>
 				<string>asterfin</string>
 			</array>
 		</dict>

@@ -343,8 +343,11 @@ nonisolated final class JellyfinClient: Sendable {
         query["parentId"] = parentId
         query["isMissing"] = "false"
         query["sortBy"] = "SortName"
-        if !genreIds.isEmpty { query["genreIds"] = genreIds.joined(separator: "|") }
-        if !studioIds.isEmpty { query["studioIds"] = studioIds.joined(separator: "|") }
+        // Ids are comma-separated; names (ratings, below) take "|". Ids
+        // joined with "|" make Jellyfin drop the filter and return
+        // everything, so a two-network channel played the whole library.
+        if !genreIds.isEmpty { query["genreIds"] = genreIds.joined(separator: ",") }
+        if !studioIds.isEmpty { query["studioIds"] = studioIds.joined(separator: ",") }
         if let years { query["years"] = years.map(String.init).joined(separator: ",") }
         if !ratings.isEmpty { query["officialRatings"] = ratings.joined(separator: "|") }
         return try await allItems(query)

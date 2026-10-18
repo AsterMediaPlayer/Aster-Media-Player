@@ -505,6 +505,10 @@ private struct DiscMenuSettingsView: View {
 /// This edits those tags, which an administrator can also do in Jellyfin's
 /// web interface; for anyone else it shows them, read-only.
 struct ChannelSettingsView: View {
+    /// One channel's settings alone, already open, as Select on its guide
+    /// cell shows them; nil for every channel and playlist.
+    var only: String? = nil
+
     @Environment(AppSession.self) private var session
     @State private var playlists: [BaseItem] = []
     @State private var loaded = false
@@ -588,6 +592,36 @@ struct ChannelSettingsView: View {
     }
 
     var body: some View {
+        if let only {
+            single(only)
+        } else {
+            everything
+        }
+    }
+
+    /// One channel, opened: its settings and nothing else.
+    private func single(_ id: String) -> some View {
+        let channel = channels.first { $0.playlist.id == id }
+        return SettingsPage(title: channel.map(Self.name) ?? "Channel") {
+            if let errorMessage, playlists.isEmpty {
+                Section { Text(errorMessage).foregroundStyle(.secondary) }
+            } else if !loaded {
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            } else if let channel {
+                channelSection(channel.playlist, tags: channel.tags)
+            } else {
+                Section {
+                    SettingsNote("This playlist isn't a channel any more. Turn it back on in Edit Channels.")
+                }
+            }
+        }
+        .task {
+            expanded.insert(id)
+            await load()
+        }
+    }
+
+    private var everything: some View {
         SettingsPage(title: "Channels (Beta)") {
             Section {
                 SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once there is one.")

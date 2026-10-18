@@ -152,6 +152,9 @@ final class PlaybackCoordinator {
     private var index = 0
     /// The Channel playing, if it's playing one.
     var channelId: String? { index < queue.count ? queue[index].channelId : nil }
+    /// Playing on a timeline the viewer can't move: a Live TV channel, or a
+    /// Channels-tab channel, whose schedule it keeps to.
+    var followsTimeline: Bool { isLive || channelId != nil }
 
     private var playSessionId: String?
     private var mediaSourceId: String?

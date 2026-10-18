@@ -30,6 +30,10 @@ import AppKit
 final class AetherNowPlaying {
     static let skipSeconds: Double = 10
 
+    /// Whether the lock screen, Control Center and headphones may skip and
+    /// scrub; not on a channel, which keeps to its timeline.
+    var seekable = true
+
     private let engine: AetherEngine
     private let client: JellyfinClient
     /// The title, series and artwork for the item playing.
@@ -182,6 +186,9 @@ final class AetherNowPlaying {
 
     private func add(to center: MPRemoteCommandCenter) {
         let engine = engine
+        /// Skipping and scrubbing from the lock screen, Control Center or
+        /// headphones, refused on a channel's timeline.
+        let seekable = { [weak self] in self?.seekable ?? false }
         func on(_ command: MPRemoteCommand, _ handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
             command.isEnabled = true
             let token = command.addTarget(handler: handler)
@@ -206,15 +213,17 @@ final class AetherNowPlaying {
         center.skipForwardCommand.preferredIntervals = [NSNumber(value: Self.skipSeconds)]
         center.skipBackwardCommand.preferredIntervals = [NSNumber(value: Self.skipSeconds)]
         on(center.skipForwardCommand) { _ in
+            guard seekable() else { return .commandFailed }
             Task { @MainActor in await Self.skip(engine, by: Self.skipSeconds) }
             return .success
         }
         on(center.skipBackwardCommand) { _ in
+            guard seekable() else { return .commandFailed }
             Task { @MainActor in await Self.skip(engine, by: -Self.skipSeconds) }
             return .success
         }
         on(center.changePlaybackPositionCommand) { event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            guard seekable(), let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let seconds = event.positionTime
             Task { @MainActor in await engine.seek(to: seconds) }
             return .success

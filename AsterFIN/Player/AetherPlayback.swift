@@ -101,6 +101,10 @@ final class AetherPlayback {
     var channelId: String? { entry.channelId }
     /// The Live TV channel playing, if it's one.
     var liveChannelId: String? { isLive ? entry.itemId : nil }
+    /// Playing on a timeline the viewer can't move: a Live TV channel, or a
+    /// Channels-tab channel, whose schedule it keeps to. No skipping,
+    /// scrubbing or chapters; Go to Episode is the way to watch freely.
+    var followsTimeline: Bool { isLive || entry.channelId != nil }
     /// What's on that channel, from the guide, fetched as playback pauses.
     private(set) var liveProgram: BaseItem?
     private let preferences: PlaybackPreferences
@@ -230,6 +234,7 @@ final class AetherPlayback {
         engine.play()
         hasStarted = true
         stopReported = false
+        nowPlaying.seekable = !followsTimeline
         nowPlaying.show(item)
         trickplay = isLive ? nil : ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
         if reportsPlayback {

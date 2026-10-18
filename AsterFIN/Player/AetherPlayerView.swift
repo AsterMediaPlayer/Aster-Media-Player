@@ -201,8 +201,8 @@ struct AetherPlayerView: View {
                     .gesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
-                                // A live channel has nothing to skip through.
-                                guard !playback.isLive else { return }
+                                // A channel keeps to its timeline: nothing to skip through.
+                                guard !playback.followsTimeline else { return }
                                 let forward = value.location.x > proxy.size.width / 2
                                 Self.skip(forward ? 10 : -10, on: engine)
                                 skipFlash = SkipFlash(forward: forward)
@@ -285,6 +285,8 @@ struct AetherPlayerView: View {
                 LiveBadge()
             } else {
                 AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
+                    // On a channel it shows how far in, but can't be dragged.
+                    .allowsHitTesting(!playback.followsTimeline)
             }
             HStack(spacing: 20) {
                 RoutePicker()
@@ -370,8 +372,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "gobackward.10")
             }
             .accessibilityLabel("Back 10 seconds")
-            .opacity(playback.isLive ? 0 : 1)
-            .disabled(playback.isLive)
+            .opacity(playback.followsTimeline ? 0 : 1)
+            .disabled(playback.followsTimeline)
             Button(action: togglePlayPause) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 44))
@@ -382,8 +384,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "goforward.10")
             }
             .accessibilityLabel("Forward 10 seconds")
-            .opacity(playback.isLive ? 0 : 1)
-            .disabled(playback.isLive)
+            .opacity(playback.followsTimeline ? 0 : 1)
+            .disabled(playback.followsTimeline)
         }
         .font(.system(size: 30))
         .buttonStyle(.plain)

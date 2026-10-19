@@ -15,7 +15,7 @@ Aster covers movies, TV, anime, music, audiobooks and live TV, and can turn your
 Aster Media Player (formerly AsterFIN) is open source, and there are three ways to get it:
 
 - **App Store** (coming soon): one purchase covers Apple TV, iPhone, iPad and the Mac. It installs in one click, updates automatically and supports development. The beta is on TestFlight now.
-- **Free IPA**: download it from [Releases](https://github.com/AsterFIN-app/AsterFIN/releases) when one is posted. Apple TV, iPhone and iPad only run signed apps, so you need to re-sign the IPA with your own Apple ID before installing it. With a free Apple ID the signature expires after 7 days; with a paid Apple Developer account it lasts a year.
+- **Free IPA**: download it from [Releases](https://github.com/AsterMediaPlayer/Aster-Media-Player/releases) when one is posted. Apple TV, iPhone and iPad only run signed apps, so you need to re-sign the IPA with your own Apple ID before installing it. With a free Apple ID the signature expires after 7 days; with a paid Apple Developer account it lasts a year.
 - **Build it yourself**: see [Building](#building) below.
 
 All three are the same app with the same features.
@@ -179,7 +179,7 @@ Requirements:
 - An Apple silicon Mac. AetherEngine's decoders ship for arm64 only, so the simulators run as arm64.
 
 ```sh
-git clone https://github.com/AsterFIN-app/AsterFIN.git
+git clone https://github.com/AsterMediaPlayer/Aster-Media-Player.git
 open AsterFIN/AsterFIN.xcodeproj
 ```
 

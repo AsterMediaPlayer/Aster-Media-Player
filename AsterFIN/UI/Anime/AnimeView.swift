@@ -152,6 +152,11 @@ struct AnimeView: View {
                 }
 
                 if model.hasLoaded || !model.featured.isEmpty {
+                    // The rows make way for the floating Now Playing panel;
+                    // the hero stays full width under it. (A Group pads
+                    // each row in place, so the rows stay where focus
+                    // expects them, below the hero.)
+                    Group {
                     // Each opens the whole library as a sortable grid.
                     Shelf(title: "Libraries", items: session.animeLibraries + session.animeMusicVideoLibraries) { library in
                         LibraryTile(library: library, focus: $focusedTile)
@@ -172,11 +177,12 @@ struct AnimeView: View {
                             LandscapeLockup(item: item, showSeriesTitle: false)
                         }
                     }
+                    }
+                    .padding(.trailing, themeMiniInset)
+                    .animation(.smooth(duration: 0.4), value: themeMiniInset)
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)
-            .padding(.trailing, themeMiniInset)
-            .animation(.smooth(duration: 0.4), value: themeMiniInset)
         }
         .scrollClipDisabled()
         .ignoresSafeArea()

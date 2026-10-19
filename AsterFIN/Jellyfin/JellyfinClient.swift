@@ -502,6 +502,12 @@ nonisolated final class JellyfinClient: Sendable {
         try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
     }
 
+    /// The theme a published music video (or song) is, from the OP/ED
+    /// plugin; nil for any other item, or without the plugin.
+    func opEdTheme(forLibraryItem itemId: String) async -> OpEdTheme? {
+        try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
+    }
+
     /// The OP/ED plugin's published libraries; nil without the plugin (or
     /// before 0.2).
     func opEdLibraries() async -> OpEdLibraries? {

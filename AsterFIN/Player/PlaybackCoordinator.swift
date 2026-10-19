@@ -474,6 +474,10 @@ final class PlaybackCoordinator {
                     themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes)
                 }
             }
+            if AppSettings.themeCards, !isClip, item.kind == .musicVideo {
+                let moments = await Self.musicVideoMoments(for: item, client: client)
+                if currentItem?.id == item.id { themeMoments = moments }
+            }
             #if os(tvOS)
             // Chapter names show at once; their frames replace them when ready.
             let frames = await artwork
@@ -555,6 +559,31 @@ final class PlaybackCoordinator {
             }
             return ThemeMoment(range: entry.range, info: info)
         }
+    }
+
+    /// A music video is one song from start to finish, so its card covers
+    /// all of it: shown as it starts and again as it ends. One the OP/ED
+    /// plugin published says which theme of which show it is; any other (an
+    /// AMV, say) says what Jellyfin knows of it. Used by both players.
+    static func musicVideoMoments(for item: BaseItem, client: JellyfinClient) async -> [ThemeMoment] {
+        guard item.kind == .musicVideo, let ticks = item.runTimeTicks, ticks > 0 else { return [] }
+        let range = 0 ... Double(ticks) / 10_000_000
+        if let theme = await client.opEdTheme(forLibraryItem: item.id) {
+            // The plugin writes the show as the album.
+            let series = item.album ?? item.displayTitle
+            var seasonName: String?
+            if let seasonId = theme.seasonId {
+                seasonName = try? await client.item(seasonId).displayTitle
+            }
+            return [ThemeMoment(range: range, info: ThemeInfo(theme: theme, series: series, seasonName: seasonName))]
+        }
+        let artists = (item.artists ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
+        return [ThemeMoment(range: range, info: ThemeInfo(
+            kicker: "Music Video",
+            title: item.displayTitle,
+            artists: artists.isEmpty ? nil : artists,
+            series: item.album
+        ))]
     }
 
     // MARK: Track selection

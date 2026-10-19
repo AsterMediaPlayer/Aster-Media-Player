@@ -221,6 +221,11 @@ final class AetherPlayback {
                 guard self.item?.id == item.id, !stopped else { return }
                 themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
             }
+            if AppSettings.themeCards, item.kind == .musicVideo {
+                let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: client)
+                guard self.item?.id == item.id, !stopped else { return }
+                themeMoments = moments
+            }
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {

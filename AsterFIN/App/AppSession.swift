@@ -37,6 +37,9 @@ final class AppSession {
     /// The title page showing the deck's full Now Playing panel, while one
     /// is on screen; everywhere else the slim one floats on the right.
     var themePanelPage: String?
+    /// Bumped by holding the remote's Play/Pause: the Now Playing panel on
+    /// screen takes focus, on its play button.
+    var themePanelFocusRequest = 0
     /// Links arriving from the Top Shelf.
     let router = DeepLinkRouter()
 

@@ -241,6 +241,10 @@ struct ThemeNowPlayingPanel: View {
     /// The slim panel that floats while browsing: no details, smaller.
     var compact = false
 
+    @Environment(AppSession.self) private var session
+    /// Holding Play/Pause on the remote brings focus here.
+    @FocusState private var playFocused: Bool
+
     private enum Metrics {
         #if os(tvOS)
         static let spacing: CGFloat = 22
@@ -356,6 +360,8 @@ struct ThemeNowPlayingPanel: View {
         HStack(spacing: spacing) {
             control("backward.fill", label: "Previous") { deck.previous() }
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
+                .focused($playFocused)
+                .onChange(of: session.themePanelFocusRequest) { _, _ in playFocused = true }
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)

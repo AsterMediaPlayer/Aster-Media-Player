@@ -127,10 +127,22 @@ struct MainTabView: View {
         }
         #endif
         #if os(tvOS)
-        // The remote's Play/Pause pauses music or a book from anywhere
-        // (the players and videos handle it themselves while showing).
+        // The remote's Play/Pause pauses an opening or ending playing while
+        // browsing, else music or a book, from anywhere (the players and
+        // videos handle it themselves while showing). Held, it brings focus
+        // to the Now Playing panel.
         .onPlayPauseCommand {
-            session.toggleAudio()
+            if session.themeDeck.isActive {
+                session.themeDeck.togglePlaying()
+            } else {
+                session.toggleAudio()
+            }
+        }
+        .background {
+            PlayPauseHoldDetector(isEnabled: { session.themeDeck.isActive }) {
+                session.themePanelFocusRequest += 1
+            }
+            .allowsHitTesting(false)
         }
         #endif
         #if os(macOS)

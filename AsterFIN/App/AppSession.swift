@@ -339,6 +339,10 @@ enum AppSettings {
     static let openingSoundKey = "AsterFIN.openingSound"
     /// The song card as an episode's opening or ending plays. On by default.
     static let themeCardsKey = "AsterFIN.themeCards"
+    /// Openings and endings picked on a show's Music tab play in the Now
+    /// Playing panel (and keep playing, slim, while browsing); off, they
+    /// play full screen. On by default.
+    static let themePanelKey = "AsterFIN.themePanel"
     /// ASS/SSA tracks drawn with libass (positions, drawings, fonts) rather
     /// than as plain text. On by default.
     static let styledSubtitlesKey = "AsterFIN.styledSubtitles"

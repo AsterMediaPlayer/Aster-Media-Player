@@ -329,6 +329,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
+    @AppStorage(AppSettings.themePanelKey) private var themePanel = true
     @AppStorage(AppSettings.useSystemPlayerKey) private var useSystemPlayer = false
     #if os(iOS)
     @AppStorage(AppSettings.listenAheadKey) private var listenAhead = 30
@@ -384,6 +385,11 @@ private struct PlaybackSettingsView: View {
             Section("Anime") {
                 Toggle("Song card at openings and endings", isOn: $themeCards)
                 SettingsNote("As an episode's opening or ending starts, and again as it finishes, the song and artist show in the corner, like a music channel. Found from the episode's OP and ED chapters, with the song named by the OP/ED plugin when the server has it. Music videos get the card too, as they start and end.")
+                Toggle("Now Playing panel", isOn: $themePanel)
+                    .onChange(of: themePanel) { _, on in
+                        if !on { session.themeDeck.stop() }
+                    }
+                SettingsNote("Openings and endings picked on a show's Music tab play in a panel beside the page, and keep playing in a small one while you browse. Off, they play full screen, one at a time.")
                 // Every music video library but the OP/ED plugin's, which
                 // the Anime tab always shows.
                 let choices = session.musicVideoLibraries.filter { library in

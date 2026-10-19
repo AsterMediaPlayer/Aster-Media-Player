@@ -115,6 +115,8 @@ struct ThemeMusicSection: View {
     var addToPlaylist: ([String]) -> Void
 
     @Environment(AppSession.self) private var session
+    /// Off: a pick plays full screen, with no Now Playing panel.
+    @AppStorage(AppSettings.themePanelKey) private var usesPanel = true
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
 
@@ -136,7 +138,7 @@ struct ThemeMusicSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            if !unflagged.isEmpty {
+            if !unflagged.isEmpty || !publishedIds.isEmpty {
                 playButtons
             }
             if !panelBesidePage, deck.isActive {
@@ -150,7 +152,7 @@ struct ThemeMusicSection: View {
         .onDisappear { if !panelBesidePage { deck.stop() } }
         .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
             Button("Play") {
-                if let theme = confirming { start(.theme(theme), in: queue) }
+                if let theme = confirming { play(.theme(theme)) }
                 confirming = nil
             }
             Button("Cancel", role: .cancel) { confirming = nil }
@@ -164,21 +166,24 @@ struct ThemeMusicSection: View {
     /// Play All, in the rows' order, and Shuffle.
     private var playButtons: some View {
         HStack(spacing: 16) {
-            Button {
-                if let first = unflagged.first { start(first, in: queue) }
-            } label: {
-                Label("Play All", systemImage: "play.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardTarget { if let first = unflagged.first { start(first, in: queue) } }
+            // One after another needs the panel: full screen plays one at a time.
+            if usesPanel, !unflagged.isEmpty {
+                Button {
+                    if let first = unflagged.first { start(first, in: queue) }
+                } label: {
+                    Label("Play All", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardTarget { if let first = unflagged.first { start(first, in: queue) } }
 
-            Button {
-                shuffle()
-            } label: {
-                Label("Shuffle", systemImage: "shuffle")
+                Button {
+                    shuffle()
+                } label: {
+                    Label("Shuffle", systemImage: "shuffle")
+                }
+                .buttonStyle(.bordered)
+                .keyboardTarget { shuffle() }
             }
-            .buttonStyle(.bordered)
-            .keyboardTarget { shuffle() }
 
             if !publishedIds.isEmpty {
                 Button {
@@ -199,13 +204,24 @@ struct ThemeMusicSection: View {
         if let first = order.first { start(first, in: order) }
     }
 
-    /// A card pressed: it plays in the panel, after asking when it's marked
-    /// as a spoiler or NSFW.
+    /// A card pressed: it plays, after asking when it's marked as a spoiler
+    /// or NSFW.
     private func pressed(_ entry: OpeningEnding) {
         if case .theme(let theme) = entry, entry.isFlagged {
             confirming = theme
         } else {
+            play(entry)
+        }
+    }
+
+    /// In the panel, the rest of the rows after it; with the panel turned
+    /// off in Settings, full screen.
+    private func play(_ entry: OpeningEnding) {
+        if usesPanel {
             start(entry, in: queue)
+        } else {
+            deck.stop()
+            fullScreen(entry)
         }
     }
 

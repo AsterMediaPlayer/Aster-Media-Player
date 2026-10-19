@@ -98,6 +98,8 @@ final class AnimeModel {
 
 struct AnimeView: View {
     @Environment(AppSession.self) private var session
+    /// Room on the right for the floating Now Playing panel.
+    @Environment(\.themeMiniInset) private var themeMiniInset
     @State private var model = AnimeModel()
     /// Where focus goes on pressing down from the hero: the first library.
     @FocusState private var focusedTile: String?
@@ -173,6 +175,8 @@ struct AnimeView: View {
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)
+            .padding(.trailing, themeMiniInset)
+            .animation(.smooth(duration: 0.4), value: themeMiniInset)
         }
         .scrollClipDisabled()
         .ignoresSafeArea()

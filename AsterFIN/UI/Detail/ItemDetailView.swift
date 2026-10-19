@@ -264,7 +264,10 @@ struct ItemDetailView: View {
     @State private var section: DetailSection = .episodes
     /// The Music tab's openings and endings, playing in the Now Playing
     /// panel; it keeps going across tabs, and stops on leaving the page.
-    @State private var themeDeck = ThemeDeck()
+    @Environment(\.themeMiniInset) private var themeMiniInset
+    /// The app's openings-and-endings player, shared so one keeps playing
+    /// after this page closes.
+    private var themeDeck: ThemeDeck { session.themeDeck }
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
@@ -313,8 +316,10 @@ struct ItemDetailView: View {
                 .padding(.bottom, 80)
                 // Room for the Now Playing panel on the right: everything,
                 // the header's description too, moves over beside it.
-                .padding(.trailing, showsThemePanel ? ThemePanelMetrics.width + ThemePanelMetrics.gap : 0)
+                // (or for the slim one, playing another show's theme)
+                .padding(.trailing, showsThemePanel ? ThemePanelMetrics.width + ThemePanelMetrics.gap : themeMiniInset)
                 .animation(.smooth(duration: 0.4), value: showsThemePanel)
+                .animation(.smooth(duration: 0.4), value: themeMiniInset)
             }
             .scrollClipDisabled()
             #if os(macOS)
@@ -358,13 +363,12 @@ struct ItemDetailView: View {
             }
         }
         .animation(.smooth(duration: 0.4), value: showsThemePanel)
-        // The show's theme behind the page goes quiet while the panel
-        // plays, and comes back after, unless a video has the screen.
-        .onChange(of: themeDeck.isActive) { _, active in
-            if active {
-                session.theme.suspend()
-            } else if !(playback != nil || urlPlayback != nil || showDiscMenu) {
-                session.theme.resume()
+        // While this page shows the full panel, the slim one stays away.
+        .onChange(of: showsThemePanel, initial: true) { _, shows in
+            if shows {
+                session.themePanelPage = item.id
+            } else if session.themePanelPage == item.id {
+                session.themePanelPage = nil
             }
         }
         #if !os(tvOS)
@@ -432,7 +436,8 @@ struct ItemDetailView: View {
         .onAppear { session.theme.pageAppeared(for: item) }
         .onDisappear {
             if watchingOpening { stopWatchingOpening() }
-            themeDeck.stop()
+            // The theme keeps playing, in the slim panel.
+            if session.themePanelPage == item.id { session.themePanelPage = nil }
             session.theme.pageDisappeared(for: item)
         }
         .onChange(of: playback != nil || urlPlayback != nil || showDiscMenu) { _, covered in
@@ -557,7 +562,7 @@ struct ItemDetailView: View {
             // The panel's Full Screen hands its theme to the full-screen
             // player; it was already OK'd if it's a spoiler.
             ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
-                              deck: themeDeck, panelBesidePage: themePanelBesidePage,
+                              show: detail, deck: themeDeck, panelBesidePage: themePanelBesidePage,
                               fullScreen: { entry in themeFullScreen(entry) },
                               addToPlaylist: { ids in playlistRequest = PlaylistRequest(itemIds: ids) })
         case .extras:
@@ -658,8 +663,9 @@ struct ItemDetailView: View {
         #endif
     }
 
+    /// The full panel: on the page of the show whose theme is playing.
     private var showsThemePanel: Bool {
-        themeDeck.isActive && themePanelBesidePage && usesSections && !watchingOpening
+        themeDeck.isActive && themeDeck.showItem?.id == detail.id && themePanelBesidePage && usesSections && !watchingOpening
     }
 
     /// The panel's Full Screen: the full-screen player takes it over (a

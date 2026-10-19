@@ -52,6 +52,13 @@ final class ThemeDeck {
     /// A chapter clip's stream is being asked for.
     private(set) var isLoading = false
     let player = AVPlayer()
+    /// The show's page it was started from (to go back to it), and its
+    /// picture, for a song with no video.
+    var showItem: BaseItem?
+    var artwork: URL?
+    /// Called as playing starts (true) and stops (false): the session quiets
+    /// title-page theme music meanwhile.
+    @ObservationIgnored var onActiveChange: ((Bool) -> Void)?
 
     @ObservationIgnored private var client: JellyfinClient?
     @ObservationIgnored private var timeObserver: Any?
@@ -77,6 +84,8 @@ final class ThemeDeck {
 
     /// Plays `entry`, then the rest of `queue` after it.
     func play(_ entry: OpeningEnding, in queue: [OpeningEnding], client: JellyfinClient) {
+        let wasActive = current != nil
+        defer { if !wasActive { onActiveChange?(true) } }
         loadTask?.cancel()
         endTranscode()
         self.client = client
@@ -149,6 +158,8 @@ final class ThemeDeck {
     }
 
     func stop() {
+        let wasActive = current != nil
+        defer { if wasActive { onActiveChange?(false) } }
         loadTask?.cancel()
         loadTask = nil
         player.pause()
@@ -222,8 +233,13 @@ final class ThemeDeck {
 struct ThemeNowPlayingPanel: View {
     let deck: ThemeDeck
     var artwork: URL?
-    var seasonName: (OpEdTheme) -> String?
-    var fullScreen: (OpeningEnding) -> Void
+    var seasonName: (OpEdTheme) -> String? = { _ in nil }
+    /// Full Screen, where the page can present it.
+    var fullScreen: ((OpeningEnding) -> Void)?
+    /// Back to the show's page (the slim panel, away from it).
+    var openShow: (() -> Void)?
+    /// The slim panel that floats while browsing: no details, smaller.
+    var compact = false
 
     private enum Metrics {
         #if os(tvOS)
@@ -232,26 +248,35 @@ struct ThemeNowPlayingPanel: View {
         static let corner: CGFloat = 28
         static let titleFont: Font = .title3.weight(.bold)
         static let controlSize: CGFloat = 34
+        static let compactControlSize: CGFloat = 28
         #else
         static let spacing: CGFloat = 12
         static let padding: CGFloat = 16
         static let corner: CGFloat = 18
         static let titleFont: Font = .headline
         static let controlSize: CGFloat = 20
+        static let compactControlSize: CGFloat = 16
         #endif
     }
 
+    private var spacing: CGFloat { compact ? Metrics.spacing * 0.7 : Metrics.spacing }
+    private var controlSize: CGFloat { compact ? Metrics.compactControlSize : Metrics.controlSize }
+
     var body: some View {
         if let entry = deck.current {
-            ViewThatFits(in: .vertical) {
-                panel(entry, showsDetails: true)
+            if compact {
                 panel(entry, showsDetails: false)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    panel(entry, showsDetails: true)
+                    panel(entry, showsDetails: false)
+                }
             }
         }
     }
 
     private func panel(_ entry: OpeningEnding, showsDetails: Bool) -> some View {
-        VStack(alignment: .leading, spacing: Metrics.spacing) {
+        VStack(alignment: .leading, spacing: spacing) {
             picture
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(maxWidth: .infinity)
@@ -261,7 +286,7 @@ struct ThemeNowPlayingPanel: View {
                 details(entry)
             }
         }
-        .padding(Metrics.padding)
+        .padding(compact ? Metrics.padding * 0.7 : Metrics.padding)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Metrics.corner))
         .tvFocusSection()
     }
@@ -276,7 +301,7 @@ struct ThemeNowPlayingPanel: View {
                 }
                 .accessibilityHidden(true)
         } else {
-            RemoteImage(url: artwork, systemImage: "music.note.tv")
+            RemoteImage(url: artwork ?? deck.artwork, systemImage: "music.note.tv")
                 .overlay {
                     Image(systemName: "music.note")
                         .font(.largeTitle)
@@ -305,7 +330,7 @@ struct ThemeNowPlayingPanel: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tint)
             Text(lines.title)
-                .font(Metrics.titleFont)
+                .font(compact ? .headline : Metrics.titleFont)
                 .lineLimit(2)
             if let subtitle = lines.subtitle {
                 Text(subtitle)
@@ -328,21 +353,26 @@ struct ThemeNowPlayingPanel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(Self.time(deck.elapsed)) of \(deck.duration > 0 ? Self.time(deck.duration) : "unknown")")
 
-        HStack(spacing: Metrics.spacing) {
+        HStack(spacing: spacing) {
             control("backward.fill", label: "Previous") { deck.previous() }
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)
-            control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(entry) }
+            if let fullScreen {
+                control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(entry) }
+            }
+            if let openShow {
+                control("chevron.forward", label: "Go to the Show", action: openShow)
+            }
         }
     }
 
     private func control(_ systemImage: String, label: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: Metrics.controlSize * 0.6, weight: .semibold))
-                .frame(width: Metrics.controlSize, height: Metrics.controlSize)
+                .font(.system(size: controlSize * 0.6, weight: .semibold))
+                .frame(width: controlSize, height: controlSize)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
@@ -388,4 +418,43 @@ struct ThemeNowPlayingPanel: View {
         let whole = max(Int(seconds.rounded(.down)), 0)
         return "\(whole / 60):" + String(format: "%02d", whole % 60)
     }
+}
+
+/// The slim Now Playing panel that floats on the right while browsing, once
+/// a theme is playing and its show's page (with the full panel) isn't on
+/// screen. Go to the Show opens that page again.
+struct ThemeMiniPlayer: View {
+    @Environment(AppSession.self) private var session
+    @Environment(\.openItem) private var openItem
+
+    /// Its width, and the room it leaves on the right for pages that make way.
+    static let width: CGFloat = Metrics.width
+    static let inset: CGFloat = Metrics.width + Metrics.gap
+
+    private enum Metrics {
+        #if os(tvOS)
+        static let width: CGFloat = 400
+        static let gap: CGFloat = 40
+        #else
+        static let width: CGFloat = 260
+        static let gap: CGFloat = 20
+        #endif
+    }
+
+    var body: some View {
+        let deck = session.themeDeck
+        ThemeNowPlayingPanel(
+            deck: deck,
+            openShow: deck.showItem.map { show in { openItem?(show) } },
+            compact: true
+        )
+        .frame(width: Metrics.width)
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+    }
+}
+
+extension EnvironmentValues {
+    /// Room on the right that pages leave for the floating Now Playing panel,
+    /// while it shows.
+    @Entry var themeMiniInset: CGFloat = 0
 }

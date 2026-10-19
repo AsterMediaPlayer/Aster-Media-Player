@@ -731,6 +731,23 @@ struct BrowseStack<Root: View>: View {
     /// The stack's path: the owner's, or its own.
     private var currentPath: Binding<NavigationPath> { path ?? $ownPath }
 
+    @Environment(AppSession.self) private var session
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+
+    /// An opening or ending playing, and no page showing its full panel:
+    /// the slim one floats on the right of whatever's open. Not on a phone,
+    /// which has no room beside the page.
+    private var showsMiniPlayer: Bool {
+        #if os(iOS)
+        guard sizeClass == .regular else { return false }
+        #endif
+        return session.themeDeck.isActive && session.themePanelPage == nil
+    }
+
+    private var miniInset: CGFloat { showsMiniPlayer ? ThemeMiniPlayer.inset : 0 }
+
     /// Lets menus and the Mac keyboard, which can't use navigation links,
     /// push pages.
     private var openAction: OpenItemAction {
@@ -742,9 +759,24 @@ struct BrowseStack<Root: View>: View {
         let path = currentPath
         NavigationStack(path: path) { content }
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
             #if os(iOS)
             .background(MoreBarHider(hidden: !path.wrappedValue.isEmpty))
             #endif
+            .overlay(alignment: .topTrailing) {
+                if showsMiniPlayer {
+                    ThemeMiniPlayer()
+                        .environment(\.openItem, openAction)
+                        #if os(tvOS)
+                        .padding(.top, 20)
+                        #else
+                        .padding(.top, 12)
+                        .padding(.trailing, 16)
+                        #endif
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth(duration: 0.4), value: showsMiniPlayer)
     }
 
     private var content: some View {
@@ -772,12 +804,14 @@ struct BrowseStack<Root: View>: View {
         #if os(macOS)
         page
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
             .keyboardPage(pushed: true)
             .environment(\.keyboardTab, keyboardTab)
             .environment(keyboard)
         #else
         page
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
         #endif
     }
 

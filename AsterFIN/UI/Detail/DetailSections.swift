@@ -103,7 +103,9 @@ struct ThemeMusicSection: View {
     let seasons: [BaseItem]
     /// The show's own picture, for a theme before (or without) its frame.
     let fallbackArtwork: URL?
-    /// The page's player: it keeps going when the tab changes.
+    /// The show (or season) whose page this is.
+    let show: BaseItem
+    /// The app's player: it keeps going when the tab or the page changes.
     let deck: ThemeDeck
     /// Whether the page shows the panel beside everything (not on a phone).
     var panelBesidePage: Bool
@@ -209,6 +211,8 @@ struct ThemeMusicSection: View {
 
     private func start(_ entry: OpeningEnding, in queue: [OpeningEnding]) {
         guard let client = session.client else { return }
+        deck.showItem = show
+        deck.artwork = fallbackArtwork
         deck.play(entry, in: queue, client: client)
     }
 

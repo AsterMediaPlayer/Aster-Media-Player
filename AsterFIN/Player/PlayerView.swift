@@ -234,6 +234,8 @@ struct PlayerView: View {
             }
         }
         .onAppear {
+            // A video takes over from an opening or ending playing while browsing.
+            session.themeDeck.stop()
             guard coordinator == nil else { return }
             if let sharedCoordinator {
                 coordinator = sharedCoordinator

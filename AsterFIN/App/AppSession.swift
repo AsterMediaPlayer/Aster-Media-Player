@@ -31,6 +31,12 @@ final class AppSession {
     let audiobooks = AudiobookPlayer()
     /// Theme music and videos for title pages.
     let theme = ThemePlayer()
+    /// Anime openings and endings picked on a show's Music tab: one player
+    /// for the whole app, so one keeps playing while you browse.
+    let themeDeck = ThemeDeck()
+    /// The title page showing the deck's full Now Playing panel, while one
+    /// is on screen; everywhere else the slim one floats on the right.
+    var themePanelPage: String?
     /// Links arriving from the Top Shelf.
     let router = DeepLinkRouter()
 
@@ -151,10 +157,21 @@ final class AppSession {
         music.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
             self?.audiobooks.stop()
+            self?.themeDeck.stop()
         }
         audiobooks.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
             self?.music.stop()
+            self?.themeDeck.stop()
+        }
+        // Title pages' theme music and videos stay quiet while an opening
+        // or ending plays, whichever page is showing.
+        themeDeck.onActiveChange = { [weak self] active in
+            if active {
+                self?.theme.suspend()
+            } else {
+                self?.theme.resume()
+            }
         }
         UserDefaults(suiteName: Self.appGroup)?.set(JellyfinDevice.deviceId, forKey: "AsterFIN.deviceId")
     }

@@ -173,6 +173,8 @@ struct LibraryGridView: View {
     let parent: BaseItem
 
     @Environment(AppSession.self) private var session
+    /// Room on the right for the floating Now Playing panel.
+    @Environment(\.themeMiniInset) private var themeMiniInset
     @State private var model = GridModel()
     @State private var sort: LibrarySort = .name
 
@@ -240,6 +242,9 @@ struct LibraryGridView: View {
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)
+            // The grid makes way for the floating Now Playing panel.
+            .padding(.trailing, themeMiniInset)
+            .animation(.smooth(duration: 0.4), value: themeMiniInset)
         }
         .scrollClipDisabled()
         .task(id: sort) { await load(reset: true) }

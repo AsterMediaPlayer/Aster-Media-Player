@@ -458,3 +458,27 @@ extension EnvironmentValues {
     /// while it shows.
     @Entry var themeMiniInset: CGFloat = 0
 }
+
+/// Lays the slim Now Playing panel over a page, top right, while it shows.
+struct ThemeMiniPlayerHost: ViewModifier {
+    let shows: Bool
+    let openAction: OpenItemAction
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topTrailing) {
+                if shows {
+                    ThemeMiniPlayer()
+                        .environment(\.openItem, openAction)
+                        #if os(tvOS)
+                        .padding(.top, 20)
+                        #else
+                        .padding(.top, 12)
+                        .padding(.trailing, 16)
+                        #endif
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth(duration: 0.4), value: shows)
+    }
+}

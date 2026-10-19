@@ -748,6 +748,13 @@ struct BrowseStack<Root: View>: View {
 
     private var miniInset: CGFloat { showsMiniPlayer ? ThemeMiniPlayer.inset : 0 }
 
+    /// The slim panel goes on each page, the stack's first and every one
+    /// pushed: on the Apple TV a pushed page covers anything laid over the
+    /// stack itself. Only the top page shows, so only one is seen.
+    private var miniPlayerHost: ThemeMiniPlayerHost {
+        ThemeMiniPlayerHost(shows: showsMiniPlayer, openAction: openAction)
+    }
+
     /// Lets menus and the Mac keyboard, which can't use navigation links,
     /// push pages.
     private var openAction: OpenItemAction {
@@ -763,24 +770,11 @@ struct BrowseStack<Root: View>: View {
             #if os(iOS)
             .background(MoreBarHider(hidden: !path.wrappedValue.isEmpty))
             #endif
-            .overlay(alignment: .topTrailing) {
-                if showsMiniPlayer {
-                    ThemeMiniPlayer()
-                        .environment(\.openItem, openAction)
-                        #if os(tvOS)
-                        .padding(.top, 20)
-                        #else
-                        .padding(.top, 12)
-                        .padding(.trailing, 16)
-                        #endif
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .animation(.smooth(duration: 0.4), value: showsMiniPlayer)
     }
 
     private var content: some View {
         root()
+            .modifier(miniPlayerHost)
             .keyboardPage()
             .navigationDestination(for: BaseItem.self) { item in
                 pushed(destination(for: item))
@@ -805,6 +799,7 @@ struct BrowseStack<Root: View>: View {
         page
             .environment(\.openItem, openAction)
             .environment(\.themeMiniInset, miniInset)
+            .modifier(miniPlayerHost)
             .keyboardPage(pushed: true)
             .environment(\.keyboardTab, keyboardTab)
             .environment(keyboard)
@@ -812,6 +807,7 @@ struct BrowseStack<Root: View>: View {
         page
             .environment(\.openItem, openAction)
             .environment(\.themeMiniInset, miniInset)
+            .modifier(miniPlayerHost)
         #endif
     }
 

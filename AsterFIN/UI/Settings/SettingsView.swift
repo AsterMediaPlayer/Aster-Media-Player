@@ -331,6 +331,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
     @AppStorage(AppSettings.themePanelKey) private var themePanel = true
+    @AppStorage(AppSettings.themePrefersFullKey) private var themePrefersFull = false
     @AppStorage(AppSettings.useSystemPlayerKey) private var useSystemPlayer = false
     #if os(iOS)
     @AppStorage(AppSettings.listenAheadKey) private var listenAhead = 30
@@ -421,6 +422,8 @@ private struct PlaybackSettingsView: View {
                         if !on { session.themeDeck.stop() }
                     }
                 SettingsNote("Openings and endings picked on a show's Music tab play in a panel beside the page, and keep playing in a small one while you browse. Off, they play full screen, one at a time.")
+                Toggle("Prefer full versions", isOn: $themePrefersFull)
+                SettingsNote("Where the server has a full-length version of a song (an OP1-Full file beside OP1, in the OP/ED plugin's folder), a show's Music tab plays it instead of the TV size. Hold a song's card to play the other one. Watch OP and the opening behind a show's page always use the TV size.")
                 // Every music video library but the OP/ED plugin's, which
                 // the Anime tab always shows.
                 let choices = session.musicVideoLibraries.filter { library in

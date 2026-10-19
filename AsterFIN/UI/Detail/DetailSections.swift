@@ -117,13 +117,23 @@ struct ThemeMusicSection: View {
     @Environment(AppSession.self) private var session
     /// Off: a pick plays full screen, with no Now Playing panel.
     @AppStorage(AppSettings.themePanelKey) private var usesPanel = true
+    /// Full-length versions, where there are any, rather than the TV size.
+    @AppStorage(AppSettings.themePrefersFullKey) private var prefersFull = false
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
 
 
-    /// Everything, in the order the rows show it: what the panel plays through.
+    /// Everything, in the order the rows show it, in the preferred version:
+    /// what the panel plays through.
     private var queue: [OpeningEnding] {
-        sorted(opening: true) + sorted(opening: false)
+        (sorted(opening: true) + sorted(opening: false)).map { version(of: $0, full: prefersFull) }
+    }
+
+    /// A theme's full version (when `full` and it has one) or its TV size;
+    /// a chapter clip as it is.
+    private func version(of entry: OpeningEnding, full: Bool) -> OpeningEnding {
+        if case .theme(let theme) = entry { return .theme(theme.version(full: full)) }
+        return entry
     }
 
     /// The ones that play without asking.
@@ -206,7 +216,10 @@ struct ThemeMusicSection: View {
 
     /// A card pressed: it plays, after asking when it's marked as a spoiler
     /// or NSFW.
-    private func pressed(_ entry: OpeningEnding) {
+    /// `full` picks the version (a card's long-press menu); nil, the one
+    /// Settings prefers.
+    private func pressed(_ entry: OpeningEnding, full: Bool? = nil) {
+        let entry = version(of: entry, full: full ?? prefersFull)
         if case .theme(let theme) = entry, entry.isFlagged {
             confirming = theme
         } else {
@@ -272,7 +285,8 @@ struct ThemeMusicSection: View {
         switch entry {
         case .theme(let theme):
             ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
-                      addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } }) { pressed(entry) }
+                      addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } },
+                      playVersion: theme.fullVersion == nil ? nil : { full in pressed(entry, full: full) }) { pressed(entry) }
         case .chapter(let clip):
             ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
         }
@@ -318,6 +332,9 @@ struct ThemeCard: View {
     var isPlaying = false
     /// For a theme the plugin published as a music video: adds it to a playlist.
     var addToPlaylist: (() -> Void)?
+    /// Plays the full version (true) or the TV size; nil when there's no
+    /// full version.
+    var playVersion: ((Bool) -> Void)?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -367,6 +384,10 @@ struct ThemeCard: View {
             }
             .cardButtonStyle()
             .contextMenu {
+                if let playVersion {
+                    Button("Play Full Version", systemImage: "music.note.list") { playVersion(true) }
+                    Button("Play TV Size", systemImage: "music.note") { playVersion(false) }
+                }
                 if let addToPlaylist {
                     Button("Add to Playlist", systemImage: "text.badge.plus", action: addToPlaylist)
                 }
@@ -412,7 +433,7 @@ struct ThemeCard: View {
 
     /// "Season 2 · Episodes 1–12".
     private var detailLine: String? {
-        let parts = [seasonName, theme.episodes.map { "Episodes \($0)" }].compactMap { $0 }
+        let parts = [seasonName, theme.episodes.map { "Episodes \($0)" }, theme.fullVersion == nil ? nil : "Full version"].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

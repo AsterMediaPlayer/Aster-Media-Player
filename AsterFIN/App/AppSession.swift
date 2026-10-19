@@ -350,6 +350,11 @@ enum AppSettings {
     /// Playing panel (and keep playing, slim, while browsing); off, they
     /// play full screen. On by default.
     static let themePanelKey = "AsterFIN.themePanel"
+    /// A show's Music tab plays openings and endings' full-length versions
+    /// where the server has them (Play All, and a card pressed). Off by
+    /// default; each card can play either. Watch OP and title-page themes
+    /// always use the TV size.
+    static let themePrefersFullKey = "AsterFIN.themePrefersFull"
     /// ASS/SSA tracks drawn with libass (positions, drawings, fonts) rather
     /// than as plain text. On by default.
     static let styledSubtitlesKey = "AsterFIN.styledSubtitles"

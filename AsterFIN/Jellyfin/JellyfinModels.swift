@@ -1152,6 +1152,19 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
     /// library (plugin 0.2), and its song's Audio item; nil when not.
     var libraryItemId: String?
     var songItemId: String?
+    /// A full-length version beside it ("OP1-Full", plugin 0.4): its own
+    /// playable copies and published items. See `fullVersion`.
+    var hasFullVersion: Bool?
+    var fullVideoMp4Url: String?
+    var fullVideoMp4Status: String?
+    var fullAudioM4aUrl: String?
+    var fullAudioM4aStatus: String?
+    var fullLibraryItemId: String?
+    var fullSongItemId: String?
+    /// From `LibraryItems/{id}/Theme`: that item is the full version.
+    var isFullVersionItem: Bool?
+    /// This is the full version, made by `fullVersion` (not from the server).
+    var isFullVersion = false
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -1177,6 +1190,14 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
         case audioM4aStatus = "AudioM4aStatus"
         case libraryItemId = "LibraryItemId"
         case songItemId = "SongItemId"
+        case hasFullVersion = "HasFullVersion"
+        case fullVideoMp4Url = "FullVideoMp4Url"
+        case fullVideoMp4Status = "FullVideoMp4Status"
+        case fullAudioM4aUrl = "FullAudioM4aUrl"
+        case fullAudioM4aStatus = "FullAudioM4aStatus"
+        case fullLibraryItemId = "FullLibraryItemId"
+        case fullSongItemId = "FullSongItemId"
+        case isFullVersionItem = "IsFullVersionItem"
     }
 
     var isOpening: Bool { type.uppercased() == "OP" }
@@ -1184,6 +1205,30 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
     /// What to hand AVPlayer: the H.264 MP4 when ready, else the AAC audio.
     /// Nil when nothing is playable on Apple TV yet.
     var playablePath: String? { videoMp4Url ?? audioM4aUrl }
+
+    /// The full-length version as a theme of its own: the same theme (same
+    /// id, so it shows as playing on its card) with the full copies and
+    /// items in place of the TV-size ones. Nil when there's none playable.
+    var fullVersion: OpEdTheme? {
+        guard !isFullVersion, fullVideoMp4Url != nil || fullAudioM4aUrl != nil else { return nil }
+        var full = self
+        full.videoMp4Url = fullVideoMp4Url
+        full.videoMp4Status = fullVideoMp4Status
+        full.audioM4aUrl = fullAudioM4aUrl
+        full.audioM4aStatus = fullAudioM4aStatus
+        full.libraryItemId = fullLibraryItemId
+        full.songItemId = fullSongItemId
+        full.isFullVersion = true
+        return full
+    }
+
+    /// The full version when `full` and there is one, else this one.
+    func version(full: Bool) -> OpEdTheme {
+        full ? fullVersion ?? self : self
+    }
+
+    /// Whether this is (or, from a library item, plays) the full version.
+    var isFull: Bool { isFullVersion || isFullVersionItem == true }
 
     /// Only the song plays: there's no video copy.
     var isAudioOnly: Bool { videoMp4Url == nil && audioM4aUrl != nil }

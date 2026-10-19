@@ -386,6 +386,9 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     var studios: [NameGuidPair]?
     var people: [PersonInfo]?
     var productionYear: Int?
+    /// What Jellyfin sorts the title by: lowercased, without a leading
+    /// "The", "A" or "An", numbers padded ("0000000013 ghosts of …").
+    var sortName: String?
     var premiereDate: String?
     var endDate: String?
     var status: String?
@@ -480,6 +483,7 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
         case studios = "Studios"
         case people = "People"
         case productionYear = "ProductionYear"
+        case sortName = "SortName"
         case premiereDate = "PremiereDate"
         case endDate = "EndDate"
         case status = "Status"

@@ -252,14 +252,14 @@ struct ThemeNowPlayingPanel: View {
         static let corner: CGFloat = 28
         static let titleFont: Font = .title3.weight(.bold)
         static let controlSize: CGFloat = 34
-        static let compactControlSize: CGFloat = 28
+        static let compactControlSize: CGFloat = 32
         #else
         static let spacing: CGFloat = 12
         static let padding: CGFloat = 16
         static let corner: CGFloat = 18
         static let titleFont: Font = .headline
         static let controlSize: CGFloat = 20
-        static let compactControlSize: CGFloat = 16
+        static let compactControlSize: CGFloat = 18
         #endif
     }
 
@@ -289,6 +289,16 @@ struct ThemeNowPlayingPanel: View {
             if showsDetails {
                 details(entry)
             }
+            #if os(tvOS)
+            if compact {
+                // How to get here from anywhere (see PlayPauseHoldDetector).
+                Text("Hold \(Image(systemName: "playpause.fill")) to focus")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityLabel("Hold Play/Pause on the remote to focus the player")
+            }
+            #endif
         }
         .padding(compact ? Metrics.padding * 0.7 : Metrics.padding)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Metrics.corner))
@@ -439,10 +449,10 @@ struct ThemeMiniPlayer: View {
 
     private enum Metrics {
         #if os(tvOS)
-        static let width: CGFloat = 400
+        static let width: CGFloat = 460
         static let gap: CGFloat = 40
         #else
-        static let width: CGFloat = 260
+        static let width: CGFloat = 300
         static let gap: CGFloat = 20
         #endif
     }

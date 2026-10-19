@@ -156,6 +156,9 @@ final class AppSession {
     static let shared = AppSession()
 
     init() {
+        #if os(iOS)
+        NetworkPath.shared.start()
+        #endif
         restore()
         music.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
@@ -326,6 +329,10 @@ enum AppSettings {
     /// line; the OP/ED plugin's own library is always shown.
     static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"
     static let maxBitrateKey = "AsterFIN.maxBitrate"
+    /// iPhone and iPad: the limit on cellular data (or a Personal Hotspot);
+    /// 0 for the same as on Wi-Fi. 8 Mbps by default.
+    static let cellularMaxBitrateKey = "AsterFIN.cellularMaxBitrate"
+    static let defaultCellularMaxBitrate = 8_000_000
     static let discMenuSoundsKey = "AsterFIN.discMenuSounds"
     static let autoplayNextKey = "AsterFIN.autoplayNext"
     static let autoSkipIntroKey = "AsterFIN.autoSkipIntro"
@@ -370,9 +377,18 @@ enum AppSettings {
     /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
     static let listenAheadKey = "AsterFIN.listenAhead"
 
+    /// The streaming limit right now: on iPhone and iPad, the cellular one
+    /// while on cellular data. Read as each stream starts.
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)
-        return stored > 0 ? stored : 120_000_000
+        let wifi = stored > 0 ? stored : 120_000_000
+        #if os(iOS)
+        if NetworkPath.shared.isCellular {
+            let cellular = UserDefaults.standard.object(forKey: cellularMaxBitrateKey) as? Int ?? defaultCellularMaxBitrate
+            return cellular > 0 ? min(cellular, wifi) : wifi
+        }
+        #endif
+        return wifi
     }
 
     /// Start the next episode when one ends. On by default.

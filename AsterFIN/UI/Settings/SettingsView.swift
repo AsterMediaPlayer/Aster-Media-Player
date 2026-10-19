@@ -326,6 +326,7 @@ private struct PlaybackSettingsView: View {
     @Environment(AppSession.self) private var session
     @AppStorage(AppSettings.animeMusicVideoLibrariesKey) private var animeMusicVideoLibraries = ""
     @AppStorage(AppSettings.maxBitrateKey) private var maxBitrate = 120_000_000
+    @AppStorage(AppSettings.cellularMaxBitrateKey) private var cellularMaxBitrate = AppSettings.defaultCellularMaxBitrate
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
@@ -347,8 +348,37 @@ private struct PlaybackSettingsView: View {
         ("4 Mbps", 4_000_000),
     ]
 
+    /// Lower choices for cellular data; 0 is the same as on Wi-Fi.
+    private let cellularBitrates: [(String, Int)] = [
+        ("Same as Wi-Fi", 0),
+        ("20 Mbps", 20_000_000),
+        ("10 Mbps", 10_000_000),
+        ("8 Mbps", 8_000_000),
+        ("4 Mbps", 4_000_000),
+        ("2 Mbps", 2_000_000),
+        ("1 Mbps", 1_000_000),
+    ]
+
     var body: some View {
         SettingsPage(title: "Playback") {
+            #if os(iOS)
+            Section {
+                Picker("On Wi-Fi", selection: $maxBitrate) {
+                    ForEach(bitrates, id: \.1) { option in
+                        Text(option.0).tag(option.1)
+                    }
+                }
+                Picker("On cellular", selection: $cellularMaxBitrate) {
+                    ForEach(cellularBitrates, id: \.1) { option in
+                        Text(option.0).tag(option.1)
+                    }
+                }
+            } header: {
+                Text("Maximum Streaming Quality")
+            } footer: {
+                SettingsNote("On cellular data, or a Personal Hotspot, videos, music and audiobooks stream at no more than the cellular choice, so they use less data. Downloads aren't affected.")
+            }
+            #else
             Section("Streaming") {
                 Picker("Maximum streaming quality", selection: $maxBitrate) {
                     ForEach(bitrates, id: \.1) { option in
@@ -356,6 +386,7 @@ private struct PlaybackSettingsView: View {
                     }
                 }
             }
+            #endif
             #if os(iOS)
             Section {
                 Picker("Listen Ahead", selection: $listenAhead) {

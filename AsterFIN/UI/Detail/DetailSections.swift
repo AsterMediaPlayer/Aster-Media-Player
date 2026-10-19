@@ -423,7 +423,7 @@ struct ThemeCard: View {
 
 /// What a theme's card shows that the plugin doesn't say: its length, and a
 /// frame from its video. (A CGImage is immutable, so it's safe to hand over.)
-struct ThemePreview: @unchecked Sendable {
+nonisolated struct ThemePreview: @unchecked Sendable {
     var seconds: Int?
     var image: CGImage?
 }

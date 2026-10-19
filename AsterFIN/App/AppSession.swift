@@ -131,7 +131,7 @@ final class AppSession {
     }
 
     /// An id as Jellyfin writes it either way: lowercase, without dashes.
-    private static func plainId(_ id: String) -> String {
+    nonisolated private static func plainId(_ id: String) -> String {
         id.lowercased().replacingOccurrences(of: "-", with: "")
     }
 

@@ -226,6 +226,10 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
 /// The card itself, drawn in the lower left over the video.
 struct ThemeInfoCard: View {
     let info: ThemeInfo
+    /// The screen's safe area on the leading side (a Dynamic Island or the
+    /// notch, in landscape): the text keeps clear of it, though the shade
+    /// still runs to the corner.
+    var safeLeading: CGFloat = 0
 
     /// The card at TV size, or scaled down for a phone or tablet.
     private enum Metrics {
@@ -292,7 +296,7 @@ struct ThemeInfoCard: View {
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
         .frame(maxWidth: Metrics.maxWidth, alignment: .leading)
-        .padding(.leading, Metrics.leading)
+        .padding(.leading, max(Metrics.leading, safeLeading + 8))
         .padding(.bottom, Metrics.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .background(alignment: .bottomLeading) {
@@ -328,6 +332,8 @@ struct ThemeInfoOverlay: View {
     let info: ThemeInfo
 
     @State private var visible = false
+    /// The leading safe area, measured before the overlay ignores it.
+    @State private var safeLeading: CGFloat = 0
     @State private var observer: Any?
     @State private var clock: Task<Void, Never>?
 
@@ -336,7 +342,7 @@ struct ThemeInfoOverlay: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if visible {
-                ThemeInfoCard(info: info)
+                ThemeInfoCard(info: info, safeLeading: safeLeading)
                     .transition(.asymmetric(
                         insertion: .move(edge: .leading).combined(with: .opacity),
                         removal: .opacity
@@ -344,6 +350,7 @@ struct ThemeInfoOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { safeLeading = $0 }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)

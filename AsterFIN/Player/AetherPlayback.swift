@@ -289,10 +289,16 @@ final class AetherPlayback {
         }
         #endif
         qualityCap = entry.maxBitrate
-        isConverted = mustConvert || entry.maxBitrate != nil || entry.fallback != .none
+        // Over the quality limit (lower on cellular data), the file is
+        // converted down to it: played as it is, a big one takes a minute to
+        // start on a slow connection, and stalls.
+        if qualityCap == nil, AppSettings.limitsQuality, let bitrate = source.bitrate, bitrate > AppSettings.maxBitrate {
+            qualityCap = AppSettings.maxBitrate
+        }
+        isConverted = mustConvert || qualityCap != nil || entry.fallback != .none
         #if DEBUG
         let videoCodec = streams.first(where: { $0.type == "Video" })?.codec ?? "none"
-        print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: entry.maxBitrate)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
+        print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: qualityCap)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
         #endif
 
         if isConverted {

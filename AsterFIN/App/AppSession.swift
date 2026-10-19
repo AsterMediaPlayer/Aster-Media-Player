@@ -377,6 +377,11 @@ enum AppSettings {
     /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
     static let listenAheadKey = "AsterFIN.listenAhead"
 
+    /// Whether the limit right now is a real one: a choice below Auto, or
+    /// the cellular limit on cellular data. Then a file over it is converted
+    /// down to it, rather than played as it is.
+    static var limitsQuality: Bool { maxBitrate < 120_000_000 }
+
     /// The streaming limit right now: on iPhone and iPad, the cellular one
     /// while on cellular data. Read as each stream starts.
     static var maxBitrate: Int {

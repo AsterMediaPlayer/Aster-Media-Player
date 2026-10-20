@@ -365,6 +365,10 @@ struct ThemeCard: View {
                     }
                     HStack(spacing: 6) {
                         pill(badge)
+                        // Hold the card to pick it, or the TV size.
+                        if theme.fullVersion != nil {
+                            pill("Full", systemImage: "music.note.list")
+                        }
                         if isPlaying {
                             pill("Playing", systemImage: "speaker.wave.2.fill")
                         }
@@ -433,7 +437,7 @@ struct ThemeCard: View {
 
     /// "Season 2 · Episodes 1–12".
     private var detailLine: String? {
-        let parts = [seasonName, theme.episodes.map { "Episodes \($0)" }, theme.fullVersion == nil ? nil : "Full version"].compactMap { $0 }
+        let parts = [seasonName, theme.episodes.map { "Episodes \($0)" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

@@ -6,6 +6,9 @@
 //  with Skip Intro / Skip Credits actions and an Up Next card for episodes.
 //
 
+#if canImport(AetherEngine)
+import AetherEngine
+#endif
 import AVKit
 import SwiftUI
 #if DEBUG && os(macOS)
@@ -93,10 +96,21 @@ struct PlayerView: View {
                 }
             #if canImport(AetherEngine)
             if let aether {
+                if let standby = aether.standbyEngine {
+                    // The next channel, loading on the spare engine: drawn
+                    // under the player (whose black background hides it),
+                    // so its first picture can be ready before the change.
+                    AetherPlayerSurface(engine: standby)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 AetherPlayerView(playback: aether, onFinished: onFinished)
                     // Its own controls decide when Back closes the player
                     // (on Apple TV, only once the panel and controls are away).
                     .interactiveDismissDisabled()
+                    // A new view for the other engine after a channel change.
+                    .id(ObjectIdentifier(aether.engine))
             }
             #endif
             if let coordinator {

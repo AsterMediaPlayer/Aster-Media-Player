@@ -26,8 +26,18 @@ final class AetherPlayback {
     /// One engine for the app's life, as AetherEngine asks: each title is
     /// another `load` on it, not another engine.
     @ObservationIgnored static let sharedEngine: AetherEngine? = try? AetherEngine()
+    /// A second engine, for changing Channels-tab channel without a gap: the
+    /// next channel loads on it, silent and out of sight, while the first
+    /// plays on; once its picture is up the two change places. Made the
+    /// first time it's needed.
+    @ObservationIgnored static let spareEngine: AetherEngine? = try? AetherEngine()
 
-    let engine: AetherEngine
+    /// The engine on screen; another after a channel change (`crossOver`).
+    private(set) var engine: AetherEngine
+    /// The engine loading the next channel behind the one playing, while it
+    /// does; the player view gives it a place to draw so its first frame
+    /// can be seen to be ready.
+    private(set) var standbyEngine: AetherEngine?
     private(set) var item: BaseItem?
     private(set) var errorMessage: String?
     /// Playing has begun, so the artwork cover can come off.
@@ -139,7 +149,7 @@ final class AetherPlayback {
     private var cueTask: Task<Void, Never>?
     private var playMethod = "DirectPlay"
     /// The lock screen, Control Center and remote buttons.
-    @ObservationIgnored private let nowPlaying: AetherNowPlaying
+    @ObservationIgnored private var nowPlaying: AetherNowPlaying
     /// The item's trickplay frames, when the server has made them.
     @ObservationIgnored private var trickplay: ScrubPreviewSource?
     /// The server's live stream for a channel, closed when it's done.
@@ -230,31 +240,35 @@ final class AetherPlayback {
             #endif
             await begin(item)
             if isLive { return }
-            // Markers and the next episode load once it plays, so they never
-            // hold up the start. A channel gets no markers: skipping an
-            // intro, by hand or on its own, would leave the schedule behind.
-            let onChannel = entry.channelId != nil
-            async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
-            // A channel goes on to what it's showing, never Up Next.
-            let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
-            let markers = await loadedSegments
-            guard self.item?.id == item.id, !stopped else { return }
-            segments = markers
-            upNext = next
-            if AppSettings.themeCards, item.kind == .episode {
-                let themes = await client.opEdThemes(for: item.id) ?? []
-                guard self.item?.id == item.id, !stopped else { return }
-                themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
-            }
-            if AppSettings.themeCards, item.kind == .musicVideo {
-                let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: client)
-                guard self.item?.id == item.id, !stopped else { return }
-                themeMoments = moments
-            }
+            await loadExtras(for: item)
         } catch is CancellationError {
             // A newer load took over, or the player closed.
         } catch {
             if !stopped { fallBack(error.localizedDescription) }
+        }
+    }
+
+    /// Markers, the next episode and song cards, once it plays, so they never
+    /// hold up the start. A channel gets no markers: skipping an intro, by
+    /// hand or on its own, would leave the schedule behind.
+    private func loadExtras(for item: BaseItem) async {
+        let onChannel = entry.channelId != nil
+        async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
+        // A channel goes on to what it's showing, never Up Next.
+        let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
+        let markers = await loadedSegments
+        guard self.item?.id == item.id, !stopped else { return }
+        segments = markers
+        upNext = next
+        if AppSettings.themeCards, item.kind == .episode {
+            let themes = await client.opEdThemes(for: item.id) ?? []
+            guard self.item?.id == item.id, !stopped else { return }
+            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+        }
+        if AppSettings.themeCards, item.kind == .musicVideo {
+            let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: client)
+            guard self.item?.id == item.id, !stopped else { return }
+            themeMoments = moments
         }
     }
 
@@ -298,6 +312,29 @@ final class AetherPlayback {
                 subtitleStreamIndex: -1
             )
         }
+        let setup = try setUpTitle(item, info: info)
+        if isConverted {
+            try await loadConverted(audio: setup.audio ?? setup.source.defaultAudioStreamIndex, subtitle: setup.subtitle, start: setup.start)
+        } else {
+            playMethod = "DirectPlay"
+            let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: setup.source.id, playSessionId: info.playSessionId, container: setup.source.container)
+            try await engine.load(url: url, startPosition: setup.start, audioSourceStreamIndex: setup.audio.map { Int32($0) })
+            guard !stopped else { return }
+            selectFileSubtitle(setup.subtitle)
+        }
+    }
+
+    /// What `loadTitle` works out before it loads: the file, its tracks,
+    /// whether it's converted, where it starts.
+    private struct TitleSetup {
+        let source: MediaSourceInfo
+        let audio: Int?
+        let subtitle: Int
+        let start: Double?
+    }
+
+    /// The title's session, tracks and conversion, from the server's answer.
+    private func setUpTitle(_ item: BaseItem, info: PlaybackInfoResponse) throws -> TitleSetup {
         if let code = info.errorCode { throw JellyfinError.http(0, code) }
         guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
         playSessionId = info.playSessionId
@@ -322,20 +359,15 @@ final class AetherPlayback {
         let videoCodec = streams.first(where: { $0.type == "Video" })?.codec ?? "none"
         print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: qualityCap)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
         #endif
+        return TitleSetup(source: source, audio: audio, subtitle: subtitle, start: start)
+    }
 
-        if isConverted {
-            try await loadConverted(audio: audio ?? source.defaultAudioStreamIndex, subtitle: subtitle, start: start)
-        } else {
-            playMethod = "DirectPlay"
-            let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
-            try await engine.load(url: url, startPosition: start, audioSourceStreamIndex: audio.map { Int32($0) })
-            guard !stopped else { return }
-            // Jellyfin numbers a file's streams as the container does, so its
-            // index is the engine's track id. An external file isn't in the
-            // container and has no engine track yet.
-            if subtitle >= 0, engine.subtitleTracks.contains(where: { $0.id == subtitle }) {
-                selectSubtitle(subtitle)
-            }
+    /// Jellyfin numbers a file's streams as the container does, so its index
+    /// is the engine's track id. An external file isn't in the container and
+    /// has no engine track yet.
+    private func selectFileSubtitle(_ subtitle: Int) {
+        if subtitle >= 0, engine.subtitleTracks.contains(where: { $0.id == subtitle }) {
+            selectSubtitle(subtitle)
         }
     }
 
@@ -612,6 +644,18 @@ final class AetherPlayback {
                 guard !self.stopped, self.entry.channelId == current else { return }
                 // Where the channel has got to now, not when the change began.
                 guard let now = ChannelTuner.live(channelId: channelId) else { return }
+                // The file itself, the same title still on: it loads on the
+                // spare engine while this one plays, and they change places
+                // once its picture is up. Otherwise (a converted stream, the
+                // programme changed meanwhile) it loads in place.
+                if now.item.id == item.id, info.errorCode == nil, let source = info.mediaSources.first,
+                   Self.playsOriginal(source), let spare = self.otherEngine {
+                    #if DEBUG
+                    self.tuneLog("next channel loading on the spare engine")
+                    #endif
+                    try await self.crossOver(to: item, entry: now.entry, info: info, source: source, on: spare, leaving: current)
+                    return
+                }
                 self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
                 self.tuningName = nil
                 self.endServerSession()
@@ -637,6 +681,75 @@ final class AetherPlayback {
         tuneClock = nil
     }
     #endif
+
+    /// The engine not on screen, to load the next channel on.
+    private var otherEngine: AetherEngine? {
+        let other = engine === Self.sharedEngine ? Self.spareEngine : Self.sharedEngine
+        return other === engine ? nil : other
+    }
+
+    /// Plays `next` on `spare`, muted and out of sight, at the channel's
+    /// place in it, until its first picture is ready; then the two change
+    /// places in one go: its sound comes up, this engine stops, and it's
+    /// the player's from then on. As a second engine it leaves the TV's
+    /// frame rate and HDR mode as they were, until the channel's next
+    /// programme loads in place.
+    private func crossOver(to next: BaseItem, entry nextEntry: PlaybackQueueItem, info: PlaybackInfoResponse, source: MediaSourceInfo, on spare: AetherEngine, leaving channel: String) async throws {
+        standbyEngine = spare
+        spare.volume = 0
+        let streams = source.mediaStreams ?? []
+        let audio = PlaybackCoordinator.preferredAudioTrack(in: streams, language: preferences.audioLanguage)
+        let start = nextEntry.startTicks > 0 ? Double(nextEntry.startTicks) / 10_000_000 : nil
+        let url = client.directStreamURL(itemId: next.id, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
+        do {
+            try await spare.load(url: url, startPosition: start, options: LoadOptions(sharedOutputRole: .secondary), audioSourceStreamIndex: audio.map { Int32($0) })
+            #if DEBUG
+            tuneLog("spare engine loaded")
+            #endif
+            try await Self.waitForFirstFrame(on: spare)
+            try Task.checkCancellation()
+            guard !stopped, entry.channelId == channel else { throw CancellationError() }
+        } catch {
+            spare.stop()
+            if standbyEngine === spare { standbyEngine = nil }
+            throw error
+        }
+        #if DEBUG
+        tuneLog("spare engine's picture is up: changing places")
+        #endif
+        tuningName = nil
+        endServerSession()
+        nowPlaying.end()
+        let old = engine
+        resetForNextTitle(next, entry: nextEntry, inPlace: true)
+        engine = spare
+        standbyEngine = nil
+        nowPlaying = AetherNowPlaying(engine: spare, client: client)
+        spare.volume = 1
+        old.stop()
+        isLive = false
+        let setup = try setUpTitle(next, info: info)
+        playMethod = "DirectPlay"
+        selectFileSubtitle(setup.subtitle)
+        nowPlaying.prepare()
+        await begin(next)
+        #if DEBUG
+        logFirstFrame()
+        #endif
+        await loadExtras(for: next)
+    }
+
+    /// Until `engine` has a picture to show; throws if it fails first, or
+    /// takes too long.
+    private static func waitForFirstFrame(on engine: AetherEngine, timeout: Duration = .seconds(10)) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !engine.hasFirstFrameReadyForDisplay {
+            try Task.checkCancellation()
+            if case .error(let message) = engine.state { throw JellyfinError.http(0, message) }
+            guard ContinuousClock.now < deadline else { throw JellyfinError.http(0, "The channel took too long to start") }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+    }
 
     /// Whether `source` plays as the file itself, as `loadTitle` decides
     /// for a channel's entry (no quality picked, no fallback).
@@ -851,6 +964,8 @@ final class AetherPlayback {
         tuneTask?.cancel()
         tuneMessageTask?.cancel()
         prepared = nil
+        standbyEngine?.stop()
+        standbyEngine = nil
         countdownTask?.cancel()
         timedTask?.cancel()
         clearStyledSubtitles()
@@ -922,6 +1037,12 @@ final class AetherPlayback {
     /// `inPlace`: a channel change, like Live TV's, with no artwork cover
     /// while the next title loads.
     private func play(_ next: BaseItem, entry: PlaybackQueueItem, inPlace: Bool = false) {
+        resetForNextTitle(next, entry: entry, inPlace: inPlace)
+        Task { await start() }
+    }
+
+    /// Clears what belonged to the title playing, for `next`.
+    private func resetForNextTitle(_ next: BaseItem, entry: PlaybackQueueItem, inPlace: Bool) {
         countdownTask?.cancel()
         countdown = nil
         timedTask?.cancel()
@@ -940,7 +1061,6 @@ final class AetherPlayback {
         // Its artwork covers the screen until it starts (unless in place).
         item = next
         self.entry = entry
-        Task { await start() }
     }
 
     /// Closes the Up Next card without playing on; the player closes too.

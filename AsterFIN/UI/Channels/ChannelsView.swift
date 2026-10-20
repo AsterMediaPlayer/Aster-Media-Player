@@ -13,6 +13,8 @@ struct ChannelsView: View {
     @Environment(\.openItem) private var openItem
     @State private var model = ChannelsModel()
     @State private var guide: ChannelGuideSource?
+    /// The channel whose settings Select on its guide cell opened.
+    @State private var editingChannel: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -47,11 +49,19 @@ struct ChannelsView: View {
                     channels: guide.channels,
                     select: select,
                     playChannel: tuneIn(channelId:),
+                    // On Apple TV, an administrator's Select on a channel
+                    // opens its settings; everyone else's (and a tap on a
+                    // touch screen) tunes in, as before.
+                    openChannel: Self.selectOpensSettings && session.canEditChannels ? { editingChannel = $0 } : nil,
                     emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it aster:channel in Jellyfin."
                 )
                 // A new guide (other channels, or the next day) starts afresh.
                 .id(ObjectIdentifier(guide))
             }
+        }
+        // Pushed, so Back comes straight back to the guide.
+        .navigationDestination(item: $editingChannel) { channelId in
+            ChannelSettingsView(only: channelId)
         }
         // On showing, and again on coming back (from Edit Channels, say):
         // the channels are whatever the server's playlists are tagged as now.
@@ -60,7 +70,7 @@ struct ChannelsView: View {
             Task {
                 guard let client = session.client else { return }
                 let before = model.channels
-                await model.load(client: client)
+                await model.load(client: client, userName: session.userName)
                 // The guide covers a week from when it was made: it's made
                 // again when the channels changed, or once it's an hour behind.
                 if guide == nil || model.channels != before || guide.map({ Date().timeIntervalSince($0.guideStart) > 3600 }) == true {
@@ -69,6 +79,12 @@ struct ChannelsView: View {
             }
         }
     }
+
+    #if os(tvOS)
+    private static let selectOpensSettings = true
+    #else
+    private static let selectOpensSettings = false
+    #endif
 
     private func rebuildGuide() {
         guide = ChannelGuideSource(channels: model.channels)

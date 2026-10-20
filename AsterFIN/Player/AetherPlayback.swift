@@ -101,6 +101,10 @@ final class AetherPlayback {
     var channelId: String? { entry.channelId }
     /// The Live TV channel playing, if it's one.
     var liveChannelId: String? { isLive ? entry.itemId : nil }
+    /// Playing on a timeline the viewer can't move: a Live TV channel, or a
+    /// Channels-tab channel, whose schedule it keeps to. No skipping,
+    /// scrubbing or chapters; Go to Episode is the way to watch freely.
+    var followsTimeline: Bool { isLive || entry.channelId != nil }
     /// What's on that channel, from the guide, fetched as playback pauses.
     private(set) var liveProgram: BaseItem?
     private let preferences: PlaybackPreferences
@@ -202,8 +206,10 @@ final class AetherPlayback {
             await begin(item)
             if isLive { return }
             // Markers and the next episode load once it plays, so they never
-            // hold up the start.
-            async let loadedSegments = (try? await client.mediaSegments(itemId: item.id)) ?? []
+            // hold up the start. A channel gets no markers: skipping an
+            // intro, by hand or on its own, would leave the schedule behind.
+            let onChannel = entry.channelId != nil
+            async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
             // A channel goes on to what it's showing, never Up Next.
             let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
             let markers = await loadedSegments
@@ -214,6 +220,11 @@ final class AetherPlayback {
                 let themes = await client.opEdThemes(for: item.id) ?? []
                 guard self.item?.id == item.id, !stopped else { return }
                 themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+            }
+            if AppSettings.themeCards, item.kind == .musicVideo {
+                let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: client)
+                guard self.item?.id == item.id, !stopped else { return }
+                themeMoments = moments
             }
         } catch is CancellationError {
             // A newer load took over, or the player closed.
@@ -228,6 +239,7 @@ final class AetherPlayback {
         engine.play()
         hasStarted = true
         stopReported = false
+        nowPlaying.seekable = !followsTimeline
         nowPlaying.show(item)
         trickplay = isLive ? nil : ScrubPreviewSource(client: client, item: item, mediaSourceId: mediaSourceId)
         if reportsPlayback {
@@ -277,10 +289,16 @@ final class AetherPlayback {
         }
         #endif
         qualityCap = entry.maxBitrate
-        isConverted = mustConvert || entry.maxBitrate != nil || entry.fallback != .none
+        // Over the quality limit (lower on cellular data), the file is
+        // converted down to it: played as it is, a big one takes a minute to
+        // start on a slow connection, and stalls.
+        if qualityCap == nil, AppSettings.limitsQuality, let bitrate = source.bitrate, bitrate > AppSettings.maxBitrate {
+            qualityCap = AppSettings.maxBitrate
+        }
+        isConverted = mustConvert || qualityCap != nil || entry.fallback != .none
         #if DEBUG
         let videoCodec = streams.first(where: { $0.type == "Video" })?.codec ?? "none"
-        print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: entry.maxBitrate)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
+        print("DEBUG playback: \(item.displayTitle) video=\(videoCodec) streams=\(streams.count) mustConvert=\(mustConvert) cap=\(String(describing: qualityCap)) fallback=\(entry.fallback) -> \(isConverted ? "converted" : "original file")")
         #endif
 
         if isConverted {

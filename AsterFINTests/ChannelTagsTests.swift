@@ -327,14 +327,24 @@ struct ChannelTagsTests {
 
     @Test func aClipsOwnTagSaysWhatItIs() {
         #expect(ChannelTags.clipKind(["aster:bumper=in"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:Bumper=Out"]) == .bumpers)
+        #expect(ChannelTags.clipKind(["aster:bumper"]) == .bumpers)
         #expect(ChannelTags.clipKind(["Family", "Aster:Commercial"]) == .commercials)
         #expect(ChannelTags.clipKind(["aster:promos"]) == .promos)
         #expect(ChannelTags.clipKind(["aster:interstitial"]) == .interstitials)
-        #expect(ChannelTags.clipKind(["Family"]) == .interstitials)
-        #expect(ChannelTags.clipKind(nil) == .interstitials)
+        // A clip that doesn't say isn't anything.
+        #expect(ChannelTags.clipKind(["Family"]) == nil)
+        #expect(ChannelTags.clipKind(nil) == nil)
         #expect(ChannelTags.bumperSide(["aster:bumper=in"]) == .in)
-        #expect(ChannelTags.bumperSide(["aster:bumpers=out"]) == .out)
+        #expect(ChannelTags.bumperSide(["aster:bumper=OUT"]) == .out)
         #expect(ChannelTags.bumperSide(["aster:bumper"]) == .both)
+        #expect(ChannelTags.bumperSide(["aster:bumper=both"]) == .both)
+        // A filler playlist says so.
+        #expect(ChannelTags.isFillerPlaylist(["Family", "aster:filler"]))
+        #expect(ChannelTags.isFillerPlaylist(["asterfin:Filler"]))
+        #expect(!ChannelTags.isFillerPlaylist(["aster:filler=off"]))
+        #expect(!ChannelTags.isFillerPlaylist(["aster:channel"]))
+        #expect(!ChannelTags.isFillerPlaylist(nil))
     }
 
     @Test func breakTagsRoundTrip() {
@@ -356,9 +366,14 @@ struct ChannelTagsTests {
     }
 
     @Test func fillerClipsAreSortedByTheirOwnTags() {
-        func playlist(_ id: String, _ name: String) -> BaseItem { BaseItem(id: id, name: name, type: "Playlist") }
-        let playlists = [playlist("a", "Hazbin Bumpers"), playlist("b", "80s Ads"), playlist("c", "Tooniverse")]
-        let tags = ChannelTags(tags: ["aster:filler-playlists=hazbin bumpers", "aster:filler-playlists=80s Ads", "aster:filler-playlists=Missing"])
+        func playlist(_ id: String, _ name: String, filler: Bool = true) -> BaseItem {
+            var item = BaseItem(id: id, name: name, type: "Playlist")
+            item.tags = filler ? ["aster:filler"] : []
+            return item
+        }
+        let playlists = [playlist("a", "Hazbin Bumpers"), playlist("b", "80s Ads"), playlist("c", "Tooniverse", filler: false)]
+        let tags = ChannelTags(tags: ["aster:filler-playlists=hazbin bumpers", "aster:filler-playlists=80s Ads", "aster:filler-playlists=Tooniverse", "aster:filler-playlists=Missing"])
+        // Only playlists tagged aster:filler count.
         #expect(ChannelsModel.fillerPlaylists(named: tags, in: playlists).map(\.id) == ["a", "b"])
 
         func clip(_ id: String, _ tags: [String]) -> BaseItem {
@@ -367,13 +382,56 @@ struct ChannelTagsTests {
             return item
         }
         let items = [clip("countdown", ["aster:bumper=in"]), clip("kool-aid", ["aster:commercial"]),
-                     clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("short", [])]
+                     clip("next-week", ["aster:promo"]), clip("psa", ["aster:interstitial"]), clip("untagged", [])]
         let all = ChannelsModel.breakClips(from: items, types: Set(BreakKind.allCases))
         #expect(all.bumpers.map(\.id) == ["countdown"])
         #expect(all.commercials.map(\.id) == ["kool-aid"])
         #expect(all.promos.map(\.id) == ["next-week"])
-        #expect(all.interstitials.map(\.id) == ["psa", "short"])
+        // The untagged clip is left out.
+        #expect(all.interstitials.map(\.id) == ["psa"])
         let some = ChannelsModel.breakClips(from: items, types: [.bumpers, .commercials])
         #expect(some.promos.isEmpty && some.interstitials.isEmpty && some.bumpers.count == 1 && some.commercials.count == 1)
+    }
+
+    @Test func trailersAreAFillerType() {
+        #expect(ChannelTags.clipKind(["aster:trailer"]) == .trailers)
+        #expect(ChannelTags(tags: ["aster:filler-types=trailers"]).fillerTypes == [.trailers])
+        #expect(ChannelTags(tags: ["aster:trailer-count=3"]).breaks.trailerCount == 3)
+        #expect(ChannelTags(tags: ["aster:trailer-count=9"]).breaks.trailerCount == 1)
+        // Every kind is written as "all", so a kind added later joins in.
+        let all = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"] }.applied(to: [])
+        #expect(all.contains("aster:filler-types=all"))
+        #expect(all.contains("aster:trailer-count=1"))
+        #expect(ChannelTags(tags: all).fillerTypes == Set(BreakKind.allCases))
+        #expect(ChannelTags(tags: ["aster:filler-types=all"]).fillerTypes == Set(BreakKind.allCases))
+        let clips = ChannelsModel.breakClips(from: [{ var item = BaseItem(id: "t", name: "t", type: "Video"); item.tags = ["aster:trailer"]; return item }()], types: Set(BreakKind.allCases))
+        #expect(clips.trailers.map(\.id) == ["t"])
+    }
+
+    @Test func aChannelCanBeKeptToSomeUsers() {
+        let tags = ChannelTags(tags: ["aster:channel", "aster:user=peppy, JD", "aster:users=kobe", "aster:user=peppy"])
+        #expect(tags.users == ["peppy", "JD", "kobe"])
+        #expect(tags.isShown(to: "Peppy"))
+        #expect(tags.isShown(to: "jd"))
+        #expect(!tags.isShown(to: "roman"))
+        #expect(!tags.isShown(to: nil))
+        // No user tag: everyone.
+        #expect(ChannelTags(tags: ["aster:channel"]).isShown(to: "roman"))
+        #expect(ChannelTags(tags: ["aster:channel"]).isShown(to: nil))
+        // Written as one tag, read back the same.
+        let written = tags.applied(to: [])
+        #expect(written.contains("aster:user=peppy,JD,kobe"))
+        #expect(ChannelTags(tags: written).users == tags.users)
+        #expect(!ChannelTags(isChannel: true).applied(to: []).contains { $0.hasPrefix("aster:user") })
+    }
+
+    @Test func alignFitIsBestEffortUnlessExact() {
+        #expect(!ChannelTags(tags: ["aster:align=30"]).breaks.exactAlign)
+        #expect(ChannelTags(tags: ["aster:align=30", "aster:align-fit=EXACT"]).breaks.exactAlign)
+        #expect(!ChannelTags(tags: ["aster:align-fit=best"]).breaks.exactAlign)
+        let written = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"]; $0.breaks.align = 30 }.applied(to: [])
+        #expect(written.contains("aster:align-fit=best"))
+        let exact = ChannelTags(isChannel: true).with { $0.fillerPlaylists = ["Clips"]; $0.breaks.exactAlign = true }
+        #expect(ChannelTags(tags: exact.applied(to: [])) == exact)
     }
 }

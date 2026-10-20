@@ -117,7 +117,7 @@ struct PlayerView: View {
                         ChannelBug(
                             channelId: coordinator.channelId,
                             videoAspect: coordinator.videoSize.height > 0 ? coordinator.videoSize.width / coordinator.videoSize.height : nil,
-                            playingId: coordinator.currentItem?.id
+                            playing: coordinator.currentItem
                         )
                     }
                 }
@@ -234,6 +234,10 @@ struct PlayerView: View {
             }
         }
         .onAppear {
+            // A video takes over from an opening or ending playing while
+            // browsing, and from a song or book.
+            session.themeDeck.stop()
+            session.pauseAudio()
             guard coordinator == nil else { return }
             if let sharedCoordinator {
                 coordinator = sharedCoordinator
@@ -308,6 +312,7 @@ struct PlayerView: View {
             player: coordinator.player,
             contextualActions: contextualActions(for: coordinator),
             showsPlaybackControls: !coordinator.endCardVisible,
+            requiresLinearPlayback: coordinator.followsTimeline,
             infoTabs: [
                 coordinator.audioTracks.count > 1 ? audioTab : nil,
                 coordinator.subtitleTracks.isEmpty ? nil : subtitlesTab,
@@ -692,6 +697,7 @@ struct URLPlayerView: View {
                 }
             }
             .onAppear {
+                session.pauseAudio()
                 let item = AVPlayerItem(url: playback.url)
                 #if !os(macOS)
                 item.externalMetadata = Self.metadata(for: playback)
@@ -834,6 +840,8 @@ struct SystemPlayer: UIViewControllerRepresentable {
     let player: AVPlayer
     var contextualActions: [UIAction] = []
     var showsPlaybackControls = true
+    /// A channel's timeline: no seeking or skipping in the system controls.
+    var requiresLinearPlayback = false
     /// Extra tabs for the swipe-down info panel.
     var infoTabs: [UIViewController] = []
     /// A tap on the video, which shows or hides the system controls (iOS).
@@ -892,6 +900,9 @@ struct SystemPlayer: UIViewControllerRepresentable {
         }
         if controller.showsPlaybackControls != showsPlaybackControls {
             controller.showsPlaybackControls = showsPlaybackControls
+        }
+        if controller.requiresLinearPlayback != requiresLinearPlayback {
+            controller.requiresLinearPlayback = requiresLinearPlayback
         }
         // Skip buttons and the extra info tabs are tvOS player features; on
         // iOS they're ignored for now and need an overlay of their own.

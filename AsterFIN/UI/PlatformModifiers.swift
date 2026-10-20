@@ -63,3 +63,69 @@ extension View {
         #endif
     }
 }
+
+#if os(tvOS)
+import UIKit
+
+/// Holding the remote's Play/Pause, wherever focus is. SwiftUI only has the
+/// press (`onPlayPauseCommand`), so a long-press recognizer for that button
+/// goes on the window. Once it recognizes a hold, the press is cancelled, so
+/// the press handler doesn't also run.
+struct PlayPauseHoldDetector: UIViewRepresentable {
+    /// Whether a hold counts now; otherwise the button is left alone (so a
+    /// video's own Play/Pause is never held up).
+    var isEnabled: () -> Bool = { true }
+    var onHold: () -> Void
+
+    func makeUIView(context: Context) -> HostView {
+        let view = HostView()
+        view.isEnabled = isEnabled
+        view.onHold = onHold
+        return view
+    }
+
+    func updateUIView(_ view: HostView, context: Context) {
+        view.isEnabled = isEnabled
+        view.onHold = onHold
+    }
+
+    final class HostView: UIView {
+        var isEnabled: () -> Bool = { true } {
+            didSet { gate.isEnabled = isEnabled }
+        }
+        var onHold: (() -> Void)?
+        private var recognizer: UILongPressGestureRecognizer?
+        private let gate = Gate()
+
+        /// Lets the hold begin only while it's wanted.
+        private final class Gate: NSObject, UIGestureRecognizerDelegate {
+            var isEnabled: () -> Bool = { true }
+
+            func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+                isEnabled()
+            }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let recognizer {
+                recognizer.view?.removeGestureRecognizer(recognizer)
+                self.recognizer = nil
+            }
+            guard let window else { return }
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+            hold.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+            hold.allowedTouchTypes = []
+            hold.minimumPressDuration = 0.6
+            hold.cancelsTouchesInView = true
+            hold.delegate = gate
+            window.addGestureRecognizer(hold)
+            recognizer = hold
+        }
+
+        @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
+            if recognizer.state == .began { onHold?() }
+        }
+    }
+}
+#endif

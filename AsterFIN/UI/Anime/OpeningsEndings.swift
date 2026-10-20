@@ -118,6 +118,8 @@ nonisolated enum OpeningsEndings {
 /// has one, else the episode's picture, with where it comes from.
 struct ThemeClipLockup: View {
     let clip: ThemeClip
+    /// Whether it's the one in the Now Playing panel.
+    var isPlaying = false
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -142,6 +144,15 @@ struct ThemeClipLockup: View {
                         .padding(.vertical, 4)
                         .background(.black.opacity(0.6), in: Capsule())
                         .padding(12)
+                    if isPlaying {
+                        Label("Playing", systemImage: "speaker.wave.2.fill")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
@@ -186,6 +197,7 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
         var kicker = "\(theme.isOpening ? "Opening" : "Ending") \(theme.sequence)"
         if theme.version > 1 { kicker += " · Version \(theme.version)" }
         if let variant = theme.variant, !variant.isEmpty { kicker += " · \(variant)" }
+        if theme.isFull { kicker += " · Full Version" }
         self.kicker = kicker
         title = theme.songTitle ?? series
         artists = theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", ")
@@ -215,6 +227,10 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
 /// The card itself, drawn in the lower left over the video.
 struct ThemeInfoCard: View {
     let info: ThemeInfo
+    /// The screen's safe area on the leading side (a Dynamic Island or the
+    /// notch, in landscape): the text keeps clear of it, though the shade
+    /// still runs to the corner.
+    var safeLeading: CGFloat = 0
 
     /// The card at TV size, or scaled down for a phone or tablet.
     private enum Metrics {
@@ -281,7 +297,7 @@ struct ThemeInfoCard: View {
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
         .frame(maxWidth: Metrics.maxWidth, alignment: .leading)
-        .padding(.leading, Metrics.leading)
+        .padding(.leading, max(Metrics.leading, safeLeading + 8))
         .padding(.bottom, Metrics.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .background(alignment: .bottomLeading) {
@@ -317,6 +333,8 @@ struct ThemeInfoOverlay: View {
     let info: ThemeInfo
 
     @State private var visible = false
+    /// The leading safe area, measured before the overlay ignores it.
+    @State private var safeLeading: CGFloat = 0
     @State private var observer: Any?
     @State private var clock: Task<Void, Never>?
 
@@ -325,7 +343,7 @@ struct ThemeInfoOverlay: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if visible {
-                ThemeInfoCard(info: info)
+                ThemeInfoCard(info: info, safeLeading: safeLeading)
                     .transition(.asymmetric(
                         insertion: .move(edge: .leading).combined(with: .opacity),
                         removal: .opacity
@@ -333,6 +351,7 @@ struct ThemeInfoOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { safeLeading = $0 }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)

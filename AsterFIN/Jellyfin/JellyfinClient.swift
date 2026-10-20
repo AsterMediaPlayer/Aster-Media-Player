@@ -213,7 +213,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     // MARK: Library
 
-    static let listFields = "PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,MediaStreams,ProviderIds"
+    static let listFields = "SortName,PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,MediaStreams,ProviderIds"
     static let detailFields = "Trickplay,PrimaryImageAspectRatio,Overview,Genres,Studios,People,Taglines,ProductionYear,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,RecursiveItemCount,Chapters,MediaSources,MediaStreams,ProviderIds,RemoteTrailers,DateCreated"
 
     private func requireUser() throws -> String {
@@ -254,6 +254,19 @@ nonisolated final class JellyfinClient: Sendable {
             "includeItemTypes": "Movie,Series",
             "sortBy": "SortName",
         ]).items
+    }
+
+    /// Every show on the server, by name, for making a channel of one.
+    func seriesList() async throws -> [BaseItem] {
+        let user = try requireUser()
+        return try await allItems([
+            "userId": user,
+            "recursive": "true",
+            "includeItemTypes": "Series",
+            "sortBy": "SortName",
+            "enableImages": "false",
+            "enableUserData": "false",
+        ])
     }
 
     /// The studios and networks of the server's movies and shows, by name.
@@ -330,8 +343,11 @@ nonisolated final class JellyfinClient: Sendable {
         query["parentId"] = parentId
         query["isMissing"] = "false"
         query["sortBy"] = "SortName"
-        if !genreIds.isEmpty { query["genreIds"] = genreIds.joined(separator: "|") }
-        if !studioIds.isEmpty { query["studioIds"] = studioIds.joined(separator: "|") }
+        // Ids are comma-separated; names (ratings, below) take "|". Ids
+        // joined with "|" make Jellyfin drop the filter and return
+        // everything, so a two-network channel played the whole library.
+        if !genreIds.isEmpty { query["genreIds"] = genreIds.joined(separator: ",") }
+        if !studioIds.isEmpty { query["studioIds"] = studioIds.joined(separator: ",") }
         if let years { query["years"] = years.map(String.init).joined(separator: ",") }
         if !ratings.isEmpty { query["officialRatings"] = ratings.joined(separator: "|") }
         return try await allItems(query)
@@ -486,6 +502,30 @@ nonisolated final class JellyfinClient: Sendable {
         try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
     }
 
+    /// The theme a published music video (or song) is, from the OP/ED
+    /// plugin; nil for any other item, or without the plugin.
+    func opEdTheme(forLibraryItem itemId: String) async -> OpEdTheme? {
+        try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
+    }
+
+    /// The OP/ED plugin's published libraries; nil without the plugin (or
+    /// before 0.2).
+    func opEdLibraries() async -> OpEdLibraries? {
+        try? await get(OpEdLibraries.self, "/OpEd/Library")
+    }
+
+    /// A library's newest music videos, for a shelf.
+    func latestMusicVideos(inLibrary libraryId: String, limit: Int = 20) async -> [BaseItem] {
+        (try? await items([
+            "parentId": libraryId,
+            "includeItemTypes": "MusicVideo",
+            "recursive": "true",
+            "sortBy": "DateCreated,SortName",
+            "sortOrder": "Descending",
+            "limit": String(limit),
+        ]).items) ?? []
+    }
+
     /// A plugin media path (e.g. `VideoMp4Url`) as a URL AVPlayer can open,
     /// with the token in the query string.
     func opEdMediaURL(_ path: String) -> URL {
@@ -552,6 +592,12 @@ nonisolated final class JellyfinClient: Sendable {
     // MARK: Playback
 
     /// The signed-in user, including their server-side settings.
+    /// Everyone's user names on the server, which only an administrator
+    /// can list.
+    func userNames() async throws -> [String] {
+        try await get([JellyfinUser].self, "/Users").map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     func me() async throws -> JellyfinUser {
         try await get(JellyfinUser.self, "/Users/Me")
     }

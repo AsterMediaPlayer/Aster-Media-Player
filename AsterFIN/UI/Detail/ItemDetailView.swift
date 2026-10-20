@@ -260,6 +260,17 @@ struct ItemDetailView: View {
     /// A spoiler or NSFW theme waiting for the viewer's go-ahead.
     @State private var confirmTheme: OpEdTheme?
     @State private var showDiscMenu = false
+    /// The tab a show's page is on.
+    @State private var section: DetailSection = .episodes
+    /// The Music tab's openings and endings, playing in the Now Playing
+    /// panel; it keeps going across tabs, and stops on leaving the page.
+    @Environment(\.themeMiniInset) private var themeMiniInset
+    /// The app's openings-and-endings player, shared so one keeps playing
+    /// after this page closes.
+    private var themeDeck: ThemeDeck { session.themeDeck }
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
     @State private var message: String?
     @State private var notice: String?
     @State private var playlistRequest: PlaylistRequest?
@@ -293,55 +304,22 @@ struct ItemDetailView: View {
                     header
                         .frame(maxWidth: .infinity, minHeight: headerMinHeight, alignment: .bottomLeading)
 
-                    if detail.kind == .series || detail.kind == .season {
-                        episodesSection
+                    if usesSections {
+                        // A show's page in tabs, so its episodes, songs,
+                        // extras and details aren't one long scroll.
+                        DetailSectionBar(sections: sections, selection: shownSectionBinding)
+                        sectionContent
+                    } else {
+                        shelves
                     }
-
-                    if detail.kind == .episode {
-                        EpisodeStrip(season: model.seasonEpisodes, currentId: detail.id, centerX: playButtonMidX)
-                    }
-
-                    Shelf(title: "Openings & Endings", items: model.openingsEndings) { entry in
-                        switch entry {
-                        case .theme(let theme):
-                            OpEdThemeLockup(
-                                theme: theme,
-                                seasonName: model.seasons.first { $0.id == theme.seasonId }?.displayTitle,
-                                artwork: session.client?.landscapeURL(for: detail, width: 800)
-                            ) {
-                                if theme.spoiler || theme.nsfw {
-                                    confirmTheme = theme
-                                } else {
-                                    play(theme)
-                                }
-                            }
-                        case .chapter(let clip):
-                            // Plays just that stretch of the episode; its resume
-                            // point and watched state are left alone.
-                            ThemeClipLockup(clip: clip) {
-                                playback = PlaybackRequest(clipOf: clip.episode.id, fromTicks: clip.startTicks, toTicks: clip.endTicks, info: info(for: clip))
-                            }
-                        }
-                    }
-
-                    Shelf(title: "Extras", items: model.extras) { extra in
-                        ExtraLockup(item: extra) {
-                            playback = PlaybackRequest(itemId: extra.id)
-                        }
-                    }
-
-                    Shelf(title: "Related", items: model.similar) { related in
-                        LandscapeLockup(item: related)
-                    }
-
-                    Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
-                        PersonLockup(person: person)
-                    }
-
-                    InformationSection(item: detail)
-                        .padding(.horizontal, Lockup.screenPadding)
                 }
                 .padding(.bottom, 80)
+                // Room for the Now Playing panel on the right: everything,
+                // the header's description too, moves over beside it.
+                // (or for the slim one, playing another show's theme)
+                .padding(.trailing, showsThemePanel ? ThemePanelMetrics.width + ThemePanelMetrics.gap : themeMiniInset)
+                .animation(.smooth(duration: 0.4), value: showsThemePanel)
+                .animation(.smooth(duration: 0.4), value: themeMiniInset)
             }
             .scrollClipDisabled()
             #if os(macOS)
@@ -366,6 +344,33 @@ struct ItemDetailView: View {
             }
         }
         .ignoresSafeArea()
+        // The Now Playing panel, fixed on the right of the screen (within
+        // the safe area) whatever the page is scrolled to.
+        .overlay(alignment: .topTrailing) {
+            if showsThemePanel {
+                ThemeNowPlayingPanel(
+                    deck: themeDeck,
+                    artwork: session.client?.landscapeURL(for: detail, width: 800),
+                    seasonName: { ThemeMusicSection.seasonName($0, in: model.seasons) },
+                    fullScreen: { entry in themeFullScreen(entry) }
+                )
+                .frame(width: ThemePanelMetrics.width)
+                .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                .padding(.trailing, ThemePanelMetrics.trailing)
+                .padding(.vertical, ThemePanelMetrics.vertical)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.4), value: showsThemePanel)
+        // While this page shows the full panel, the slim one stays away.
+        .onChange(of: showsThemePanel, initial: true) { _, shows in
+            if shows {
+                session.themePanelPage = item.id
+            } else if session.themePanelPage == item.id {
+                session.themePanelPage = nil
+            }
+        }
         #if !os(tvOS)
         // No remote Back here: this ends the opening, back to the page. An
         // overlay keeps to the safe area, clear of the camera.
@@ -431,11 +436,14 @@ struct ItemDetailView: View {
         .onAppear { session.theme.pageAppeared(for: item) }
         .onDisappear {
             if watchingOpening { stopWatchingOpening() }
+            // The theme keeps playing, in the slim panel.
+            if session.themePanelPage == item.id { session.themePanelPage = nil }
             session.theme.pageDisappeared(for: item)
         }
         .onChange(of: playback != nil || urlPlayback != nil || showDiscMenu) { _, covered in
             // Quiet the theme while a video or disc menu is on screen.
             if covered {
+                themeDeck.stop()
                 session.theme.suspend()
             } else {
                 session.theme.resume()
@@ -521,6 +529,168 @@ struct ItemDetailView: View {
             Text(downloadError ?? "")
         }
         #endif
+    }
+
+    // MARK: Sections
+
+    /// Shows and seasons are laid out in tabs; everything else is one scroll.
+    private var usesSections: Bool { detail.kind == .series || detail.kind == .season }
+
+    /// The tabs with something in them, in order.
+    private var sections: [DetailSection] {
+        var found: [DetailSection] = [.episodes]
+        if !model.openingsEndings.isEmpty { found.append(.music) }
+        if !model.extras.isEmpty { found.append(.extras) }
+        if !model.similar.isEmpty { found.append(.related) }
+        found.append(.details)
+        return found
+    }
+
+    /// The chosen tab, or Episodes while the chosen one has nothing (yet).
+    private var shownSection: DetailSection { sections.contains(section) ? section : .episodes }
+
+    private var shownSectionBinding: Binding<DetailSection> {
+        Binding(get: { shownSection }, set: { section = $0 })
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch shownSection {
+        case .episodes:
+            episodesSection
+        case .music:
+            // The panel's Full Screen hands its theme to the full-screen
+            // player; it was already OK'd if it's a spoiler.
+            ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
+                              show: detail, deck: themeDeck, panelBesidePage: themePanelBesidePage,
+                              fullScreen: { entry in themeFullScreen(entry) },
+                              addToPlaylist: { ids in playlistRequest = PlaylistRequest(itemIds: ids) })
+        case .extras:
+            extrasShelf
+        case .related:
+            relatedShelf
+        case .details:
+            detailsContent
+        }
+    }
+
+    /// Everything after the header, one shelf after another: a movie's or
+    /// an episode's page.
+    @ViewBuilder
+    private var shelves: some View {
+        if detail.kind == .episode {
+            EpisodeStrip(season: model.seasonEpisodes, currentId: detail.id, centerX: playButtonMidX)
+        }
+
+        Shelf(title: "Openings & Endings", items: model.openingsEndings) { entry in
+            switch entry {
+            case .theme(let theme):
+                OpEdThemeLockup(
+                    theme: theme,
+                    seasonName: model.seasons.first { $0.id == theme.seasonId }?.displayTitle,
+                    artwork: session.client?.landscapeURL(for: detail, width: 800)
+                ) {
+                    if theme.spoiler || theme.nsfw {
+                        confirmTheme = theme
+                    } else {
+                        play(theme)
+                    }
+                }
+            case .chapter(let clip):
+                // Plays just that stretch of the episode; its resume
+                // point and watched state are left alone.
+                ThemeClipLockup(clip: clip) {
+                    playThemeCard(.chapter(clip))
+                }
+            }
+        }
+
+        extrasShelf
+        relatedShelf
+        detailsContent
+    }
+
+    private var extrasShelf: some View {
+        Shelf(title: "Extras", items: model.extras) { extra in
+            ExtraLockup(item: extra) {
+                playback = PlaybackRequest(itemId: extra.id)
+            }
+        }
+
+    }
+
+    private var relatedShelf: some View {
+        Shelf(title: "Related", items: model.similar) { related in
+            LandscapeLockup(item: related)
+        }
+
+    }
+
+    /// Who's in it, and the facts about it.
+    @ViewBuilder
+    private var detailsContent: some View {
+        Shelf(title: "Cast & Crew", items: model.cast, spacing: Lockup.personSpacing) { person in
+            PersonLockup(person: person)
+        }
+
+        InformationSection(item: detail)
+            .padding(.horizontal, Lockup.screenPadding)
+    }
+
+    /// The Now Playing panel's size and place. It sits inside the safe area,
+    /// which on the TV already keeps it off the screen's edges.
+    private enum ThemePanelMetrics {
+        #if os(tvOS)
+        static let width: CGFloat = 560
+        static let gap: CGFloat = 40
+        static let trailing: CGFloat = 0
+        static let vertical: CGFloat = 0
+        #else
+        static let width: CGFloat = 340
+        static let gap: CGFloat = 24
+        static let trailing: CGFloat = 20
+        static let vertical: CGFloat = 16
+        #endif
+    }
+
+    /// Whether the panel goes on the right of the page: not on a phone,
+    /// where it's in the Music tab instead.
+    private var themePanelBesidePage: Bool {
+        #if os(iOS)
+        sizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// The full panel: on the page of the show whose theme is playing.
+    private var showsThemePanel: Bool {
+        themeDeck.isActive && themeDeck.showItem?.id == detail.id && themePanelBesidePage && usesSections && !watchingOpening
+    }
+
+    /// The panel's Full Screen: the full-screen player takes it over (a
+    /// spoiler was OK'd already), and covering the page stops the panel.
+    private func themeFullScreen(_ entry: OpeningEnding) {
+        switch entry {
+        case .theme(let theme): play(theme)
+        case .chapter: playThemeCard(entry)
+        }
+    }
+
+    /// A theme's card pressed: a plugin theme asks first when it's marked as
+    /// a spoiler or NSFW; a chapter clip plays just that stretch of its
+    /// episode, leaving its resume point and watched state alone.
+    private func playThemeCard(_ entry: OpeningEnding) {
+        switch entry {
+        case .theme(let theme):
+            if theme.spoiler || theme.nsfw {
+                confirmTheme = theme
+            } else {
+                play(theme)
+            }
+        case .chapter(let clip):
+            playback = PlaybackRequest(clipOf: clip.episode.id, fromTicks: clip.startTicks, toTicks: clip.endTicks, info: info(for: clip))
+        }
     }
 
     // MARK: Header
@@ -970,7 +1140,7 @@ struct ItemDetailView: View {
             }
             let number = model.seasons.first { $0.id == seasonId }?.indexNumber
             if let clip = clips.first(where: { $0.season == number }) {
-                session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSound)
+                session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSoundNow)
                 return
             }
             // Nothing for this season: keep whatever opening is already playing.
@@ -980,19 +1150,23 @@ struct ItemDetailView: View {
             return
         }
         if let clip = clips.first {
-            session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSound)
+            session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSoundNow)
         }
     }
+
+    /// Openings behind the page have sound when that's on, unless a song or
+    /// book is playing: then they're silent, or (with only a song) left out.
+    private var openingSoundNow: Bool { openingSound && !session.isAudioPlaying }
 
     /// Puts a plugin opening behind the page: its video, or with only audio,
     /// its song as the theme music when openings have sound. Returns whether
     /// it could.
     private func show(_ theme: OpEdTheme, client: JellyfinClient) -> Bool {
         if let path = theme.videoMp4Url {
-            session.theme.showOpeningIfNoVideo(theme, url: client.opEdMediaURL(path), for: item, sound: openingSound)
+            session.theme.showOpeningIfNoVideo(theme, url: client.opEdMediaURL(path), for: item, sound: openingSoundNow)
             return true
         }
-        if openingSound, let path = theme.audioM4aUrl {
+        if openingSoundNow, let path = theme.audioM4aUrl {
             session.theme.showOpeningSongIfNoVideo(theme, url: client.opEdMediaURL(path), for: item)
             return true
         }
@@ -1005,6 +1179,7 @@ struct ItemDetailView: View {
     /// lower left. Plugin themes marked as spoilers or NSFW ask first, as
     /// their cards do (they never play behind the page).
     private func watch(_ entry: OpeningEnding) {
+        themeDeck.stop()
         let entryId: String
         let info: ThemeInfo
         switch entry {

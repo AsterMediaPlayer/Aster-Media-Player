@@ -792,6 +792,9 @@ struct AudiobookBar: View {
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.08)))
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button("Stop", systemImage: "stop.fill") { session.stopAudio() }
+            }
             .keyboardTarget { player.isNowPlayingPresented = true }
             .accessibilityLabel("Now playing: \(book.title)")
             .tvFocusSection()
@@ -893,6 +896,23 @@ struct AudiobookNowPlayingView: View {
             .buttonBorderShape(.circle)
             .tint(.white)
             .accessibilityLabel("Close")
+            .padding(Lockup.screenPadding)
+        }
+        #endif
+        #if !os(tvOS)
+        // Stop ends it: the player closes and the bar goes away.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                session.stopAudio()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .tint(.white)
+            .accessibilityLabel("Stop")
             .padding(Lockup.screenPadding)
         }
         #endif
@@ -1009,6 +1029,14 @@ struct AudiobookNowPlayingView: View {
             }
             .focused($focusedControl, equals: "chapters")
         }
+        #if os(tvOS)
+        // No close button on the TV: Stop ends it (its place saved), and
+        // Back just hides it.
+        PlayerControl(systemImage: "stop.fill", label: "Stop") {
+            session.stopAudio()
+        }
+        .focused($focusedControl, equals: "stop")
+        #endif
     }
 
     private func chapterList(_ book: Audiobook) -> some View {

@@ -127,10 +127,22 @@ struct MainTabView: View {
         }
         #endif
         #if os(tvOS)
-        // The remote's Play/Pause pauses music or a book from anywhere
-        // (the players and videos handle it themselves while showing).
+        // The remote's Play/Pause pauses an opening or ending playing while
+        // browsing, else music or a book, from anywhere (the players and
+        // videos handle it themselves while showing). Held, it brings focus
+        // to the Now Playing panel.
         .onPlayPauseCommand {
-            session.toggleAudio()
+            if session.themeDeck.isActive {
+                session.themeDeck.togglePlaying()
+            } else {
+                session.toggleAudio()
+            }
+        }
+        .background {
+            PlayPauseHoldDetector(isEnabled: { session.themeDeck.isActive }) {
+                session.themePanelFocusRequest += 1
+            }
+            .allowsHitTesting(false)
         }
         #endif
         #if os(macOS)
@@ -199,6 +211,7 @@ struct MainTabView: View {
             session.noteLibraries(views)
             await session.refreshUpcoming()
             await session.detectAnimeLibraries(among: views)
+            await session.detectAnimeMusic(among: views)
             await followPendingLinks()
         }
         // Back from the background: changes made on another device since.
@@ -730,6 +743,30 @@ struct BrowseStack<Root: View>: View {
     /// The stack's path: the owner's, or its own.
     private var currentPath: Binding<NavigationPath> { path ?? $ownPath }
 
+    @Environment(AppSession.self) private var session
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+
+    /// An opening or ending playing, and no page showing its full panel:
+    /// the slim one floats on the right of whatever's open. Not on a phone,
+    /// which has no room beside the page.
+    private var showsMiniPlayer: Bool {
+        #if os(iOS)
+        guard sizeClass == .regular else { return false }
+        #endif
+        return session.themeDeck.isActive && session.themePanelPage == nil
+    }
+
+    private var miniInset: CGFloat { showsMiniPlayer ? ThemeMiniPlayer.inset : 0 }
+
+    /// The slim panel goes on each page, the stack's first and every one
+    /// pushed: on the Apple TV a pushed page covers anything laid over the
+    /// stack itself. Only the top page shows, so only one is seen.
+    private var miniPlayerHost: ThemeMiniPlayerHost {
+        ThemeMiniPlayerHost(shows: showsMiniPlayer, openAction: openAction)
+    }
+
     /// Lets menus and the Mac keyboard, which can't use navigation links,
     /// push pages.
     private var openAction: OpenItemAction {
@@ -741,6 +778,7 @@ struct BrowseStack<Root: View>: View {
         let path = currentPath
         NavigationStack(path: path) { content }
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
             #if os(iOS)
             .background(MoreBarHider(hidden: !path.wrappedValue.isEmpty))
             #endif
@@ -748,6 +786,7 @@ struct BrowseStack<Root: View>: View {
 
     private var content: some View {
         root()
+            .modifier(miniPlayerHost)
             .keyboardPage()
             .navigationDestination(for: BaseItem.self) { item in
                 pushed(destination(for: item))
@@ -771,12 +810,16 @@ struct BrowseStack<Root: View>: View {
         #if os(macOS)
         page
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
+            .modifier(miniPlayerHost)
             .keyboardPage(pushed: true)
             .environment(\.keyboardTab, keyboardTab)
             .environment(keyboard)
         #else
         page
             .environment(\.openItem, openAction)
+            .environment(\.themeMiniInset, miniInset)
+            .modifier(miniPlayerHost)
         #endif
     }
 

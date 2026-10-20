@@ -27,6 +27,14 @@ struct AetherPlayerView: View {
     /// A double-tap skip just made: which way, shown briefly over its side.
     @State private var skipFlash: SkipFlash?
     #endif
+    #if os(iOS)
+    @Environment(AppSession.self) private var session
+    /// The channels, for the dial and the upright list, while one plays.
+    @State private var flick: ChannelFlickModel?
+    /// An iPhone held upright on a channel: the picture at the top and the
+    /// channels under it, rather than the dial.
+    @State private var isRemoteLayout = false
+    #endif
 
     init(playback: AetherPlayback, onFinished: @escaping () -> Void) {
         self.playback = playback
@@ -35,6 +43,57 @@ struct AetherPlayerView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        GeometryReader { proxy in
+            let remote = showsRemote(in: proxy.size)
+            VStack(spacing: 0) {
+                if remote {
+                    // Under the status bar, so the picture keeps clear of it.
+                    Color.black.frame(height: proxy.safeAreaInsets.top)
+                }
+                player
+                    .frame(height: remote ? proxy.size.width * 9 / 16 : nil)
+                    .clipped()
+                if remote, let flick {
+                    ChannelRemoteList(playback: playback, model: flick)
+                }
+            }
+            .ignoresSafeArea(edges: remote ? .top : [])
+            .onChange(of: remote, initial: true) { _, on in isRemoteLayout = on }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .task(id: playingChannel) { updateFlick() }
+        #else
+        player
+        #endif
+    }
+
+    #if os(iOS)
+    /// The channel playing, if a channel is.
+    private var playingChannel: String? { playback.liveChannelId ?? playback.channelId }
+
+    private func showsRemote(in size: CGSize) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && size.height > size.width && flick != nil
+    }
+
+    /// Keeps one set of channels across channel changes; none once what
+    /// plays isn't a channel (Go to Episode).
+    private func updateFlick() {
+        guard let channelId = playingChannel, let client = session.client else {
+            flick = nil
+            return
+        }
+        if let flick {
+            flick.playing(channelId)
+            return
+        }
+        guard let model = ChannelFlickModel(currentLiveChannel: playback.liveChannelId, currentChannel: playback.channelId, client: client) else { return }
+        flick = model
+        Task { await model.refresh(client: client) }
+    }
+    #endif
+
+    private var player: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             AetherPlayerSurface(engine: engine)
@@ -51,7 +110,7 @@ struct AetherPlayerView: View {
             }
             // Under the controls, so they draw over it.
             if playback.hasStarted, !playback.endCardVisible {
-                ChannelBug(channelId: playback.channelId, videoAspect: videoAspect, playingId: playback.item?.id)
+                ChannelBug(channelId: playback.channelId, videoAspect: videoAspect, playing: playback.item)
             }
             // An anime episode's opening or ending gets its song card, as it
             // does in the system player.
@@ -201,8 +260,8 @@ struct AetherPlayerView: View {
                     .gesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
-                                // A live channel has nothing to skip through.
-                                guard !playback.isLive else { return }
+                                // A channel keeps to its timeline: nothing to skip through.
+                                guard !playback.followsTimeline else { return }
                                 let forward = value.location.x > proxy.size.width / 2
                                 Self.skip(forward ? 10 : -10, on: engine)
                                 skipFlash = SkipFlash(forward: forward)
@@ -235,6 +294,14 @@ struct AetherPlayerView: View {
                 .opacity(controlsShown ? 1 : 0)
                 .disabled(!controlsShown)
                 .animation(.easeInOut(duration: 0.25), value: controlsShown)
+            #if os(iOS)
+            // Sideways (or on iPad), a channel changes with the dial.
+            if !isRemoteLayout, let flick {
+                ChannelDialOverlay(playback: playback, model: flick, controlsShown: controlsShown, onActivity: reveal) {
+                    controlsShownAt = nil
+                }
+            }
+            #endif
         }
         .task(id: controlsShownAt) {
             // The controls fade a few seconds after the last touch.
@@ -264,7 +331,7 @@ struct AetherPlayerView: View {
                 .buttonBorderShape(.circle)
                 .accessibilityLabel("Close")
                 if showsPauseInfo, let item = playback.item {
-                    AetherPauseLogo(item: item)
+                    AetherPauseLogo(item: item, channelId: playback.channelId)
                         .padding(.leading, 8)
                         .transition(.opacity)
                 } else {
@@ -277,7 +344,7 @@ struct AetherPlayerView: View {
                 .frame(maxWidth: .infinity)
             Spacer()
             if showsPauseInfo, let item = playback.item {
-                AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
+                AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram, channelId: playback.channelId)
                     .padding(.bottom, 18)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -285,6 +352,8 @@ struct AetherPlayerView: View {
                 LiveBadge()
             } else {
                 AetherTimeline(engine: engine, clock: engine.clock, onScrub: reveal, preview: playback.scrubPreview(at:))
+                    // On a channel it shows how far in, but can't be dragged.
+                    .allowsHitTesting(!playback.followsTimeline)
             }
             HStack(spacing: 20) {
                 RoutePicker()
@@ -370,8 +439,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "gobackward.10")
             }
             .accessibilityLabel("Back 10 seconds")
-            .opacity(playback.isLive ? 0 : 1)
-            .disabled(playback.isLive)
+            .opacity(playback.followsTimeline ? 0 : 1)
+            .disabled(playback.followsTimeline)
             Button(action: togglePlayPause) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 44))
@@ -382,8 +451,8 @@ struct AetherPlayerView: View {
                 Image(systemName: "goforward.10")
             }
             .accessibilityLabel("Forward 10 seconds")
-            .opacity(playback.isLive ? 0 : 1)
-            .disabled(playback.isLive)
+            .opacity(playback.followsTimeline ? 0 : 1)
+            .disabled(playback.followsTimeline)
         }
         .font(.system(size: 30))
         .buttonStyle(.plain)

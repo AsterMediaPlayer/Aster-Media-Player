@@ -163,6 +163,9 @@ struct GuideView: View {
     let channels: [BaseItem]
     var select: (BaseItem) -> Void
     var playChannel: (String) -> Void
+    /// What Select on a channel cell does, when it isn't tuning in (the
+    /// Channels tab's opens the channel's settings for an administrator).
+    var openChannel: ((String) -> Void)? = nil
     /// Nil leaves the favourites menu off the channel cells.
     var toggleFavorite: ((String) -> Void)? = nil
     var emptyDetail = "Add a tuner or M3U source in the Jellyfin dashboard."
@@ -343,6 +346,7 @@ struct GuideView: View {
                                     channelFocus: $focusedChannel,
                                     placeholderFocus: $focusedPlaceholder,
                                     playChannel: { playChannel(channel.id) },
+                                    openChannel: openChannel.map { open in { open(channel.id) } },
                                     toggleFavorite: toggleFavorite.map { toggle in { toggle(channel.id) } },
                                     select: select
                                 )
@@ -808,6 +812,8 @@ struct GuideRow: View {
     let channelFocus: FocusState<String?>.Binding
     let placeholderFocus: FocusState<String?>.Binding
     var playChannel: () -> Void
+    /// Select on the channel cell, in place of tuning in.
+    var openChannel: (() -> Void)? = nil
     var toggleFavorite: (() -> Void)? = nil
     var select: (BaseItem) -> Void
 
@@ -826,7 +832,7 @@ struct GuideRow: View {
 
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
-            ChannelCell(channel: channel, logoURL: logoURL, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, action: playChannel)
+            ChannelCell(channel: channel, logoURL: logoURL, isFocused: channelFocus.wrappedValue == channel.id, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, action: openChannel ?? playChannel)
                 .frame(width: GuideView.channelColumnWidth, height: GuideView.rowHeight)
                 .focused(channelFocus, equals: channel.id)
 
@@ -917,6 +923,8 @@ struct ChannelCell: View {
     let channel: BaseItem
     /// The channel's logo; nil shows its name.
     let logoURL: URL?
+    /// Highlighted as the programme cells are: white, with dark text.
+    var isFocused = false
     var isFavorite = false
     var toggleFavorite: (() -> Void)? = nil
     var action: () -> Void
@@ -936,7 +944,7 @@ struct ChannelCell: View {
             HStack(spacing: Self.spacing) {
                 Text(channel.channelNumber ?? "")
                     .font(Self.numberFont)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isFocused ? Color.black.opacity(0.7) : .secondary)
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
                     .frame(width: Self.numberWidth, alignment: .leading)
@@ -955,7 +963,8 @@ struct ChannelCell: View {
             .padding(.horizontal, GuideView.cellPadding.leading)
             .padding(.vertical, GuideView.cellPadding.top)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: GuideView.cornerRadius).fill(Color(white: 0.16)))
+            .foregroundStyle(isFocused ? .black : .white)
+            .background(RoundedRectangle(cornerRadius: GuideView.cornerRadius).fill(isFocused ? Color.white : Color(white: 0.16)))
         }
         .buttonStyle(GuideCellButtonStyle())
         .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)

@@ -255,7 +255,7 @@ struct AetherTVControls: View {
         }
         // Scrubbing is for a paused picture, as in the system player; while
         // playing a swipe only shows the timeline.
-        if !playback.isLive, engine.state == .paused, abs(x) > abs(y), engine.duration > 0, let from = scrubFrom {
+        if !playback.followsTimeline, engine.state == .paused, abs(x) > abs(y), engine.duration > 0, let from = scrubFrom {
             // A swipe across the whole surface covers a quarter of the video,
             // kept between 2 and 15 minutes.
             let span = min(max(engine.duration / 4, 120), 900)
@@ -269,7 +269,8 @@ struct AetherTVControls: View {
 
     private func jump(_ seconds: Double) {
         // A live channel has nothing to skip through.
-        guard !playback.isLive else {
+        // A channel keeps to its timeline: nothing to skip through.
+        guard !playback.followsTimeline else {
             show()
             return
         }
@@ -462,7 +463,7 @@ struct AetherTVControls: View {
     @ViewBuilder
     private var logo: some View {
         if let item = playback.item {
-            AetherPauseLogo(item: item)
+            AetherPauseLogo(item: item, channelId: playback.channelId)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -471,7 +472,7 @@ struct AetherTVControls: View {
     @ViewBuilder
     private var pauseInfo: some View {
         if let item = playback.item {
-            AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram)
+            AetherPauseDetails(item: item, engine: engine, program: playback.liveProgram, channelId: playback.channelId)
         }
     }
 
@@ -561,8 +562,10 @@ struct AetherTVControls: View {
 
     // MARK: Chapters
 
-    /// The item's chapters, when there are enough to be worth choosing from.
+    /// The item's chapters, when there are enough to be worth choosing
+    /// from; none on a channel, which keeps to its timeline.
     private var chapters: [ChapterInfo] {
+        guard !playback.followsTimeline else { return [] }
         let all = playback.item?.chapters ?? []
         return all.count > 1 ? all.sorted { $0.startPositionTicks < $1.startPositionTicks } : []
     }

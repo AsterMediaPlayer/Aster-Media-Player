@@ -78,6 +78,12 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
         ChannelSchedule.programs(channelId: id, items: items, lineup: lineup, breaks: breakClips, from: from, to: to)
     }
 
+    /// In a break: the programme it leads into; nil during a programme.
+    func programmeAfterBreak(at date: Date = Date()) -> ScheduledProgram? {
+        guard segment(at: date)?.role.isBreak == true, let current = airing(at: date) else { return nil }
+        return airing(at: current.end)
+    }
+
     /// What's playing now, programme or break clip, and from how far in.
     func segment(at date: Date = Date()) -> ScheduledProgram? {
         segments(from: date, to: date.addingTimeInterval(1)).first
@@ -161,11 +167,12 @@ final class ChannelsModel {
     /// Finds the playlists tagged as channels and loads their movies and
     /// episodes, in channel-number order. A tagged playlist with neither is
     /// left out.
-    func load(client: JellyfinClient, force: Bool = false) async {
+    /// Loads the channels `userName` gets (`aster:user=`), every one for nil.
+    func load(client: JellyfinClient, userName: String? = nil, force: Bool = false) async {
         errorMessage = nil
         do {
             let playlists = try await client.playlists(mediaType: "Video")
-            let tagged = Self.taggedChannels(in: playlists)
+            let tagged = Self.taggedChannels(in: playlists).filter { userName == nil || $0.tags.isShown(to: userName) }
             let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
             // The playlists of break clips the channels name, fetched with
             // the channels' own.
@@ -327,25 +334,28 @@ final class ChannelsModel {
         return true
     }
 
-    /// The playlists a channel's `filler-playlists=` tags name, matched by
-    /// name whatever the case; a name no playlist has is left out.
+    /// The filler playlists (tagged `aster:filler`) a channel's
+    /// `filler-playlists=` tags name, matched by name whatever the case; a
+    /// name no filler playlist has is left out.
     nonisolated static func fillerPlaylists(named tags: ChannelTags, in playlists: [BaseItem]) -> [BaseItem] {
-        tags.fillerPlaylists.compactMap { name in
-            playlists.first { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
+        let fillers = playlists.filter { ChannelTags.isFillerPlaylist($0.tags) }
+        return tags.fillerPlaylists.compactMap { name in
+            fillers.first { $0.displayTitle.caseInsensitiveCompare(name) == .orderedSame }
         }
     }
 
     /// Break clips sorted by what each one's own tag says it is, keeping
-    /// only the kinds the channel's `filler-types=` asks for.
+    /// only the kinds the channel's `filler-types=` asks for; a clip with
+    /// no kind tag is left out.
     nonisolated static func breakClips(from items: [BaseItem], types: Set<BreakKind>) -> ChannelBreakClips {
         var clips = ChannelBreakClips()
         for item in items {
-            let kind = ChannelTags.clipKind(item.tags)
-            guard types.contains(kind) else { continue }
+            guard let kind = ChannelTags.clipKind(item.tags), types.contains(kind) else { continue }
             switch kind {
             case .bumpers: clips.bumpers.append(item)
             case .promos: clips.promos.append(item)
             case .commercials: clips.commercials.append(item)
+            case .trailers: clips.trailers.append(item)
             case .interstitials: clips.interstitials.append(item)
             }
         }

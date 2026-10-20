@@ -31,6 +31,15 @@ final class AppSession {
     let audiobooks = AudiobookPlayer()
     /// Theme music and videos for title pages.
     let theme = ThemePlayer()
+    /// Anime openings and endings picked on a show's Music tab: one player
+    /// for the whole app, so one keeps playing while you browse.
+    let themeDeck = ThemeDeck()
+    /// The title page showing the deck's full Now Playing panel, while one
+    /// is on screen; everywhere else the slim one floats on the right.
+    var themePanelPage: String?
+    /// Bumped by holding the remote's Play/Pause: the Now Playing panel on
+    /// screen takes focus, on its play button.
+    var themePanelFocusRequest = 0
     /// Links arriving from the Top Shelf.
     let router = DeepLinkRouter()
 
@@ -107,6 +116,34 @@ final class AppSession {
         }
     }
 
+    /// Every music video library on the server: the choices for the Anime
+    /// tab's music video setting.
+    private(set) var musicVideoLibraries: [BaseItem] = []
+    /// The OP/ED plugin's published Music Videos library, when it has one.
+    private(set) var opEdVideosLibraryId: String?
+    /// The music video libraries the Anime tab shows: the OP/ED plugin's,
+    /// and those chosen in Settings (AMVs).
+    private(set) var animeMusicVideoLibraries: [BaseItem] = []
+
+    func detectAnimeMusic(among views: [BaseItem]) async {
+        musicVideoLibraries = views.filter { $0.collectionType == "musicvideos" }
+        opEdVideosLibraryId = await client?.opEdLibraries()?.videosLibraryId
+        updateAnimeMusicVideoLibraries()
+    }
+
+    /// After the Settings choice changes, or the libraries are found.
+    func updateAnimeMusicVideoLibraries() {
+        let chosen = Set((UserDefaults.standard.string(forKey: AppSettings.animeMusicVideoLibrariesKey) ?? "")
+            .split(separator: "\n").map(String.init))
+        let opEd = opEdVideosLibraryId.map(Self.plainId)
+        animeMusicVideoLibraries = musicVideoLibraries.filter { Self.plainId($0.id) == opEd || chosen.contains($0.displayTitle) }
+    }
+
+    /// An id as Jellyfin writes it either way: lowercase, without dashes.
+    nonisolated private static func plainId(_ id: String) -> String {
+        id.lowercased().replacingOccurrences(of: "-", with: "")
+    }
+
     func detectAnimeLibraries(among views: [BaseItem]) async {
         guard let client else { return }
         let libraries = await client.animeLibraries(among: views)
@@ -119,14 +156,29 @@ final class AppSession {
     static let shared = AppSession()
 
     init() {
+        #if os(iOS)
+        NetworkPath.shared.start()
+        #endif
         restore()
         music.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
             self?.audiobooks.stop()
+            self?.themeDeck.stop()
         }
         audiobooks.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
             self?.music.stop()
+            self?.themeDeck.stop()
+        }
+        // Title pages' theme music and videos stay quiet while an opening
+        // or ending plays, whichever page is showing; so does a song or book.
+        themeDeck.onActiveChange = { [weak self] active in
+            if active {
+                self?.pauseAudio()
+                self?.theme.suspend()
+            } else {
+                self?.theme.resume()
+            }
         }
         UserDefaults(suiteName: Self.appGroup)?.set(JellyfinDevice.deviceId, forKey: "AsterFIN.deviceId")
     }
@@ -165,7 +217,7 @@ final class AppSession {
 
     func refreshChannels() async {
         guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
-        hasChannels = !ChannelsModel.taggedChannels(in: playlists).isEmpty
+        hasChannels = ChannelsModel.taggedChannels(in: playlists).contains { $0.tags.isShown(to: userName) }
     }
 
     func refreshUserConfiguration() async {
@@ -274,7 +326,14 @@ final class AppSession {
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
+    /// line; the OP/ED plugin's own library is always shown.
+    static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"
     static let maxBitrateKey = "AsterFIN.maxBitrate"
+    /// iPhone and iPad: the limit on cellular data (or a Personal Hotspot);
+    /// 0 for the same as on Wi-Fi. 8 Mbps by default.
+    static let cellularMaxBitrateKey = "AsterFIN.cellularMaxBitrate"
+    static let defaultCellularMaxBitrate = 8_000_000
     static let discMenuSoundsKey = "AsterFIN.discMenuSounds"
     static let autoplayNextKey = "AsterFIN.autoplayNext"
     static let autoSkipIntroKey = "AsterFIN.autoSkipIntro"
@@ -288,6 +347,15 @@ enum AppSettings {
     static let openingSoundKey = "AsterFIN.openingSound"
     /// The song card as an episode's opening or ending plays. On by default.
     static let themeCardsKey = "AsterFIN.themeCards"
+    /// Openings and endings picked on a show's Music tab play in the Now
+    /// Playing panel (and keep playing, slim, while browsing); off, they
+    /// play full screen. On by default.
+    static let themePanelKey = "AsterFIN.themePanel"
+    /// A show's Music tab plays openings and endings' full-length versions
+    /// where the server has them (Play All, and a card pressed). Off by
+    /// default; each card can play either. Watch OP and title-page themes
+    /// always use the TV size.
+    static let themePrefersFullKey = "AsterFIN.themePrefersFull"
     /// ASS/SSA tracks drawn with libass (positions, drawings, fonts) rather
     /// than as plain text. On by default.
     static let styledSubtitlesKey = "AsterFIN.styledSubtitles"
@@ -315,9 +383,23 @@ enum AppSettings {
     /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
     static let listenAheadKey = "AsterFIN.listenAhead"
 
+    /// Whether the limit right now is a real one: a choice below Auto, or
+    /// the cellular limit on cellular data. Then a file over it is converted
+    /// down to it, rather than played as it is.
+    static var limitsQuality: Bool { maxBitrate < 120_000_000 }
+
+    /// The streaming limit right now: on iPhone and iPad, the cellular one
+    /// while on cellular data. Read as each stream starts.
     static var maxBitrate: Int {
         let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)
-        return stored > 0 ? stored : 120_000_000
+        let wifi = stored > 0 ? stored : 120_000_000
+        #if os(iOS)
+        if NetworkPath.shared.isCellular {
+            let cellular = UserDefaults.standard.object(forKey: cellularMaxBitrateKey) as? Int ?? defaultCellularMaxBitrate
+            return cellular > 0 ? min(cellular, wifi) : wifi
+        }
+        #endif
+        return wifi
     }
 
     /// Start the next episode when one ends. On by default.

@@ -16,12 +16,21 @@ struct DiscMenuConformanceTests {
 
     // MARK: Loading vectors
 
-    private static var conformanceDirectory: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Conformance")
+    /// A vector file: from the test bundle, where the build copies them
+    /// (flat, documents too), since a simulator can't see the source folder;
+    /// straight from the source folder where it can.
+    private static func conformanceFile(_ name: String, in folder: String? = nil) -> URL {
+        let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+        if let bundled = Bundle.allBundles.first(where: { $0.bundleURL.pathExtension == "xctest" })?.url(forResource: base, withExtension: ext) {
+            return bundled
+        }
+        var url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Conformance")
+        if let folder { url.appendPathComponent(folder) }
+        return url.appendingPathComponent(name)
     }
 
     private static func loadJSON(_ name: String) throws -> [String: Any] {
-        let data = try Data(contentsOf: conformanceDirectory.appendingPathComponent(name))
+        let data = try Data(contentsOf: conformanceFile(name))
         let object = try JSONSerialization.jsonObject(with: data)
         return try #require(object as? [String: Any])
     }
@@ -110,7 +119,7 @@ struct DiscMenuConformanceTests {
         for c in try Self.cases("layout.json") {
             let name = try #require(c["document"] as? String)
             if documents[name] == nil {
-                let data = try Data(contentsOf: Self.conformanceDirectory.appendingPathComponent("documents").appendingPathComponent(name))
+                let data = try Data(contentsOf: Self.conformanceFile(name, in: "documents"))
                 documents[name] = try JSONDecoder().decode(DiscMenuDocument.self, from: data)
             }
             let document = try #require(documents[name])

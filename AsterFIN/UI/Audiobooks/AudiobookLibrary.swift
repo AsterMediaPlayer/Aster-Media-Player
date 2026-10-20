@@ -167,7 +167,7 @@ final class AudiobookLibrary {
             .map { name, books in
                 let ordered = kind == .series
                     ? books.sorted { ($0.seriesIndex ?? .max, $0.title) < ($1.seriesIndex ?? .max, $1.title) }
-                    : books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                    : books.sorted { TitleSort.ordered($0.title, $1.title) }
                 return AudiobookShelf(kind: kind, name: name, books: ordered)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -206,7 +206,7 @@ final class AudiobookLibrary {
             Task { await downloads.sync(with: fromServer, client: client) }
             all = fromServer.map(downloads.withLocalProgress)
             #endif
-            books = all.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            books = all.sorted { TitleSort.ordered($0.title, $1.title) }
         } catch {
             if books.isEmpty { errorMessage = error.localizedDescription }
         }

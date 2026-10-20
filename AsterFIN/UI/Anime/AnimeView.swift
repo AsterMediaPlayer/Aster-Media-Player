@@ -13,13 +13,22 @@ final class AnimeModel {
     private(set) var continueWatching: [BaseItem] = []
     private(set) var nextUp: [BaseItem] = []
     private(set) var recentlyAdded: [BaseItem] = []
+    /// Each music video library the tab shows (the OP/ED plugin's openings
+    /// and endings, AMVs), with its newest videos.
+    private(set) var musicVideoShelves: [MusicVideoShelf] = []
     /// The hero's titles: anime only, picked as Home picks its own.
     private(set) var featured: [BaseItem] = []
     private(set) var isLoading = false
     /// Whether a load has finished, so the page knows the hero isn't coming.
     private(set) var hasLoaded = false
 
-    func load(client: JellyfinClient, libraries: [BaseItem]) async {
+    struct MusicVideoShelf: Identifiable {
+        let library: BaseItem
+        let items: [BaseItem]
+        var id: String { library.id }
+    }
+
+    func load(client: JellyfinClient, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
         isLoading = featured.isEmpty && !libraries.isEmpty
         let ids = libraries.map(\.id)
         let showIds = libraries.filter { $0.collectionType == "tvshows" }.map(\.id)
@@ -27,12 +36,21 @@ final class AnimeModel {
         async let resume = Self.merged(ids) { try await client.resume(limit: 20, parentId: $0) }
         async let next = Self.merged(showIds) { try await client.nextUp(limit: 20, parentId: $0) }
         async let latest = Self.recentlyAdded(client: client, libraries: libraries)
+        async let musicVideos = withTaskGroup(of: (Int, MusicVideoShelf).self) { group in
+            for (position, library) in musicVideoLibraries.enumerated() {
+                group.addTask { (position, MusicVideoShelf(library: library, items: await client.latestMusicVideos(inLibrary: library.id))) }
+            }
+            var shelves: [(Int, MusicVideoShelf)] = []
+            for await shelf in group { shelves.append(shelf) }
+            return shelves.sorted { $0.0 < $1.0 }.map(\.1)
+        }
 
         // Newest first across libraries; ISO 8601 dates sort as text.
         let resumed = await resume
         continueWatching = Array(resumed.sorted { ($0.userData?.lastPlayedDate ?? "") > ($1.userData?.lastPlayedDate ?? "") }.prefix(20))
         nextUp = Array(await next.filter { episode in !resumed.contains { $0.id == episode.id } }.prefix(20))
         recentlyAdded = await latest
+        musicVideoShelves = await musicVideos
 
         var picks: [BaseItem] = []
         for item in continueWatching.prefix(3) + nextUp.prefix(3) + recentlyAdded.prefix(5) where !picks.contains(where: { $0.id == item.id }) {
@@ -80,6 +98,8 @@ final class AnimeModel {
 
 struct AnimeView: View {
     @Environment(AppSession.self) private var session
+    /// Room on the right for the floating Now Playing panel.
+    @Environment(\.themeMiniInset) private var themeMiniInset
     @State private var model = AnimeModel()
     /// Where focus goes on pressing down from the hero: the first library.
     @FocusState private var focusedTile: String?
@@ -132,8 +152,13 @@ struct AnimeView: View {
                 }
 
                 if model.hasLoaded || !model.featured.isEmpty {
+                    // The rows make way for the floating Now Playing panel;
+                    // the hero stays full width under it. (A Group pads
+                    // each row in place, so the rows stay where focus
+                    // expects them, below the hero.)
+                    Group {
                     // Each opens the whole library as a sortable grid.
-                    Shelf(title: "Libraries", items: session.animeLibraries) { library in
+                    Shelf(title: "Libraries", items: session.animeLibraries + session.animeMusicVideoLibraries) { library in
                         LibraryTile(library: library, focus: $focusedTile)
                     }
                     .id(Self.librariesRowID)
@@ -146,6 +171,15 @@ struct AnimeView: View {
                     Shelf(title: "Recently Added", items: model.recentlyAdded) { item in
                         LandscapeLockup(item: item)
                     }
+                    // Openings & endings (the OP/ED plugin's library) and AMVs.
+                    ForEach(model.musicVideoShelves) { shelf in
+                        Shelf(title: shelf.library.displayTitle, items: shelf.items) { item in
+                            LandscapeLockup(item: item, showSeriesTitle: false)
+                        }
+                    }
+                    }
+                    .padding(.trailing, themeMiniInset)
+                    .animation(.smooth(duration: 0.4), value: themeMiniInset)
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)
@@ -167,7 +201,7 @@ struct AnimeView: View {
         }
         .onDisappear { keyboard.unregister(.anime) }
         #endif
-        .task(id: session.animeLibraries.map(\.id)) { await reload() }
+        .task(id: (session.animeLibraries + session.animeMusicVideoLibraries).map(\.id)) { await reload() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await reload() }
         }
@@ -236,6 +270,6 @@ struct AnimeView: View {
 
     private func reload() async {
         guard let client = session.client else { return }
-        await model.load(client: client, libraries: session.animeLibraries)
+        await model.load(client: client, libraries: session.animeLibraries, musicVideoLibraries: session.animeMusicVideoLibraries)
     }
 }

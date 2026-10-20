@@ -173,11 +173,13 @@ struct LibraryGridView: View {
     let parent: BaseItem
 
     @Environment(AppSession.self) private var session
+    /// Room on the right for the floating Now Playing panel.
+    @Environment(\.themeMiniInset) private var themeMiniInset
     @State private var model = GridModel()
     @State private var sort: LibrarySort = .name
 
     private var landscape: Bool {
-        parent.collectionType == "homevideos" || parent.collectionType == "tvshows" && false
+        parent.collectionType == "homevideos" || parent.collectionType == "musicvideos"
     }
 
     private var query: [String: String?] {
@@ -196,49 +198,115 @@ struct LibraryGridView: View {
         case "boxsets":
             query["includeItemTypes"] = "BoxSet"
             query["recursive"] = "true"
+        case "musicvideos":
+            // Every video, not the folders (one per show or artist) they're in.
+            query["includeItemTypes"] = "MusicVideo"
+            query["recursive"] = "true"
         default:
             break
         }
         return query
     }
 
+    /// By name, the library comes in letter sections with an index; it's
+    /// loaded whole for that (libraries are small next to the work saved).
+    @State private var sections: [IndexSection] = []
+    @FocusState private var focusedTitle: String?
+
+    private var indexed: Bool { sort == .name && !sections.isEmpty }
+
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(parent.displayTitle)
-                        .font(.largeTitle.weight(.bold))
-                    Spacer()
-                    Picker("Sort", selection: $sort) {
-                        ForEach(LibrarySort.allCases) { option in
-                            Text(option.rawValue).tag(option)
+        ScrollViewReader { reader in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(parent.displayTitle)
+                            .font(.largeTitle.weight(.bold))
+                        Spacer()
+                        Picker("Sort", selection: $sort) {
+                            ForEach(LibrarySort.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    .padding(.horizontal, Lockup.screenPadding)
+                    .padding(.top, Lockup.pageTopPadding)
+
+                    #if os(tvOS)
+                    if indexed {
+                        LibraryIndexBar(keys: sections.map(\.key)) { key in jump(to: key, reader) }
+                    }
+                    #endif
+
+                    if model.items.isEmpty, let error = model.errorMessage {
+                        MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
+                            .frame(height: Lockup.emptyStateHeight)
+                    } else if model.items.isEmpty, !model.isLoading {
+                        MessageView(systemImage: "tray", title: "Nothing here yet")
+                            .frame(height: Lockup.emptyStateHeight)
+                    } else if indexed {
+                        SectionedItemGrid(sections: sections, landscape: landscape, focus: $focusedTitle)
+                    } else {
+                        ItemGrid(items: model.items, landscape: landscape)
+                        if model.hasMore, sort != .name {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .padding(Lockup.pageBottomPadding)
+                                .task { await load() }
                         }
                     }
-                    .pickerStyle(.menu)
                 }
-                .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, Lockup.pageTopPadding)
-
-                if model.items.isEmpty, let error = model.errorMessage {
-                    MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
-                        .frame(height: Lockup.emptyStateHeight)
-                } else if model.items.isEmpty, !model.isLoading {
-                    MessageView(systemImage: "tray", title: "Nothing here yet")
-                        .frame(height: Lockup.emptyStateHeight)
-                } else {
-                    ItemGrid(items: model.items, landscape: landscape)
-                    if model.hasMore {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(Lockup.pageBottomPadding)
-                            .task { await load() }
-                    }
+                .padding(.bottom, Lockup.pageBottomPadding)
+                // The grid makes way for the floating Now Playing panel, and
+                // on a touch screen or the Mac for the index strip.
+                .padding(.trailing, themeMiniInset + (indexed ? LibraryIndexBar.stripRoom : 0))
+                .animation(.smooth(duration: 0.4), value: themeMiniInset)
+            }
+            .scrollClipDisabled()
+            #if !os(tvOS)
+            .overlay(alignment: .trailing) {
+                if indexed {
+                    LibraryIndexBar(keys: sections.map(\.key)) { key in jump(to: key, reader) }
+                        .padding(.trailing, themeMiniInset + 4)
                 }
             }
-            .padding(.bottom, Lockup.pageBottomPadding)
+            #endif
         }
-        .scrollClipDisabled()
-        .task(id: sort) { await load(reset: true) }
+        .task(id: sort) { await reload() }
+        .onChange(of: model.items.count) { _, _ in updateSections() }
+    }
+
+    /// Everything when sorted by name (for the sections), else page by page.
+    private func reload() async {
+        sections = []
+        await load(reset: true)
+        if sort == .name {
+            while model.hasMore, !Task.isCancelled {
+                let before = model.items.count
+                await load()
+                if model.items.count == before, model.errorMessage != nil { break }
+            }
+        }
+        updateSections()
+    }
+
+    private func updateSections() {
+        sections = sort == .name && !model.hasMore ? LibraryIndex.sections(model.items) : []
+    }
+
+    /// Brings a letter's section up; on the TV its first title takes focus.
+    private func jump(to key: String, _ reader: ScrollViewProxy) {
+        guard let first = sections.first(where: { $0.key == key })?.items.first else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            reader.scrollTo(first.id, anchor: .top)
+        }
+        #if os(tvOS)
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            focusedTitle = first.id
+        }
+        #endif
     }
 
     private func load(reset: Bool = false) async {
@@ -262,8 +330,12 @@ struct TypeGridView: View {
     @State private var heroLoaded = false
     /// Where focus goes on pressing down from the hero: the first new title.
     @FocusState private var focusedLockup: String?
+    /// By name, every title in letter sections with an index.
+    @State private var sections: [IndexSection] = []
 
     private var title: String { kind == .movie ? "Movies" : "TV Shows" }
+
+    private var indexed: Bool { sort == .name && !sections.isEmpty }
 
     private var query: [String: String?] {
         [
@@ -303,11 +375,20 @@ struct TypeGridView: View {
                 .padding(.bottom, Lockup.pageBottomPadding)
             }
             .scrollClipDisabled()
+            #if !os(tvOS)
+            .overlay(alignment: .trailing) {
+                if indexed {
+                    LibraryIndexBar(keys: sections.map(\.key)) { key in jump(to: key, reader) }
+                        .padding(.trailing, 4)
+                }
+            }
+            #endif
         }
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await load(reset: true) }
+        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reload() }
+        .onChange(of: model.items.count) { _, _ in updateSections() }
         .task(id: session.animeItemIds.count) { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
@@ -348,12 +429,22 @@ struct TypeGridView: View {
                 .padding(.horizontal, Lockup.screenPadding)
                 .padding(.top, 20)
                 .id(Self.allTitlesID)
-            ItemGrid(items: model.items, focus: $focusedLockup)
-            if model.hasMore {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(Lockup.pageBottomPadding)
-                    .task { await load() }
+            #if os(tvOS)
+            if indexed {
+                LibraryIndexBar(keys: sections.map(\.key)) { key in jump(to: key, reader) }
+            }
+            #endif
+            if indexed {
+                SectionedItemGrid(sections: sections, focus: $focusedLockup)
+                    .padding(.trailing, LibraryIndexBar.stripRoom)
+            } else {
+                ItemGrid(items: model.items, focus: $focusedLockup)
+                if model.hasMore, sort != .name {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(Lockup.pageBottomPadding)
+                        .task { await load() }
+                }
             }
         }
     }
@@ -361,6 +452,38 @@ struct TypeGridView: View {
     private func load(reset: Bool = false) async {
         guard let client = session.client else { return }
         await model.load(client: client, query: query, excluding: session.animeItemIds, reset: reset)
+    }
+
+    /// Everything when sorted by name (for the sections), else page by page.
+    private func reload() async {
+        sections = []
+        await load(reset: true)
+        if sort == .name {
+            while model.hasMore, !Task.isCancelled {
+                let before = model.items.count
+                await load()
+                if model.items.count == before, model.errorMessage != nil { break }
+            }
+        }
+        updateSections()
+    }
+
+    private func updateSections() {
+        sections = sort == .name && !model.hasMore ? LibraryIndex.sections(model.items) : []
+    }
+
+    /// Brings a letter's section up; on the TV its first title takes focus.
+    private func jump(to key: String, _ reader: ScrollViewProxy) {
+        guard let first = sections.first(where: { $0.key == key })?.items.first else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            reader.scrollTo(first.id, anchor: .top)
+        }
+        #if os(tvOS)
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            focusedLockup = first.id
+        }
+        #endif
     }
 
     /// Down from Recently Added. Below the hero the shelf sits low on the
@@ -371,7 +494,7 @@ struct TypeGridView: View {
         Task {
             try? await Task.sleep(for: .milliseconds(150))
             guard let focused = focusedLockup, recent.contains(where: { $0.id == focused }),
-                  let first = model.items.first else { return }
+                  let first = sections.first?.items.first ?? model.items.first else { return }
             withAnimation(.easeInOut(duration: 0.3)) {
                 reader.scrollTo(Self.allTitlesID, anchor: .top)
             }

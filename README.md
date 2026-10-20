@@ -32,8 +32,8 @@ Taken on Apple TV.
 | **Live TV**: guide, recordings, mini player | **Music**: albums, artists, lyrics, Now Playing |
 | ![Anime](docs/screenshots/anime.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
 | **Anime**: openings and endings with song cards | **Disc menus**: JellyDisc menus with transitions and sounds |
-| ![Channels](docs/screenshots/channels.jpg) | |
-| **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | |
+| ![Channels](docs/screenshots/channels.jpg) | ![Channel row](docs/screenshots/channel-row.jpg) |
+| **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | **Channel row**: press Up while watching to flick through channels, or Go to Episode |
 
 ## Platforms
 
@@ -94,51 +94,40 @@ Taken on Apple TV.
 - Record single programmes, or set series recording rules with options.
 
 ### Channels (Beta)
-Your Jellyfin video playlists become TV-style channels on a Channels tab, laid out in the same guide as Live TV. Tune in and you join whatever is on, partway through, and when it ends the channel carries on to what's on next.
-- **Set up in Jellyfin:** a playlist becomes a channel through its tags, so your server is the one place channels live and every device finds the same ones. Tag a playlist in Jellyfin's web interface (the playlist's Edit Metadata ▸ Tags), or use **Edit Channels** on the Channels tab or in Settings ▸ Channels (Beta), which writes the same tags. Only a server administrator can change them; everyone else sees the channels read-only. The Channels tab appears once a playlist is tagged.
+Channels turn your own movies and shows into TV you can just put on. Each channel runs around the clock on a schedule, with a guide like Live TV's. Tune in and you join whatever's on, partway through, then it carries on to the next thing, the way real TV does. Every device shows the same thing at the same moment.
 
-  | Tag | Meaning | Default |
-  | --- | --- | --- |
-  | `aster:channel` | This playlist is a channel | not a channel |
-  | `aster:number=101` | Its channel number | numbered after the rest, by name |
-  | `aster:mode=blocks` | `rotation`, `blocks`, `shuffle`, `sequential` or `airdate` (everything in the order it first aired) | `rotation` |
-  | `aster:logo=on` | The playlist's picture is the channel's logo | off (the name is shown) |
-  | `aster:reshuffle=week` | How long one order of shows lasts: `day`, `week` (Monday to Monday) or `month` | `day` |
-  | `aster:seed=2` | Deals a fresh lineup; any other number deals another | the channel's original lineup |
-  | `aster:blocks=3-6` | How many episodes play in a row in Blocks mode | 2 to 4 |
-  | `aster:bug=on` | The logo, faint in the corner while the channel plays | off |
-  | `aster:bug-location=top-left` | The bug's corner: `top-left`, `top-right`, `bottom-left` or `bottom-right` | `bottom-right` |
-  | `aster:bug-size=150%` | The bug's size, 25% to 300% of the usual | `100%` |
-  | `aster:bug-hide=30` | Seconds the bug shows after tuning in or a programme starting, then fades | `off` (always shown) |
-  | `aster:bug-opacity=60%` | How solid the bug is, 5% to 100% | `45%` |
-  | `aster:genre=Horror` | Also plays every movie and episode in this genre; repeat the tag for more genres (any of them) | none |
-  | `aster:network=NBC` | Also plays every movie and episode from this studio or network; repeat for more | none |
-  | `aster:collection=Star Wars Collection` | Also plays everything in this collection; repeat for more | none |
-  | `aster:type=movies` | With genres, networks or collections: `all`, `movies` or `shows` | `all` |
-  | `aster:years=1980-1989` | With genres, networks or collections: only titles from these years (or one year, `1994`) | any year |
-  | `aster:rating=TV-PG,PG` | With genres, networks or collections: only titles with these content ratings | any rating |
-  | `aster:library=TV Shows` | With genres or networks: only from this library; repeat for more | every library |
-  | `aster:weight=Friends:2` | This show takes two turns (up to 5) to every other show's one; repeat for more shows | 1 each |
-  | `aster:min-length=20` | Leaves out anything shorter, in minutes | none |
-  | `aster:max-length=60` | Leaves out anything longer, in minutes | none |
-  | `aster:filler-playlists=Hazbin Bumpers` | A playlist of clips for its breaks between programmes; repeat for more. Each clip's own tag says what it is | none |
-  | `aster:filler-types=commercials,bumpers` | With filler: which kinds of clip to play: `bumpers`, `promos`, `commercials`, `interstitials` | all four |
-  | `aster:bumpers-at=out` | With breaks: a bumper `both` before and after each break, only before it (`out`), or only after (`in`) | `both` |
-  | `aster:break-length=4` | With breaks: minutes of commercials in each break, 0 to 30 | `2` |
-  | `aster:promo-count=2` | With breaks: promos in each break, 0 to 5 | `1` |
-  | `aster:interstitial-count=2` | With breaks, not lined up: interstitials in each break, 0 to 5 | `1` |
-  | `aster:break-every=2` | With breaks, not lined up: a break after every programme, or every 2nd to 10th | `1` |
-  | `aster:align=30` | With breaks: every programme starts on the half hour (or every 5, 10, 15, 20 or 60 minutes), its break running on to the mark | `off` |
-  | `aster:channel-name=Late Night` | The channel's name, in place of the playlist's | the playlist's name |
+**Make your first channel** (you need to be a server administrator):
+1. Open the **Channels** tab and choose **Edit Channels**. (If you don't have the tab yet, it's in **Settings ▸ Channels (Beta)**.)
+2. Under **New Channel**, pick **From a Show**, then a show.
+3. That's it: the channel is playing. Go back to the Channels tab, choose it in the guide and press Select to tune in.
 
-  Turning a playlist on in Aster writes every tag, defaults included (all but the name), so each one is there to change in Jellyfin; turning it off writes `aster:channel=off` and keeps the rest. Case doesn't matter, other tags are left alone, and a value Aster doesn't understand falls back to the default. Tags written before the app was renamed (`asterfin:…`) still work, and are rewritten as `aster:…` the first time an administrator signs in.
-- **Breaks:** add bumpers, promos, commercials and interstitials to Jellyfin as ordinary videos and tag each with what it is: `aster:bumper`, `aster:promo`, `aster:commercial` or `aster:interstitial` (untagged clips count as interstitials). A bumper tagged `aster:bumper=in` only closes a break, right before the programme (a countdown), and `aster:bumper=out` only opens one. Put them in playlists, any mix, and name those on a channel with `aster:filler-playlists=` (or in Edit Channels), so one playlist of commercials can serve many channels. Each break plays a bumper, its commercials, its promos, its interstitials, and a bumper back. With `aster:align=30`, programmes start on the hour and half hour, the interstitials (or, without any, commercials) filling each break up to the mark, the last one cut short to land on it. Breaks are the same on every device, and the guide folds each one into the programme before it.
-- **Genre, network and collection channels:** New Channel in Edit Channels makes a channel that fills itself from genres (Horror, Comedy, …), networks (NBC, Cartoon Network, …) and collections, narrowed to movies or shows, years, content ratings and libraries if you like, along with anything added to its playlist by hand. A show brings every one of its episodes. It's shared with everyone on the server.
-- **Movies and TV:** a series plays its episodes in order and picks up where it left off, like reruns. Specials are left out, and each movie takes a turn of its own.
-- **Four modes, chosen per channel:** **Rotation** plays one episode of each show in turn; **Blocks** plays a few in a row (two to four unless `blocks=` says otherwise); **Shuffle** mixes every episode and movie on its own. These three are reshuffled every day, or every week or month with `reshuffle=`, and **Shuffle Again** in Edit Channels deals a fresh lineup. **In Order** (`sequential`) plays the playlist exactly as it's arranged, over and over.
-- **A week ahead:** the guide covers the next 7 days, with a day picker at the top.
-- **Same guide everywhere, without a server:** each channel's schedule is worked out on the device from the playlist and the clock, so every device shows the same programme at the same moment. Nothing is stored and no plugin is needed.
-- **Watch history is left alone:** watching a channel doesn't change resume points, watched marks or Continue Watching.
+You can also make a channel **from a genre** (all your horror, say), **a network** (everything from NBC), **a collection**, or **one of your playlists**. Want a mix, like two shows on one channel? Make a playlist with both in Jellyfin, then pick **From One of Your Playlists**.
+
+**Change a channel:** in Edit Channels, open a channel to see the basics: its name, number, what it plays, how it plays (**Mode**), its logo, and breaks. Everything else is under **Advanced**. On Apple TV you can also move left onto a channel in the guide and press Select to open its settings.
+
+**Add commercial breaks** (optional):
+1. Add your clips to Jellyfin as ordinary videos: commercials, trailers, promos, short filler videos ("interstitials"), and bumpers (the channel's own "We'll be right back" clips).
+2. In Jellyfin, tag each clip with what it is: `aster:commercial`, `aster:trailer`, `aster:promo`, `aster:interstitial` or `aster:bumper`. A clip without one of these tags is skipped.
+3. Put them in a playlist, any mix, and tag the playlist `aster:filler`.
+4. In Edit Channels, pick that playlist under **Breaks**.
+
+Now there's a break after each programme, and the channel lines itself up so shows start on the hour and half hour. One playlist of breaks can serve as many channels as you like.
+
+**How a channel picks what to play:**
+- **Rotation** (the usual): one episode of each show in turn, like a channel of reruns.
+- **Blocks:** two to four episodes of a show in a row, then the next show.
+- **Shuffle:** everything in a random order.
+- **In Order:** the playlist exactly as you arranged it, round and round.
+- **Air Date:** everything in the order it first aired.
+
+Shows always play their episodes in order and pick up where they left off. Specials are left out.
+
+**Good to know:**
+- **Your watch history is safe:** watching a channel doesn't change resume points, watched marks or Continue Watching.
+- **Want to watch something properly?** On Apple TV, press Up for the channel row, then Up again to **Go to Episode**. It plays the episode on its own, from where you left off, with skipping, scrubbing and Up Next. On a channel itself you can pause but not skip, so everyone stays on the same schedule.
+- **Who sees a channel:** everyone on your server, as long as its playlist is shared with them or public. To keep a channel to certain people, pick them under **Advanced ▸ Users**.
+- **The guide covers a week ahead,** with a day picker at the top.
+- **Your channels live on your server:** every setting is saved as a tag on the playlist in Jellyfin, so every device finds the same channels, and you can edit the tags in Jellyfin too. The full list is in [docs/channel-tags.md](docs/channel-tags.md).
 
 ### Disc menus
 - Aster renders DVD/Blu-ray-style menus from the **JellyDisc** plugin. They support backgrounds, chapter and trailer screens, and theme songs.
@@ -216,7 +205,6 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 - **Channels (beta):**
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
-  - There's no channel up/down inside the player yet.
 - **Mac:** the Mac app has no downloads yet.
 - **Anime without the OP/ED plugin:** openings and endings are guessed from chapter names.
 

@@ -4,7 +4,8 @@
 //
 //  The song or audiobook playing, on every tab: under the tab bar on iPhone
 //  and iPad, at the foot of the sidebar on the Mac. Play/pause right there,
-//  and a tap on the rest opens the full player. Apple TV has no place for
+//  and a tap on the rest opens the full player; the ✕ (or holding the bar)
+//  stops it and puts the bar away. Apple TV has no place for
 //  it beside the tabs, so there the remote's Play/Pause works anywhere and
 //  the Music and Audiobooks tabs keep their own bars.
 //
@@ -24,6 +25,21 @@ extension AppSession {
         } else if music.current != nil {
             music.togglePlayPause()
         }
+    }
+
+    /// Ends the song or book: the player closes, and the bar goes away. A
+    /// book's place is saved first.
+    func stopAudio() {
+        audiobooks.stop()
+        music.stop()
+    }
+
+    /// Pauses the song or book as a video (or an opening or ending) starts,
+    /// so the two never play over each other. It stays loaded, to carry on
+    /// from the bar afterwards.
+    func pauseAudio() {
+        if audiobooks.isPlaying { audiobooks.pause() }
+        if music.isPlaying { music.pause() }
     }
 
     /// Opens the full player for whichever is loaded.
@@ -115,6 +131,24 @@ struct AudioAccessory: View {
                 #if os(macOS)
                 .help(session.isAudioPlaying ? "Pause (Space)" : "Play (Space)")
                 #endif
+
+                Button {
+                    session.stopAudio()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.callout.weight(.semibold))
+                        .frame(width: 30, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Stop")
+                #if os(macOS)
+                .help("Stop")
+                #endif
+            }
+            .contextMenu {
+                Button("Stop", systemImage: "stop.fill") { session.stopAudio() }
             }
             .padding(.horizontal, 12)
             #if os(macOS)

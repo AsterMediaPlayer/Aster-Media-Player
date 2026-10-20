@@ -173,6 +173,15 @@ final class AetherPlayback {
         let info: PlaybackInfoResponse
     }
     @ObservationIgnored private var prepared: PreparedTitle?
+    #if DEBUG
+    /// When the current channel change began, for timing where it goes.
+    @ObservationIgnored private var tuneClock: ContinuousClock.Instant?
+    private func tuneLog(_ step: String) {
+        guard let tuneClock else { return }
+        let ms = (ContinuousClock.now - tuneClock).components.attoseconds / 1_000_000_000_000_000 + (ContinuousClock.now - tuneClock).components.seconds * 1000
+        print("DEBUG tune: +\(ms) ms \(step)")
+    }
+    #endif
     /// Bytes warmed of the next channel's file: enough for its headers, not
     /// the engine's 8 MB, since a channel starts partway in.
     private static let channelPrewarmBytes = 2 * 1024 * 1024
@@ -216,6 +225,9 @@ final class AetherPlayback {
                 try await loadTitle(item, info: ready?.info)
             }
             guard !stopped else { return }
+            #if DEBUG
+            tuneLog("engine load returned")
+            #endif
             await begin(item)
             if isLive { return }
             // Markers and the next episode load once it plays, so they never
@@ -565,12 +577,19 @@ final class AetherPlayback {
         }
         tuneTask?.cancel()
         tuningName = name
+        #if DEBUG
+        tuneClock = .now
+        tuneLog("flick to \(name)")
+        #endif
         tuneTask = Task { [weak self] in
             guard let self else { return }
             defer { if !Task.isCancelled { self.tuningName = nil } }
             do {
                 let item = try await self.client.item(first.item.id)
                 try Task.checkCancellation()
+                #if DEBUG
+                self.tuneLog("item fetched")
+                #endif
                 let info = try await self.client.playbackInfo(
                     itemId: item.id,
                     startTicks: first.entry.startTicks,
@@ -578,10 +597,17 @@ final class AetherPlayback {
                     subtitleStreamIndex: -1
                 )
                 try Task.checkCancellation()
+                #if DEBUG
+                let codec = info.mediaSources.first?.mediaStreams?.first { $0.type == "Video" }?.codec ?? "?"
+                self.tuneLog("playback info (\(codec), \(info.mediaSources.first.map { Self.playsOriginal($0) ? "original file" : "converted" } ?? "?"))")
+                #endif
                 if info.errorCode == nil, let source = info.mediaSources.first, Self.playsOriginal(source) {
                     let url = self.client.directStreamURL(itemId: item.id, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
-                    await AetherEngine.prewarm(url: url, byteBudget: Self.channelPrewarmBytes)
+                    let report = await AetherEngine.prewarm(url: url, byteBudget: Self.channelPrewarmBytes)
                     try Task.checkCancellation()
+                    #if DEBUG
+                    self.tuneLog("prewarm: \(report)")
+                    #endif
                 }
                 guard !self.stopped, self.entry.channelId == current else { return }
                 // Where the channel has got to now, not when the change began.
@@ -589,6 +615,9 @@ final class AetherPlayback {
                 self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
                 self.tuningName = nil
                 self.endServerSession()
+                #if DEBUG
+                self.tuneLog("cut over: engine load starts")
+                #endif
                 // In place, as Live TV changes: no artwork cover, the
                 // picture playing until the engine takes the next.
                 self.play(now.item, entry: now.entry, inPlace: true)
@@ -601,6 +630,13 @@ final class AetherPlayback {
             }
         }
     }
+
+    #if DEBUG
+    func logFirstFrame() {
+        tuneLog("first frame on screen")
+        tuneClock = nil
+    }
+    #endif
 
     /// Whether `source` plays as the file itself, as `loadTitle` decides
     /// for a channel's entry (no quality picked, no fallback).

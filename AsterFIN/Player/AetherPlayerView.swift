@@ -173,6 +173,11 @@ struct AetherPlayerView: View {
         .onAppear { engine.videoGravity = .resizeAspect }
         #endif
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
+        #if DEBUG
+        .onChange(of: engine.hasFirstFrameReadyForDisplay) { _, ready in
+            if ready { playback.logFirstFrame() }
+        }
+        #endif
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
         .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
         .animation(.easeInOut(duration: 0.25), value: playback.tuningName ?? playback.tuneMessage)

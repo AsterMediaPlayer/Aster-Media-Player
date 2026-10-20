@@ -169,9 +169,7 @@ private struct ChannelFlickTime: View {
 
     /// "12 min left", "1 hr, 5 min left"; nil once it's over.
     private func timeLeft(at date: Date) -> String? {
-        guard let end = program.end, end > date else { return nil }
-        let minutes = max(1, Int((end.timeIntervalSince(date) / 60).rounded(.up)))
-        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " left"
+        program.timeLeft(at: date)
     }
 }
 

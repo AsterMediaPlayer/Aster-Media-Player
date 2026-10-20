@@ -27,6 +27,14 @@ struct AetherPlayerView: View {
     /// A double-tap skip just made: which way, shown briefly over its side.
     @State private var skipFlash: SkipFlash?
     #endif
+    #if os(iOS)
+    @Environment(AppSession.self) private var session
+    /// The channels, for the dial and the upright list, while one plays.
+    @State private var flick: ChannelFlickModel?
+    /// An iPhone held upright on a channel: the picture at the top and the
+    /// channels under it, rather than the dial.
+    @State private var isRemoteLayout = false
+    #endif
 
     init(playback: AetherPlayback, onFinished: @escaping () -> Void) {
         self.playback = playback
@@ -35,6 +43,57 @@ struct AetherPlayerView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        GeometryReader { proxy in
+            let remote = showsRemote(in: proxy.size)
+            VStack(spacing: 0) {
+                if remote {
+                    // Under the status bar, so the picture keeps clear of it.
+                    Color.black.frame(height: proxy.safeAreaInsets.top)
+                }
+                player
+                    .frame(height: remote ? proxy.size.width * 9 / 16 : nil)
+                    .clipped()
+                if remote, let flick {
+                    ChannelRemoteList(playback: playback, model: flick)
+                }
+            }
+            .ignoresSafeArea(edges: remote ? .top : [])
+            .onChange(of: remote, initial: true) { _, on in isRemoteLayout = on }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .task(id: playingChannel) { updateFlick() }
+        #else
+        player
+        #endif
+    }
+
+    #if os(iOS)
+    /// The channel playing, if a channel is.
+    private var playingChannel: String? { playback.liveChannelId ?? playback.channelId }
+
+    private func showsRemote(in size: CGSize) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && size.height > size.width && flick != nil
+    }
+
+    /// Keeps one set of channels across channel changes; none once what
+    /// plays isn't a channel (Go to Episode).
+    private func updateFlick() {
+        guard let channelId = playingChannel, let client = session.client else {
+            flick = nil
+            return
+        }
+        if let flick {
+            flick.playing(channelId)
+            return
+        }
+        guard let model = ChannelFlickModel(currentLiveChannel: playback.liveChannelId, currentChannel: playback.channelId, client: client) else { return }
+        flick = model
+        Task { await model.refresh(client: client) }
+    }
+    #endif
+
+    private var player: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             AetherPlayerSurface(engine: engine)
@@ -235,6 +294,12 @@ struct AetherPlayerView: View {
                 .opacity(controlsShown ? 1 : 0)
                 .disabled(!controlsShown)
                 .animation(.easeInOut(duration: 0.25), value: controlsShown)
+            #if os(iOS)
+            // Sideways (or on iPad), a channel changes with the dial.
+            if !isRemoteLayout, let flick {
+                ChannelDialOverlay(playback: playback, model: flick, controlsShown: controlsShown, onActivity: reveal)
+            }
+            #endif
         }
         .task(id: controlsShownAt) {
             // The controls fade a few seconds after the last touch.

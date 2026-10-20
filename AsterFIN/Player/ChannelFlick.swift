@@ -42,6 +42,13 @@ nonisolated struct FlickProgram: Equatable, Sendable {
         guard let start, let end, end > start, start <= date, date < end else { return nil }
         return date.timeIntervalSince(start) / end.timeIntervalSince(start)
     }
+
+    /// "12 min left", "1 hr, 5 min left"; nil once it's over.
+    func timeLeft(at date: Date) -> String? {
+        guard let end, end > date else { return nil }
+        let minutes = max(1, Int((end.timeIntervalSince(date) / 60).rounded(.up)))
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " left"
+    }
 }
 
 /// Live TV's channels in the guide's order, as the Live TV tab last loaded
@@ -60,7 +67,7 @@ final class ChannelFlickModel {
     /// The channel picked in the row; the playing one when it opens.
     private(set) var selected = 0
     /// The channel playing now.
-    let currentId: String
+    private(set) var currentId: String
     /// Go to Episode is picked, above the row, rather than the channel.
     private(set) var isOnGoTo = false
 
@@ -135,8 +142,23 @@ final class ChannelFlickModel {
         if !canGoTo { isOnGoTo = false }
     }
 
-    private func selectCurrent() {
+    /// Another channel is playing now (the iPhone's dial and list keep one
+    /// model across channel changes); the selection stays where it is.
+    func playing(_ channelId: String) {
+        currentId = channelId
+    }
+
+    /// Back to the channel playing.
+    func selectCurrent() {
+        isOnGoTo = false
         selected = channels.firstIndex { $0.id == currentId } ?? 0
+    }
+
+    /// Picks a channel by id (a row tapped in the iPhone's channel list).
+    func select(_ channelId: String) {
+        guard let index = channels.firstIndex(where: { $0.id == channelId }) else { return }
+        isOnGoTo = false
+        selected = index
     }
 
     private static func liveChannels(_ channels: [BaseItem], client: JellyfinClient) -> [FlickChannel] {

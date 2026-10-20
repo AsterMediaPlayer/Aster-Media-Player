@@ -7,8 +7,10 @@
 //  it clicks through the channels, a tick (felt, and heard unless the
 //  phone is on silent) at each one, with the channel's number and what's
 //  on beside it; flick it and it spins on, slowing down. Let go and it
-//  tunes, with a firmer thunk. The Apple TV has its own row of channels
-//  instead (`ChannelFlickBar`); both go through `ChannelFlickModel`.
+//  tunes, with a firmer thunk, and slides away: it's only out while
+//  tuning, or for a moment after the screen's touched, with the controls.
+//  The Apple TV has its own row of channels instead (`ChannelFlickBar`);
+//  both go through `ChannelFlickModel`.
 //
 
 import CoreGraphics
@@ -16,9 +18,12 @@ import CoreGraphics
 /// The dial's arithmetic, kept apart so it can be tested.
 nonisolated enum ChannelDialMath {
     /// Drag needed to pass one channel.
-    static let detent: CGFloat = 28
+    static let detent: CGFloat = 40
     /// Most channels a flick spins on by, past where the finger let go.
     static let flingCap = 8
+    /// How fast (points a second) a finger must be moving as it lets go to
+    /// spin the dial on: slower, and lifting it doesn't add a channel.
+    static let flingSpeed: CGFloat = 900
 
     /// Channels passed by a drag of `translation` points: up (a negative
     /// translation) is towards higher numbers, as with CH+.
@@ -28,8 +33,10 @@ nonisolated enum ChannelDialMath {
     }
 
     /// How many more channels a flick carries on by: the drag's predicted
-    /// end beyond its actual one, at most `cap` either way.
-    static func flingSteps(predicted: CGFloat, actual: CGFloat, spacing: CGFloat = detent, cap: Int = flingCap) -> Int {
+    /// end beyond its actual one, at most `cap` either way; none unless the
+    /// finger was really flicking.
+    static func flingSteps(predicted: CGFloat, actual: CGFloat, velocity: CGFloat, spacing: CGFloat = detent, cap: Int = flingCap) -> Int {
+        guard abs(velocity) >= flingSpeed else { return 0 }
         let extra = steps(from: predicted, spacing: spacing) - steps(from: actual, spacing: spacing)
         return min(max(extra, -cap), cap)
     }
@@ -50,13 +57,18 @@ import AudioToolbox
 import SwiftUI
 
 /// The dial and the card beside it, over the right side of the picture.
+/// It slides out with the player's controls, after a touch on the screen,
+/// and stays out while it's turning; once a channel's tuned it slides away,
+/// with the controls.
 struct ChannelDialOverlay: View {
     let playback: AetherPlayback
     let model: ChannelFlickModel
-    /// The player's controls are up: the dial shows in full.
+    /// The player's controls are up (the screen's just been touched).
     var controlsShown: Bool
     /// Called while the dial is in use, so the controls stay up.
     var onActivity: () -> Void
+    /// Called once a channel's tuned: the controls go, and the dial with them.
+    var onTuned: () -> Void
 
     /// A finger is on the dial.
     @State private var isHeld = false
@@ -67,38 +79,30 @@ struct ChannelDialOverlay: View {
     @State private var turnedAtDragStart: CGFloat = 0
     @State private var spinTask: Task<Void, Never>?
     @State private var tuneTask: Task<Void, Never>?
-    /// The card stays up after a tune, as the set's on-screen display.
-    @State private var cardUntil: Date?
+    /// Let go, and about to tune.
+    @State private var tunePending = false
     /// Bumped at each channel passed, and at each tune, for the haptics.
     @State private var ticks = 0
     @State private var tunes = 0
 
     private var isSpinning: Bool { spinTask != nil }
-    private var cardShown: Bool { isHeld || isSpinning || cardUntil != nil }
+    private var isTuning: Bool { isHeld || isSpinning || tunePending }
+    private var isOut: Bool { isTuning || controlsShown }
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            if cardShown, let channel = model.selectedChannel {
-                ChannelDialCard(
-                    model: model,
-                    channel: channel,
-                    isPlaying: channel.id == playingId,
-                    goTo: offersGoTo ? { goToEpisode() } : nil
-                )
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+            if isTuning, let channel = model.selectedChannel {
+                ChannelDialCard(model: model, channel: channel, isPlaying: channel.id == playingId)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
             wheel
         }
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        .animation(.spring(duration: 0.3), value: cardShown)
+        .animation(.spring(duration: 0.3), value: isTuning)
+        .animation(.spring(duration: 0.35), value: isOut)
         .sensoryFeedback(.selection, trigger: ticks)
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.9), trigger: tunes)
-        .task(id: cardUntil) {
-            guard let until = cardUntil else { return }
-            try? await Task.sleep(for: .seconds(max(0, until.timeIntervalSinceNow)))
-            if !Task.isCancelled, cardUntil == until { cardUntil = nil }
-        }
         .onDisappear {
             spinTask?.cancel()
             tuneTask?.cancel()
@@ -109,9 +113,12 @@ struct ChannelDialOverlay: View {
         ChannelDialWheel(turned: turned, isHeld: isHeld)
             .frame(width: 46)
             .containerRelativeFrame(.vertical) { height, _ in height * 0.6 }
-            .opacity(wheelOpacity)
             .contentShape(Rectangle().inset(by: -10))
             .gesture(drag)
+            // Tucked away past the edge until the screen's touched.
+            .offset(x: isOut ? 0 : 90)
+            .opacity(isOut ? (isTuning ? 1 : 0.85) : 0)
+            .allowsHitTesting(isOut)
             .accessibilityElement()
             .accessibilityLabel("Channel dial")
             .accessibilityValue(spokenChannel)
@@ -119,14 +126,6 @@ struct ChannelDialOverlay: View {
                 step(direction == .increment ? 1 : -1)
                 scheduleTune()
             }
-    }
-
-    /// Go to Episode once the dial's at rest, on a programme in the library.
-    private var offersGoTo: Bool { !isHeld && !isSpinning && model.canGoTo }
-
-    private var wheelOpacity: Double {
-        if isHeld || isSpinning { return 1 }
-        return controlsShown ? 0.85 : 0.3
     }
 
     /// "12 Anime Nights", for VoiceOver.
@@ -149,7 +148,7 @@ struct ChannelDialOverlay: View {
                     spinTask?.cancel()
                     spinTask = nil
                     tuneTask?.cancel()
-                    cardUntil = nil
+                    tunePending = false
                 }
                 onActivity()
                 turned = turnedAtDragStart + value.translation.height
@@ -163,7 +162,16 @@ struct ChannelDialOverlay: View {
             .onEnded { value in
                 isHeld = false
                 onActivity()
-                let extra = ChannelDialMath.flingSteps(predicted: value.predictedEndTranslation.height, actual: value.translation.height)
+                // The ridges settle into the detent of the channel picked, so
+                // what's shown is what tunes.
+                withAnimation(.spring(duration: 0.2)) {
+                    turned = turnedAtDragStart - CGFloat(appliedSteps) * ChannelDialMath.detent
+                }
+                let extra = ChannelDialMath.flingSteps(
+                    predicted: value.predictedEndTranslation.height,
+                    actual: value.translation.height,
+                    velocity: value.velocity.height
+                )
                 spin(extra)
             }
     }
@@ -200,31 +208,24 @@ struct ChannelDialOverlay: View {
     /// straight away doesn't tune whatever it passed.
     private func scheduleTune() {
         tuneTask?.cancel()
+        tunePending = true
         tuneTask = Task {
-            try? await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, !isHeld else { return }
             tune()
         }
     }
 
     private func tune() {
-        guard let picked = model.selectedChannel else { return }
-        if picked.id == playingId {
-            // Back where it started: nothing to change.
-            cardUntil = Date().addingTimeInterval(1)
-            return
-        }
+        tunePending = false
+        // Back where it started: nothing to change, and the dial stays out
+        // with the controls.
+        guard let picked = model.selectedChannel, picked.id != playingId else { return }
         playback.switchChannel(to: picked.id)
         model.playing(picked.id)
         tunes += 1
         DialSounds.shared.clunk()
-        cardUntil = Date().addingTimeInterval(3)
-    }
-
-    private func goToEpisode() {
-        guard let itemId = model.selectedChannel?.now?.itemId else { return }
-        cardUntil = nil
-        playback.goTo(itemId)
+        onTuned()
     }
 }
 
@@ -294,8 +295,6 @@ private struct ChannelDialCard: View {
     let model: ChannelFlickModel
     let channel: FlickChannel
     var isPlaying: Bool
-    /// Go to Episode, offered once the dial's come to rest.
-    var goTo: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -325,14 +324,6 @@ private struct ChannelDialCard: View {
                 }
                 if let program = channel.now {
                     ChannelProgramLines(program: program)
-                }
-                if let goTo, let program = channel.now {
-                    Button(action: goTo) {
-                        Label(program.isMovie ? "Go to Movie" : "Go to Episode", systemImage: "arrow.up.right")
-                            .font(.callout.weight(.semibold))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 4)
                 }
             }
             .padding(16)

@@ -297,7 +297,9 @@ struct AetherPlayerView: View {
             #if os(iOS)
             // Sideways (or on iPad), a channel changes with the dial.
             if !isRemoteLayout, let flick {
-                ChannelDialOverlay(playback: playback, model: flick, controlsShown: controlsShown, onActivity: reveal)
+                ChannelDialOverlay(playback: playback, model: flick, controlsShown: controlsShown, onActivity: reveal) {
+                    controlsShownAt = nil
+                }
             }
             #endif
         }

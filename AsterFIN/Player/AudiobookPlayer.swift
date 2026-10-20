@@ -428,26 +428,29 @@ final class AudiobookPlayer {
     #if !os(macOS)
     /// A call or Siri paused the audio, so it plays on when they're done.
     @ObservationIgnored private var resumeAfterInterruption = false
-    @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
+    @ObservationIgnored private var interruptionObservers: [NSObjectProtocol] = []
 
-    /// The system pauses the player itself for a call or Siri: this follows
-    /// it, so it says paused meanwhile, and carries on afterwards when the
-    /// system says it may.
+    /// The system pauses the player itself for a call or Siri (it makes the
+    /// audio session inactive): this follows it, so it says paused
+    /// meanwhile, and carries on afterwards when the system recommends it.
     private func observeInterruptions() {
-        guard interruptionObserver == nil else { return }
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] note in
-            let info = note.userInfo ?? [:]
-            let began = (info[AVAudioSessionInterruptionTypeKey] as? UInt)
-                .flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began
-            let options = AVAudioSession.InterruptionOptions(rawValue: info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
-            MainActor.assumeIsolated {
-                self?.interrupted(began: began, shouldResume: options.contains(.shouldResume))
-            }
-        }
+        guard interruptionObservers.isEmpty else { return }
+        let session = AVAudioSession.sharedInstance()
+        let center = NotificationCenter.default
+        interruptionObservers = [
+            center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: session, queue: .main) { [weak self] note in
+                let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
+                // Only the system's doing: the app letting the session go
+                // itself isn't an interruption.
+                guard context?.source == .system else { return }
+                MainActor.assumeIsolated { self?.interrupted(began: true, shouldResume: false) }
+            },
+            center.addObserver(forName: AVAudioSession.resumptionRecommendationNotification, object: session, queue: .main) { [weak self] note in
+                let context = note.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
+                let shouldResume = context?.recommendation == .shouldResume
+                MainActor.assumeIsolated { self?.interrupted(began: false, shouldResume: shouldResume) }
+            },
+        ]
     }
 
     private func interrupted(began: Bool, shouldResume: Bool) {

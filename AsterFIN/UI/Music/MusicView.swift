@@ -1098,6 +1098,9 @@ struct NowPlayingBar: View {
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.08)))
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button("Stop", systemImage: "stop.fill") { session.stopAudio() }
+            }
             .accessibilityLabel("Now playing: \(track.displayTitle)")
             .tvFocusSection()
         }
@@ -1163,6 +1166,23 @@ struct NowPlayingView: View {
             .buttonBorderShape(.circle)
             .tint(.white)
             .accessibilityLabel("Close")
+            .padding(Lockup.screenPadding)
+        }
+        #endif
+        #if !os(tvOS)
+        // Stop ends it: the player closes and the bar goes away.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                session.stopAudio()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .tint(.white)
+            .accessibilityLabel("Stop")
             .padding(Lockup.screenPadding)
         }
         #endif
@@ -1325,6 +1345,13 @@ struct NowPlayingView: View {
                 }
                 .focused($focusedControl, equals: "lyrics")
             }
+            #if os(tvOS)
+            // No close button on the TV: Stop ends it, and Back just hides it.
+            PlayerControl(systemImage: "stop.fill", label: "Stop") {
+                session.stopAudio()
+            }
+            .focused($focusedControl, equals: "stop")
+            #endif
         }
     }
 }

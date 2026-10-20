@@ -1140,7 +1140,7 @@ struct ItemDetailView: View {
             }
             let number = model.seasons.first { $0.id == seasonId }?.indexNumber
             if let clip = clips.first(where: { $0.season == number }) {
-                session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSound)
+                session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSoundNow)
                 return
             }
             // Nothing for this season: keep whatever opening is already playing.
@@ -1150,19 +1150,23 @@ struct ItemDetailView: View {
             return
         }
         if let clip = clips.first {
-            session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSound)
+            session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSoundNow)
         }
     }
+
+    /// Openings behind the page have sound when that's on, unless a song or
+    /// book is playing: then they're silent, or (with only a song) left out.
+    private var openingSoundNow: Bool { openingSound && !session.isAudioPlaying }
 
     /// Puts a plugin opening behind the page: its video, or with only audio,
     /// its song as the theme music when openings have sound. Returns whether
     /// it could.
     private func show(_ theme: OpEdTheme, client: JellyfinClient) -> Bool {
         if let path = theme.videoMp4Url {
-            session.theme.showOpeningIfNoVideo(theme, url: client.opEdMediaURL(path), for: item, sound: openingSound)
+            session.theme.showOpeningIfNoVideo(theme, url: client.opEdMediaURL(path), for: item, sound: openingSoundNow)
             return true
         }
-        if openingSound, let path = theme.audioM4aUrl {
+        if openingSoundNow, let path = theme.audioM4aUrl {
             session.theme.showOpeningSongIfNoVideo(theme, url: client.opEdMediaURL(path), for: item)
             return true
         }

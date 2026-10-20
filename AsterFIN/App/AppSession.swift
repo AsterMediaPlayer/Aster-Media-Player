@@ -171,9 +171,10 @@ final class AppSession {
             self?.themeDeck.stop()
         }
         // Title pages' theme music and videos stay quiet while an opening
-        // or ending plays, whichever page is showing.
+        // or ending plays, whichever page is showing; so does a song or book.
         themeDeck.onActiveChange = { [weak self] active in
             if active {
+                self?.pauseAudio()
                 self?.theme.suspend()
             } else {
                 self?.theme.resume()

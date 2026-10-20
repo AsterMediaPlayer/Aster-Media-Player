@@ -234,8 +234,10 @@ struct PlayerView: View {
             }
         }
         .onAppear {
-            // A video takes over from an opening or ending playing while browsing.
+            // A video takes over from an opening or ending playing while
+            // browsing, and from a song or book.
             session.themeDeck.stop()
+            session.pauseAudio()
             guard coordinator == nil else { return }
             if let sharedCoordinator {
                 coordinator = sharedCoordinator
@@ -695,6 +697,7 @@ struct URLPlayerView: View {
                 }
             }
             .onAppear {
+                session.pauseAudio()
                 let item = AVPlayerItem(url: playback.url)
                 #if !os(macOS)
                 item.externalMetadata = Self.metadata(for: playback)

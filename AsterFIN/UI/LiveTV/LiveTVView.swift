@@ -293,6 +293,8 @@ struct LiveTVView: View {
     /// Opens the channel full screen. With the mini player up, its player
     /// switches to the channel (if different) and goes full screen.
     private func play(channelId: String) {
+        // A channel takes over from a song or book, the mini player too.
+        session.pauseAudio()
         #if canImport(AetherEngine)
         if let aetherLive {
             aetherLive.tune(channelId)

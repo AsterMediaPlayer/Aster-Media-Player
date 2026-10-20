@@ -333,7 +333,10 @@ struct ThemeInfoOverlay: View {
     let info: ThemeInfo
 
     @State private var visible = false
-    /// The leading safe area, measured before the overlay ignores it.
+    /// How far the screen's left edge is cut into (the Dynamic Island, or
+    /// the notch, with the phone on its side that way round), read from
+    /// the window: the player around this may already ignore the safe
+    /// area, so SwiftUI's own reading here can be zero.
     @State private var safeLeading: CGFloat = 0
     @State private var observer: Any?
     @State private var clock: Task<Void, Never>?
@@ -351,7 +354,11 @@ struct ThemeInfoOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        #if os(iOS)
+        .background(WindowLeftInsetReader { safeLeading = $0 })
+        #else
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { safeLeading = $0 }
+        #endif
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -485,3 +492,52 @@ struct OpEdThemeLockup: View {
         }
     }
 }
+
+#if os(iOS)
+/// Reports the window's left safe-area inset, and again whenever it changes
+/// (the phone turned the other way round), whatever SwiftUI's layout above
+/// it ignores.
+private struct WindowLeftInsetReader: UIViewRepresentable {
+    var changed: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> InsetView {
+        let view = InsetView()
+        view.changed = changed
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: InsetView, context: Context) {
+        view.changed = changed
+    }
+
+    final class InsetView: UIView {
+        var changed: ((CGFloat) -> Void)?
+        private var reported: CGFloat?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            report()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            report()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            report()
+        }
+
+        private func report() {
+            guard let window else { return }
+            let left = window.safeAreaInsets.left
+            guard left != reported else { return }
+            reported = left
+            let changed = changed
+            DispatchQueue.main.async { changed?(left) }
+        }
+    }
+}
+#endif

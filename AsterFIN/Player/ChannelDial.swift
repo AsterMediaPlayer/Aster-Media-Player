@@ -24,6 +24,9 @@ nonisolated enum ChannelDialMath {
     /// How fast (points a second) a finger must be moving as it lets go to
     /// spin the dial on: slower, and lifting it doesn't add a channel.
     static let flingSpeed: CGFloat = 900
+    /// How long the dial waits, still, before tuning: time to lift the
+    /// finger and take another turn when the wheel runs out.
+    static let settleMilliseconds = 1000
 
     /// Channels passed by a drag of `translation` points: up (a negative
     /// translation) is towards higher numbers, as with CH+.
@@ -204,13 +207,14 @@ struct ChannelDialOverlay: View {
         }
     }
 
-    /// Tunes once the dial's been still a moment, so grabbing it again
-    /// straight away doesn't tune whatever it passed.
+    /// Tunes once the dial's been still a second, so lifting the finger to
+    /// take another turn (the wheel's run out) doesn't tune what it passed;
+    /// the dial and card stay out meanwhile.
     private func scheduleTune() {
         tuneTask?.cancel()
         tunePending = true
         tuneTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(ChannelDialMath.settleMilliseconds))
             guard !Task.isCancelled, !isHeld else { return }
             tune()
         }

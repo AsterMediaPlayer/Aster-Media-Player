@@ -38,11 +38,6 @@ final class AetherPlayback {
     /// does; the player view gives it a place to draw so its first frame
     /// can be seen to be ready.
     private(set) var standbyEngine: AetherEngine?
-    /// The TV was last put into HDR (the engine on screen loaded an HDR
-    /// title as the primary one). A second engine can't change the TV's
-    /// mode, and an HDR picture on a TV left in SDR is refused, so only then
-    /// can an HDR channel come in behind the one playing.
-    @ObservationIgnored private var panelShowsHDR = false
     private(set) var item: BaseItem?
     private(set) var errorMessage: String?
     /// Playing has begun, so the artwork cover can come off.
@@ -318,8 +313,6 @@ final class AetherPlayback {
             )
         }
         let setup = try setUpTitle(item, info: info)
-        // A load on the engine on screen sets the TV's mode for it.
-        panelShowsHDR = Self.isHDR(setup.source)
         if isConverted {
             try await loadConverted(audio: setup.audio ?? setup.source.defaultAudioStreamIndex, subtitle: setup.subtitle, start: setup.start)
         } else {
@@ -657,7 +650,7 @@ final class AetherPlayback {
                 // programme changed meanwhile) it loads in place.
                 var now = scheduled
                 if now.item.id == item.id, info.errorCode == nil, let source = info.mediaSources.first,
-                   Self.playsOriginal(source), !Self.isHDR(source) || self.panelShowsHDR, let spare = self.otherEngine {
+                   Self.playsOriginal(source), Self.canLoadBeside(source, language: self.preferences.audioLanguage), let spare = self.otherEngine {
                     #if DEBUG
                     self.tuneLog("next channel loading on the spare engine")
                     #endif
@@ -677,8 +670,8 @@ final class AetherPlayback {
                     }
                 }
                 #if DEBUG
-                if let source = info.mediaSources.first, Self.isHDR(source), !self.panelShowsHDR {
-                    self.tuneLog("HDR channel while the TV is in SDR: loading in place, so the TV can switch")
+                if let source = info.mediaSources.first, Self.playsOriginal(source), !Self.canLoadBeside(source, language: self.preferences.audioLanguage) {
+                    self.tuneLog("loading in place, so the TV can switch (\(Self.isHDR(source) ? "HDR" : "more audio channels than the TV is outputting"))")
                 }
                 #endif
                 self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
@@ -706,6 +699,26 @@ final class AetherPlayback {
         tuneClock = nil
     }
     #endif
+
+    /// Whether the next channel can load on the second engine without
+    /// disturbing the TV: in SDR, since a second engine can't switch the TV
+    /// into HDR (and the TV turns an HDR picture down); and with no more
+    /// sound channels than the TV is putting out now, since more would make
+    /// it renegotiate the HDMI audio while this channel still plays (a
+    /// click and a gap). Fewer is fine: the TV stays as it is.
+    private static func canLoadBeside(_ source: MediaSourceInfo, language: String?) -> Bool {
+        guard !isHDR(source) else { return false }
+        #if os(macOS)
+        return true
+        #else
+        let streams = source.mediaStreams ?? []
+        let index = PlaybackCoordinator.preferredAudioTrack(in: streams, language: language)
+        let track = streams.first { $0.type == "Audio" && $0.index == index } ?? streams.first { $0.type == "Audio" }
+        guard let channels = track?.channels, channels > 0 else { return true }
+        let session = AVAudioSession.sharedInstance()
+        return min(channels, session.maximumOutputNumberOfChannels) <= session.outputNumberOfChannels
+        #endif
+    }
 
     /// A video stream in HDR or Dolby Vision, as the server reads the file.
     private static func isHDR(_ source: MediaSourceInfo) -> Bool {

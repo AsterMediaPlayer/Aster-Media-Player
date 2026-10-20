@@ -379,7 +379,9 @@ struct AetherTVControls: View {
     private func changeChannel() {
         if let flick, flick.isOnGoTo, let itemId = flick.selectedChannel?.now?.itemId {
             playback.goTo(itemId)
-        } else if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId {
+        } else if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId || playback.tuningName != nil {
+            // Picking the channel still on screen while another is being
+            // tuned drops that tune.
             playback.switchChannel(to: picked.id)
         }
         closeChannels()

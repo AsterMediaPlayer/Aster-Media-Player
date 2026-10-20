@@ -166,6 +166,20 @@ final class AetherPlayback {
     /// to letting this channel go first, rather than failing first.
     @ObservationIgnored private static var holdingUnavailableUntil = Date.distantPast
     @ObservationIgnored private var tuneMessageTask: Task<Void, Never>?
+    /// A Channels-tab channel's next title, fetched while the one before it
+    /// played on, so its start doesn't ask the server again.
+    private struct PreparedTitle {
+        let item: BaseItem
+        let info: PlaybackInfoResponse
+    }
+    @ObservationIgnored private var prepared: PreparedTitle?
+    /// Bytes warmed of the next channel's file: enough for its headers, not
+    /// the engine's 8 MB, since a channel starts partway in.
+    private static let channelPrewarmBytes = 2 * 1024 * 1024
+    /// The last channel's picture, shown in place of the artwork while the
+    /// next one starts; gone once the new picture is up.
+    private(set) var heldStill: CGImage?
+    @ObservationIgnored private var heldStillTask: Task<Void, Never>?
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -193,14 +207,17 @@ final class AetherPlayback {
 
     func start() async {
         do {
-            let item = try await client.item(entry.itemId)
+            let ready = prepared?.item.id == entry.itemId ? prepared : nil
+            prepared = nil
+            let item: BaseItem
+            if let ready { item = ready.item } else { item = try await client.item(entry.itemId) }
             self.item = item
             isLive = item.kind == .tvChannel
             nowPlaying.prepare()
             if isLive {
                 try await loadLive()
             } else {
-                try await loadTitle(item)
+                try await loadTitle(item, info: ready?.info)
             }
             guard !stopped else { return }
             await begin(item)
@@ -235,6 +252,15 @@ final class AetherPlayback {
 
     /// Playing from here on, once the engine has the stream.
     private func begin(_ item: BaseItem) async {
+        if heldStill != nil {
+            // Normally gone at the first frame (`firstFrameShown`); a song
+            // with no picture never has one.
+            heldStillTask?.cancel()
+            heldStillTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                if !Task.isCancelled { self?.heldStill = nil }
+            }
+        }
         if speed != 1 { engine.setRate(speed) }
         engine.play()
         hasStarted = true
@@ -256,16 +282,23 @@ final class AetherPlayback {
 
     /// A movie, episode or other video: the file itself, or a stream the
     /// server converts.
-    private func loadTitle(_ item: BaseItem) async throws {
+    private func loadTitle(_ item: BaseItem, info prefetched: PlaybackInfoResponse? = nil) async throws {
         // Asked only for the session id and the file's id: the stream
-        // below is the file itself, whatever the server would choose.
-        let info = try await client.playbackInfo(
-            itemId: entry.itemId,
-            mediaSourceId: entry.mediaSourceId,
-            startTicks: entry.startTicks,
-            maxBitrate: AppSettings.maxBitrate,
-            subtitleStreamIndex: -1
-        )
+        // below is the file itself, whatever the server would choose. A
+        // channel change asks ahead (`switchChannel`), and the same answer
+        // is used, so the warmed file's address matches.
+        let info: PlaybackInfoResponse
+        if let prefetched {
+            info = prefetched
+        } else {
+            info = try await client.playbackInfo(
+                itemId: entry.itemId,
+                mediaSourceId: entry.mediaSourceId,
+                startTicks: entry.startTicks,
+                maxBitrate: AppSettings.maxBitrate,
+                subtitleStreamIndex: -1
+            )
+        }
         if let code = info.errorCode { throw JellyfinError.http(0, code) }
         guard let source = info.mediaSources.first else { throw JellyfinError.http(0, "No media source") }
         playSessionId = info.playSessionId
@@ -280,19 +313,9 @@ final class AetherPlayback {
         let subtitle = PlaybackCoordinator.resolveSubtitle(for: entry, source: source, among: subtitles, preferences: preferences)
         let start = entry.startTicks > 0 ? Double(entry.startTicks) / 10_000_000 : nil
 
-        mustConvert = false
-        #if os(tvOS)
-        // Apple TV has no AV1 or VP9 hardware, and decoding them in
-        // software can't keep up, so the server converts them.
-        if let codec = streams.first(where: { $0.type == "Video" })?.codec?.lowercased(), Self.softwareOnlyCodecs.contains(codec) {
-            mustConvert = true
-        }
-        #endif
+        mustConvert = Self.needsConversion(source)
         qualityCap = entry.maxBitrate
-        // Over the quality limit (lower on cellular data), the file is
-        // converted down to it: played as it is, a big one takes a minute to
-        // start on a slow connection, and stalls.
-        if qualityCap == nil, AppSettings.limitsQuality, let bitrate = source.bitrate, bitrate > AppSettings.maxBitrate {
+        if qualityCap == nil, Self.overQualityLimit(source) {
             qualityCap = AppSettings.maxBitrate
         }
         isConverted = mustConvert || qualityCap != nil || entry.fallback != .none
@@ -315,6 +338,25 @@ final class AetherPlayback {
                 selectSubtitle(subtitle)
             }
         }
+    }
+
+    /// Apple TV has no AV1 or VP9 hardware, and decoding them in software
+    /// can't keep up, so the server converts them.
+    private static func needsConversion(_ source: MediaSourceInfo) -> Bool {
+        #if os(tvOS)
+        let codec = (source.mediaStreams ?? []).first { $0.type == "Video" }?.codec?.lowercased()
+        return codec.map { softwareOnlyCodecs.contains($0) } ?? false
+        #else
+        return false
+        #endif
+    }
+
+    /// Over the quality limit (lower on cellular data), the file is converted
+    /// down to it: played as it is, a big one takes a minute to start on a
+    /// slow connection, and stalls.
+    private static func overQualityLimit(_ source: MediaSourceInfo) -> Bool {
+        guard AppSettings.limitsQuality, let bitrate = source.bitrate else { return false }
+        return bitrate > AppSettings.maxBitrate
     }
 
     // MARK: Live TV
@@ -508,15 +550,84 @@ final class AetherPlayback {
 
     /// Changes channel in this same player: another Live TV channel, or
     /// whatever another of the Channels tab's channels is showing now.
+    ///
+    /// A Channels-tab channel plays on while the next one's title is asked
+    /// for and its file warmed, and gives way only then, as Live TV's `tune`
+    /// does; its last picture then holds while the next one loads.
     func switchChannel(to channelId: String) {
         if isLive {
             tune(channelId)
             return
         }
-        guard !stopped, let current = entry.channelId, current != channelId,
-              let live = ChannelTuner.live(channelId: channelId) else { return }
-        endServerSession()
-        play(live.item, entry: live.entry)
+        guard !stopped, let current = entry.channelId else { return }
+        guard current != channelId else {
+            // Back to the channel playing: whatever was being tuned is dropped.
+            tuneTask?.cancel()
+            tuningName = nil
+            return
+        }
+        guard let first = ChannelTuner.live(channelId: channelId) else { return }
+        let name = ChannelTuner.channel(channelId)?.name ?? "the channel"
+        guard hasStarted else {
+            // Nothing on screen to hold yet.
+            tuneTask?.cancel()
+            tuningName = nil
+            endServerSession()
+            play(first.item, entry: first.entry)
+            return
+        }
+        tuneTask?.cancel()
+        tuningName = name
+        tuneTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.tuningName = nil } }
+            do {
+                let item = try await self.client.item(first.item.id)
+                try Task.checkCancellation()
+                let info = try await self.client.playbackInfo(
+                    itemId: item.id,
+                    startTicks: first.entry.startTicks,
+                    maxBitrate: AppSettings.maxBitrate,
+                    subtitleStreamIndex: -1
+                )
+                try Task.checkCancellation()
+                if info.errorCode == nil, let source = info.mediaSources.first, Self.playsOriginal(source) {
+                    let url = self.client.directStreamURL(itemId: item.id, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container)
+                    await AetherEngine.prewarm(url: url, byteBudget: Self.channelPrewarmBytes)
+                    try Task.checkCancellation()
+                }
+                guard !self.stopped, self.entry.channelId == current else { return }
+                let seconds = self.engine.clock.currentTime
+                let still = seconds.isFinite ? await self.scrubPreview(at: seconds) : nil
+                try Task.checkCancellation()
+                guard !self.stopped, self.entry.channelId == current else { return }
+                // Where the channel has got to now, not when the change began.
+                guard let now = ChannelTuner.live(channelId: channelId) else { return }
+                self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
+                self.heldStill = still
+                self.tuningName = nil
+                self.endServerSession()
+                self.play(now.item, entry: now.entry)
+            } catch {
+                guard !(error is CancellationError), !self.stopped else { return }
+                #if DEBUG
+                print("DEBUG playback: couldn't prepare \(name) (\(error.localizedDescription)); staying on this channel")
+                #endif
+                self.showTuneMessage("Couldn't tune \(name)")
+            }
+        }
+    }
+
+    /// Whether `source` plays as the file itself, as `loadTitle` decides
+    /// for a channel's entry (no quality picked, no fallback).
+    private static func playsOriginal(_ source: MediaSourceInfo) -> Bool {
+        !needsConversion(source) && !overQualityLimit(source)
+    }
+
+    /// The new channel's first picture is up: the held one goes.
+    func firstFrameShown() {
+        heldStillTask?.cancel()
+        heldStill = nil
     }
 
     /// Leaves the channel for `itemId` played on its own, as if picked from
@@ -615,6 +726,7 @@ final class AetherPlayback {
     /// file itself, the title goes to the system player, carrying on from
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
+        heldStill = nil
         guard !stopped, !fellBack else { return }
         // A live channel's stream can be briefly missing on the server (a
         // tuner still being let go, an encode not ready): one fresh try in
@@ -724,6 +836,9 @@ final class AetherPlayback {
         reportTask?.cancel()
         tuneTask?.cancel()
         tuneMessageTask?.cancel()
+        heldStillTask?.cancel()
+        heldStill = nil
+        prepared = nil
         countdownTask?.cancel()
         timedTask?.cancel()
         clearStyledSubtitles()
@@ -1126,6 +1241,45 @@ final class AetherPlayback {
         let report = report(paused: engine.state == .paused)
         let client = client
         Task { await client.reportProgress(report, savingResumePoint: .now) }
+    }
+
+    /// Back in the foreground after the engine let the video go (on Apple TV
+    /// whenever the app leaves the screen; on iPhone once a paused video has
+    /// sat in the background past the engine's grace window). Rebuilt before
+    /// anything plays: a title where it was, paused; a channel where its
+    /// schedule has got to; Live TV with a fresh stream.
+    func restoreAfterBackground() {
+        guard !stopped, hasStarted, engine.needsForegroundVideoRestore else { return }
+        #if DEBUG
+        print("DEBUG playback: restoring \(item?.displayTitle ?? entry.itemId) after the background")
+        #endif
+        if isLive, let item {
+            // The server's stream has likely been closed meanwhile.
+            endServerSession()
+            closeLiveStream()
+            play(item, entry: entry)
+        } else if let channelId = entry.channelId {
+            guard let live = ChannelTuner.live(channelId: channelId) else {
+                wantsToClose = true
+                return
+            }
+            endServerSession()
+            play(live.item, entry: live.entry)
+        } else if isConverted {
+            // The server's encode has likely ended while the app was away:
+            // a fresh one from here.
+            restart { _ in }
+        } else {
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await self.engine.reloadAtCurrentPosition { $0.autoplay = false }
+                } catch is CancellationError {
+                } catch {
+                    if !self.stopped { self.fallBack(error.localizedDescription) }
+                }
+            }
+        }
     }
 
     /// Progress every ten seconds while the player is open.

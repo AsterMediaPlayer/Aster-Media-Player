@@ -79,7 +79,13 @@ struct PlayerView: View {
                 // Leaving the screen (the TV button, the app switcher) may be
                 // the last chance to save where playback got to.
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase != .active else { return }
+                    guard phase != .active else {
+                        // Back on screen: the video may need rebuilding first.
+                        #if canImport(AetherEngine)
+                        aether?.restoreAfterBackground()
+                        #endif
+                        return
+                    }
                     #if canImport(AetherEngine)
                     aether?.saveProgressNow()
                     #endif

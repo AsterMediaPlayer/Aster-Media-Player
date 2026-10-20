@@ -38,6 +38,11 @@ final class AetherPlayback {
     /// does; the player view gives it a place to draw so its first frame
     /// can be seen to be ready.
     private(set) var standbyEngine: AetherEngine?
+    /// The TV was last put into HDR (the engine on screen loaded an HDR
+    /// title as the primary one). A second engine can't change the TV's
+    /// mode, and an HDR picture on a TV left in SDR is refused, so only then
+    /// can an HDR channel come in behind the one playing.
+    @ObservationIgnored private var panelShowsHDR = false
     private(set) var item: BaseItem?
     private(set) var errorMessage: String?
     /// Playing has begun, so the artwork cover can come off.
@@ -313,6 +318,8 @@ final class AetherPlayback {
             )
         }
         let setup = try setUpTitle(item, info: info)
+        // A load on the engine on screen sets the TV's mode for it.
+        panelShowsHDR = Self.isHDR(setup.source)
         if isConverted {
             try await loadConverted(audio: setup.audio ?? setup.source.defaultAudioStreamIndex, subtitle: setup.subtitle, start: setup.start)
         } else {
@@ -643,19 +650,37 @@ final class AetherPlayback {
                 }
                 guard !self.stopped, self.entry.channelId == current else { return }
                 // Where the channel has got to now, not when the change began.
-                guard let now = ChannelTuner.live(channelId: channelId) else { return }
+                guard let scheduled = ChannelTuner.live(channelId: channelId) else { return }
                 // The file itself, the same title still on: it loads on the
                 // spare engine while this one plays, and they change places
                 // once its picture is up. Otherwise (a converted stream, the
                 // programme changed meanwhile) it loads in place.
+                var now = scheduled
                 if now.item.id == item.id, info.errorCode == nil, let source = info.mediaSources.first,
-                   Self.playsOriginal(source), let spare = self.otherEngine {
+                   Self.playsOriginal(source), !Self.isHDR(source) || self.panelShowsHDR, let spare = self.otherEngine {
                     #if DEBUG
                     self.tuneLog("next channel loading on the spare engine")
                     #endif
-                    try await self.crossOver(to: item, entry: now.entry, info: info, source: source, on: spare, leaving: current)
-                    return
+                    do {
+                        try await self.crossOver(to: item, entry: now.entry, info: info, source: source, on: spare, leaving: current)
+                        return
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // It wouldn't start beside this one: the plain way instead.
+                        #if DEBUG
+                        self.tuneLog("spare engine failed (\(error.localizedDescription)); loading in place")
+                        #endif
+                        guard !self.stopped, self.entry.channelId == current,
+                              let later = ChannelTuner.live(channelId: channelId) else { return }
+                        now = later
+                    }
                 }
+                #if DEBUG
+                if let source = info.mediaSources.first, Self.isHDR(source), !self.panelShowsHDR {
+                    self.tuneLog("HDR channel while the TV is in SDR: loading in place, so the TV can switch")
+                }
+                #endif
                 self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
                 self.tuningName = nil
                 self.endServerSession()
@@ -681,6 +706,12 @@ final class AetherPlayback {
         tuneClock = nil
     }
     #endif
+
+    /// A video stream in HDR or Dolby Vision, as the server reads the file.
+    private static func isHDR(_ source: MediaSourceInfo) -> Bool {
+        guard let range = (source.mediaStreams ?? []).first(where: { $0.type == "Video" })?.videoRangeType?.uppercased() else { return false }
+        return !range.isEmpty && range != "SDR" && range != "UNKNOWN"
+    }
 
     /// The engine not on screen, to load the next channel on.
     private var otherEngine: AetherEngine? {
@@ -741,7 +772,7 @@ final class AetherPlayback {
 
     /// Until `engine` has a picture to show; throws if it fails first, or
     /// takes too long.
-    private static func waitForFirstFrame(on engine: AetherEngine, timeout: Duration = .seconds(10)) async throws {
+    private static func waitForFirstFrame(on engine: AetherEngine, timeout: Duration = .seconds(6)) async throws {
         let deadline = ContinuousClock.now + timeout
         while !engine.hasFirstFrameReadyForDisplay {
             try Task.checkCancellation()

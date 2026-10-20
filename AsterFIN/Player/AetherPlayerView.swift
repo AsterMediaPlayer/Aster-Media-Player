@@ -152,17 +152,7 @@ struct AetherPlayerView: View {
                     .transition(.opacity)
             }
 
-            if let still = playback.heldStill, playback.errorMessage == nil {
-                // Changing channel: the last picture holds until the next is up.
-                Image(decorative: still, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.black)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            } else if !playback.hasStarted, playback.errorMessage == nil {
+            if !playback.hasStarted, playback.errorMessage == nil {
                 PlaybackLoadingView(item: playback.item)
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -183,10 +173,6 @@ struct AetherPlayerView: View {
         .onAppear { engine.videoGravity = .resizeAspect }
         #endif
         .animation(.easeInOut(duration: 0.6), value: playback.hasStarted)
-        .animation(.easeInOut(duration: 0.3), value: playback.heldStill == nil)
-        .onChange(of: engine.hasFirstFrameReadyForDisplay) { _, ready in
-            if ready { playback.firstFrameShown() }
-        }
         .animation(.easeInOut(duration: 0.3), value: playback.endCardVisible)
         .animation(.easeInOut(duration: 0.3), value: playback.qualityOfferVisible)
         .animation(.easeInOut(duration: 0.25), value: playback.tuningName ?? playback.tuneMessage)

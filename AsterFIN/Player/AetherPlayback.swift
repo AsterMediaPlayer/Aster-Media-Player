@@ -176,10 +176,6 @@ final class AetherPlayback {
     /// Bytes warmed of the next channel's file: enough for its headers, not
     /// the engine's 8 MB, since a channel starts partway in.
     private static let channelPrewarmBytes = 2 * 1024 * 1024
-    /// The last channel's picture, shown in place of the artwork while the
-    /// next one starts; gone once the new picture is up.
-    private(set) var heldStill: CGImage?
-    @ObservationIgnored private var heldStillTask: Task<Void, Never>?
 
     /// Video codecs Apple TV can only decode in software, too slowly to play.
     static let softwareOnlyCodecs: Set<String> = ["av1", "vp9", "vp8"]
@@ -252,15 +248,6 @@ final class AetherPlayback {
 
     /// Playing from here on, once the engine has the stream.
     private func begin(_ item: BaseItem) async {
-        if heldStill != nil {
-            // Normally gone at the first frame (`firstFrameShown`); a song
-            // with no picture never has one.
-            heldStillTask?.cancel()
-            heldStillTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(2))
-                if !Task.isCancelled { self?.heldStill = nil }
-            }
-        }
         if speed != 1 { engine.setRate(speed) }
         engine.play()
         hasStarted = true
@@ -553,7 +540,7 @@ final class AetherPlayback {
     ///
     /// A Channels-tab channel plays on while the next one's title is asked
     /// for and its file warmed, and gives way only then, as Live TV's `tune`
-    /// does; its last picture then holds while the next one loads.
+    /// does, the next one then loading in its place.
     func switchChannel(to channelId: String) {
         if isLive {
             tune(channelId)
@@ -597,17 +584,14 @@ final class AetherPlayback {
                     try Task.checkCancellation()
                 }
                 guard !self.stopped, self.entry.channelId == current else { return }
-                let seconds = self.engine.clock.currentTime
-                let still = seconds.isFinite ? await self.scrubPreview(at: seconds) : nil
-                try Task.checkCancellation()
-                guard !self.stopped, self.entry.channelId == current else { return }
                 // Where the channel has got to now, not when the change began.
                 guard let now = ChannelTuner.live(channelId: channelId) else { return }
                 self.prepared = now.item.id == item.id ? PreparedTitle(item: item, info: info) : nil
-                self.heldStill = still
                 self.tuningName = nil
                 self.endServerSession()
-                self.play(now.item, entry: now.entry)
+                // In place, as Live TV changes: no artwork cover, the
+                // picture playing until the engine takes the next.
+                self.play(now.item, entry: now.entry, inPlace: true)
             } catch {
                 guard !(error is CancellationError), !self.stopped else { return }
                 #if DEBUG
@@ -624,11 +608,6 @@ final class AetherPlayback {
         !needsConversion(source) && !overQualityLimit(source)
     }
 
-    /// The new channel's first picture is up: the held one goes.
-    func firstFrameShown() {
-        heldStillTask?.cancel()
-        heldStill = nil
-    }
 
     /// Leaves the channel for `itemId` played on its own, as if picked from
     /// its show or the library: from where it was left off, with progress
@@ -726,7 +705,6 @@ final class AetherPlayback {
     /// file itself, the title goes to the system player, carrying on from
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
-        heldStill = nil
         guard !stopped, !fellBack else { return }
         // A live channel's stream can be briefly missing on the server (a
         // tuner still being let go, an encode not ready): one fresh try in
@@ -836,8 +814,6 @@ final class AetherPlayback {
         reportTask?.cancel()
         tuneTask?.cancel()
         tuneMessageTask?.cancel()
-        heldStillTask?.cancel()
-        heldStill = nil
         prepared = nil
         countdownTask?.cancel()
         timedTask?.cancel()
@@ -907,7 +883,9 @@ final class AetherPlayback {
     }
 
     /// Starts another item in this same player.
-    private func play(_ next: BaseItem, entry: PlaybackQueueItem) {
+    /// `inPlace`: a channel change, like Live TV's, with no artwork cover
+    /// while the next title loads.
+    private func play(_ next: BaseItem, entry: PlaybackQueueItem, inPlace: Bool = false) {
         countdownTask?.cancel()
         countdown = nil
         timedTask?.cancel()
@@ -920,10 +898,10 @@ final class AetherPlayback {
         themeMoments = []
         clearStyledSubtitles()
         clearCues()
-        hasStarted = false
+        if !inPlace { hasStarted = false }
         reachedCut = false
         liveProgram = nil
-        // Its artwork covers the screen until it starts.
+        // Its artwork covers the screen until it starts (unless in place).
         item = next
         self.entry = entry
         Task { await start() }

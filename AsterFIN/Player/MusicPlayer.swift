@@ -106,6 +106,9 @@ final class MusicPlayer {
         }
         isNowPlayingPresented = true
         installRemoteCommands()
+        #if !os(macOS)
+        observeInterruptions()
+        #endif
         RemoteCommandLayout.useForMusic()
         onStart?()
         load()
@@ -364,6 +367,43 @@ final class MusicPlayer {
     }
 
     // MARK: System integration
+
+    #if !os(macOS)
+    /// A call or Siri paused the audio, so it plays on when they're done.
+    @ObservationIgnored private var resumeAfterInterruption = false
+    @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
+
+    /// The system pauses the player itself for a call or Siri: this follows
+    /// it, so it says paused meanwhile, and carries on afterwards when the
+    /// system says it may.
+    private func observeInterruptions() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            let info = note.userInfo ?? [:]
+            let began = (info[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began
+            let options = AVAudioSession.InterruptionOptions(rawValue: info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+            MainActor.assumeIsolated {
+                self?.interrupted(began: began, shouldResume: options.contains(.shouldResume))
+            }
+        }
+    }
+
+    private func interrupted(began: Bool, shouldResume: Bool) {
+        if began {
+            resumeAfterInterruption = isPlaying
+            if isPlaying { pause() }
+        } else {
+            let resume = resumeAfterInterruption && shouldResume
+            resumeAfterInterruption = false
+            if resume { self.resume() }
+        }
+    }
+    #endif
 
     private func installRemoteCommands() {
         guard !commandsInstalled else { return }

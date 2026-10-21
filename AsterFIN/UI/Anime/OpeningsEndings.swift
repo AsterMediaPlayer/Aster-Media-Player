@@ -197,7 +197,11 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
         var kicker = "\(theme.isOpening ? "Opening" : "Ending") \(theme.sequence)"
         if theme.version > 1 { kicker += " · Version \(theme.version)" }
         if let variant = theme.variant, !variant.isEmpty { kicker += " · \(variant)" }
-        if theme.isFull { kicker += " · Full Version" }
+        switch theme.playedCut {
+        case .tvSize: break
+        case .full: kicker += " · Full Version"
+        case .musicVideo: kicker += " · Music Video"
+        }
         self.kicker = kicker
         title = theme.songTitle ?? series
         artists = theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", ")

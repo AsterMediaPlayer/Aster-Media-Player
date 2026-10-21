@@ -160,6 +160,11 @@ final class AppSession {
         NetworkPath.shared.start()
         #endif
         restore()
+        // 0.7's "Prefer full versions" becomes the Full Version choice.
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: AppSettings.themeCutKey) == nil, defaults.bool(forKey: AppSettings.themePrefersFullKey) {
+            defaults.set(ThemeCut.full.rawValue, forKey: AppSettings.themeCutKey)
+        }
         music.onStart = { [weak self] in
             self?.theme.hide(evenIfShowing: true)
             self?.audiobooks.stop()
@@ -351,10 +356,12 @@ enum AppSettings {
     /// Playing panel (and keep playing, slim, while browsing); off, they
     /// play full screen. On by default.
     static let themePanelKey = "AsterFIN.themePanel"
-    /// A show's Music tab plays openings and endings' full-length versions
-    /// where the server has them (Play All, and a card pressed). Off by
-    /// default; each card can play either. Watch OP and title-page themes
-    /// always use the TV size.
+    /// Which version of openings and endings a show's Music tab plays where
+    /// the server has it (Play All, and a card pressed): a `ThemeCut`, the
+    /// TV size by default; each card can play any. Watch OP and title-page
+    /// themes always use the TV size.
+    static let themeCutKey = "AsterFIN.themeCut"
+    /// 0.7's on/off for full versions, carried over into `themeCutKey`.
     static let themePrefersFullKey = "AsterFIN.themePrefersFull"
     /// ASS/SSA tracks drawn with libass (positions, drawings, fonts) rather
     /// than as plain text. On by default.

@@ -117,8 +117,8 @@ struct ThemeMusicSection: View {
     @Environment(AppSession.self) private var session
     /// Off: a pick plays full screen, with no Now Playing panel.
     @AppStorage(AppSettings.themePanelKey) private var usesPanel = true
-    /// Full-length versions, where there are any, rather than the TV size.
-    @AppStorage(AppSettings.themePrefersFullKey) private var prefersFull = false
+    /// The version to play where there's one: TV size, full or music video.
+    @AppStorage(AppSettings.themeCutKey) private var preferredCut: ThemeCut = .tvSize
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
 
@@ -126,13 +126,13 @@ struct ThemeMusicSection: View {
     /// Everything, in the order the rows show it, in the preferred version:
     /// what the panel plays through.
     private var queue: [OpeningEnding] {
-        (sorted(opening: true) + sorted(opening: false)).map { version(of: $0, full: prefersFull) }
+        (sorted(opening: true) + sorted(opening: false)).map(preferred)
     }
 
-    /// A theme's full version (when `full` and it has one) or its TV size;
-    /// a chapter clip as it is.
-    private func version(of entry: OpeningEnding, full: Bool) -> OpeningEnding {
-        if case .theme(let theme) = entry { return .theme(theme.version(full: full)) }
+    /// A theme in the version Settings prefers (or the nearest it has); a
+    /// chapter clip as it is.
+    private func preferred(_ entry: OpeningEnding) -> OpeningEnding {
+        if case .theme(let theme) = entry { return .theme(theme.preferring(preferredCut)) }
         return entry
     }
 
@@ -216,10 +216,15 @@ struct ThemeMusicSection: View {
 
     /// A card pressed: it plays, after asking when it's marked as a spoiler
     /// or NSFW.
-    /// `full` picks the version (a card's long-press menu); nil, the one
-    /// Settings prefers.
-    private func pressed(_ entry: OpeningEnding, full: Bool? = nil) {
-        let entry = version(of: entry, full: full ?? prefersFull)
+    /// `cut` picks the version (a card's hold menu); nil, the one Settings
+    /// prefers.
+    private func pressed(_ entry: OpeningEnding, cut: ThemeCut? = nil) {
+        // The card's theme is the TV size, so any version can be cut from it.
+        let entry: OpeningEnding = if let cut, case .theme(let theme) = entry, let picked = theme.cut(cut) {
+            .theme(picked)
+        } else {
+            preferred(entry)
+        }
         if case .theme(let theme) = entry, entry.isFlagged {
             confirming = theme
         } else {
@@ -286,7 +291,7 @@ struct ThemeMusicSection: View {
         case .theme(let theme):
             ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
                       addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } },
-                      playVersion: theme.fullVersion == nil ? nil : { full in pressed(entry, full: full) }) { pressed(entry) }
+                      playCut: theme.availableCuts.count > 1 ? { cut in pressed(entry, cut: cut) } : nil) { pressed(entry) }
         case .chapter(let clip):
             ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
         }
@@ -332,9 +337,9 @@ struct ThemeCard: View {
     var isPlaying = false
     /// For a theme the plugin published as a music video: adds it to a playlist.
     var addToPlaylist: (() -> Void)?
-    /// Plays the full version (true) or the TV size; nil when there's no
-    /// full version.
-    var playVersion: ((Bool) -> Void)?
+    /// Plays one version (TV size, full, music video); nil when it has only
+    /// the TV size.
+    var playCut: ((ThemeCut) -> Void)?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -365,9 +370,12 @@ struct ThemeCard: View {
                     }
                     HStack(spacing: 6) {
                         pill(badge)
-                        // Hold the card to pick it, or the TV size.
-                        if theme.fullVersion != nil {
-                            pill("Full", systemImage: "music.note.list")
+                        // Hold the card to pick one, or the TV size.
+                        if theme.cut(.full) != nil {
+                            pill("Full", systemImage: ThemeCut.full.symbol)
+                        }
+                        if theme.cut(.musicVideo) != nil {
+                            pill("MV", systemImage: ThemeCut.musicVideo.symbol)
                         }
                         if isPlaying {
                             pill("Playing", systemImage: "speaker.wave.2.fill")
@@ -388,9 +396,10 @@ struct ThemeCard: View {
             }
             .cardButtonStyle()
             .contextMenu {
-                if let playVersion {
-                    Button("Play Full Version", systemImage: "music.note.list") { playVersion(true) }
-                    Button("Play TV Size", systemImage: "music.note") { playVersion(false) }
+                if let playCut {
+                    ForEach(theme.availableCuts.reversed()) { cut in
+                        Button(cut.playTitle, systemImage: cut.symbol) { playCut(cut) }
+                    }
                 }
                 if let addToPlaylist {
                     Button("Add to Playlist", systemImage: "text.badge.plus", action: addToPlaylist)

@@ -330,7 +330,7 @@ struct ThemeNowPlayingPanel: View {
     private func titles(_ entry: OpeningEnding) -> (title: String, subtitle: String?) {
         switch entry {
         case .theme(let theme):
-            ((theme.songTitle ?? theme.code) + (theme.isFull ? " (Full)" : ""), theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", "))
+            ((theme.songTitle ?? theme.code) + (theme.playedCut.label.map { " (\($0))" } ?? ""), theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", "))
         case .chapter(let clip):
             (clip.title, clip.episode.episodeCode.map { "From \($0)" })
         }

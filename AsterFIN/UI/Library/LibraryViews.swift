@@ -275,6 +275,20 @@ struct LibraryGridView: View {
         }
         .task(id: sort) { await reloadIfNeeded(for: sort.rawValue) }
         .onChange(of: model.items.count) { _, _ in updateSections() }
+        #if DEBUG
+        // Where each move lands, with its letter, to see a press go astray.
+        .onChange(of: focusedTitle) { old, new in
+            func describe(_ id: String?) -> String {
+                guard let id else { return "nothing (or a card the grid can't name)" }
+                if let section = sections.first(where: { $0.items.contains { $0.id == id } }),
+                   let index = section.items.firstIndex(where: { $0.id == id }) {
+                    return "[\(section.key) \(index + 1)/\(section.items.count)] \(section.items[index].displayTitle)"
+                }
+                return id
+            }
+            print("DEBUG focus: library \(parent.displayTitle): \(describe(old)) -> \(describe(new))")
+        }
+        #endif
     }
 
     /// The sort the grid was last loaded for. Coming back to the grid (from

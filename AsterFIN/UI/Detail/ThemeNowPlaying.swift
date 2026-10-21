@@ -419,7 +419,12 @@ struct ThemeNowPlayingPanel: View {
                     #endif
                 }
             control("forward.fill", label: "Next") { deck.next() }
-            control("stop.fill", label: "Stop") { deck.stop() }
+            control("stop.fill", label: "Stop") {
+                // Like Back: focus goes to the card that started it, rather
+                // than wherever the system puts it as the panel goes.
+                if session.themeReturnCard != nil { session.themeReturnFocusRequest += 1 }
+                deck.stop()
+            }
             Spacer(minLength: 0)
             // The same player, bigger: it carries on rather than starting over.
             control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { session.themeFullScreen = true }

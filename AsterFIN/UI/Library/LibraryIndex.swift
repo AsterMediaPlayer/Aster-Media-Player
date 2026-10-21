@@ -163,8 +163,9 @@ struct SectionedItemGrid: View {
     }
 
     var body: some View {
-        // Each letter on its own, the screen's width, and on Apple TV a focus
-        // section: down into a letter with one or two titles lands on them.
+        // No focus sections here: a section fills its empty space with
+        // invisible stand-ins to catch presses, and the space under each card
+        // (its title) caught every press down and sent it back to the card.
         Group {
             if buildsWhole {
                 VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
@@ -180,7 +181,6 @@ struct SectionedItemGrid: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .tvFocusSection()
                     }
                 }
             } else {
@@ -195,7 +195,6 @@ struct SectionedItemGrid: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .tvFocusSection()
                     }
                 }
             }

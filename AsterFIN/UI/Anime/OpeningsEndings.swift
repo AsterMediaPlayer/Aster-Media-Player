@@ -150,6 +150,8 @@ struct ThemeClipLockup: View {
     var focusTag: (binding: FocusState<String?>.Binding, id: String)?
     /// The focus scope it's the preferred focus of (see `ThemeCard`).
     var preferredIn: Namespace.ID?
+    /// The section's first card, for focus after a tab is picked.
+    var lead: SectionLead?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -189,6 +191,7 @@ struct ThemeClipLockup: View {
             .cardButtonStyle()
             .focusTag(focusTag)
             .preferredFocus(in: preferredIn)
+            .sectionLead(lead)
             .keyboardTarget(action: play)
             .accessibilityLabel("\(clip.title), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
 

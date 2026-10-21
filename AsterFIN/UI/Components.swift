@@ -123,6 +123,8 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
     var keyboardSelection: Item.ID?
     @ViewBuilder var content: (Item) -> Content
 
+    @Environment(\.sectionLead) private var lead
+
     var body: some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
@@ -135,6 +137,8 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
                             ForEach(items) { item in
                                 content(item)
                                     .environment(\.isKeyboardSelected, keyboardSelection == item.id)
+                                    // The section's first card, for focus after a tab is picked.
+                                    .environment(\.itemLead, item.id == items.first?.id ? lead : nil)
                                     .id(item.id)
                             }
                         }
@@ -155,7 +159,41 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
     }
 }
 
+/// The first card of the section a show's page has just switched to (its
+/// first episode, song, related show or person), for focus to go to after a
+/// tab is picked rather than back up the page.
+struct SectionLead {
+    let focus: FocusState<Bool>.Binding
+    /// The page's focus scope, and whether the lead is its preferred focus
+    /// right now (just after a tab was picked).
+    let scope: Namespace.ID
+    let active: Bool
+}
+
+extension View {
+    /// Marks this as the section's lead, when `lead` is given.
+    @ViewBuilder
+    func sectionLead(_ lead: SectionLead?) -> some View {
+        if let lead {
+            #if os(tvOS)
+            focused(lead.focus)
+                .prefersDefaultFocus(lead.active, in: lead.scope)
+            #else
+            focused(lead.focus)
+            #endif
+        } else {
+            self
+        }
+    }
+}
+
 extension EnvironmentValues {
+    /// Set on a show page's section: its first card takes it (`SectionLead`).
+    @Entry var sectionLead: SectionLead? = nil
+    /// Handed by a shelf to its first item only: the lockup puts it on its
+    /// link, the view that takes focus.
+    @Entry var itemLead: SectionLead? = nil
+
     /// Mac: this lockup is the one the keyboard has selected. The Mac has no
     /// focus engine to move between cards, so pages with shelves keep their
     /// own selection, moved with the arrow keys, and lockups draw it.
@@ -195,6 +233,9 @@ struct LandscapeLockup: View {
     private var height: CGFloat { width * 9 / 16 }
     private var shown: BaseItem { item.withUserData(editedUserData) }
 
+    /// The section's first card, for focus after a tab is picked.
+    @Environment(\.itemLead) private var itemLead
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink(value: item) {
@@ -214,6 +255,7 @@ struct LandscapeLockup: View {
                 }
                 .frame(width: width, height: height)
             }
+            .sectionLead(itemLead)
             .cardButtonStyle()
             .keyboardSelectionHighlight(isKeyboardSelected)
             .keyboardTarget(opening: item)
@@ -452,6 +494,9 @@ struct PersonLockup: View {
 
     @Environment(AppSession.self) private var session
 
+    /// The section's first card, for focus after a tab is picked.
+    @Environment(\.itemLead) private var itemLead
+
     var body: some View {
         VStack(spacing: Lockup.personLabelSpacing) {
             NavigationLink(value: person) {
@@ -459,6 +504,7 @@ struct PersonLockup: View {
                     .frame(width: Lockup.personPhotoSize, height: Lockup.personPhotoSize)
                     .clipShape(Circle())
             }
+            .sectionLead(itemLead)
             .cardButtonStyle()
             .keyboardTarget(opening: person)
             .clipShape(Circle())

@@ -246,6 +246,8 @@ struct ItemDetailView: View {
     /// focus for a moment, so a reset of the page hands focus to its first
     /// item (a reset only acts in the scope focus is in, the whole page).
     @State private var focusesSection = false
+    /// The shown section's first card (see `SectionLead`).
+    @FocusState private var sectionLeadFocused: Bool
     @Environment(\.resetFocus) private var resetFocus
     #endif
     @State private var playback: PlaybackRequest?
@@ -320,7 +322,7 @@ struct ItemDetailView: View {
                         DetailSectionBar(sections: sections, selection: shownSectionBinding)
                         sectionContent
                             #if os(tvOS)
-                            .prefersDefaultFocus(focusesSection, in: pageFocus)
+                            .environment(\.sectionLead, SectionLead(focus: $sectionLeadFocused, scope: pageFocus, active: focusesSection))
                             #endif
                     } else {
                         shelves
@@ -388,13 +390,19 @@ struct ItemDetailView: View {
         .onChange(of: shownSection) { _, _ in
             focusesSection = true
             Task {
+                // Once the new section is laid out: straight to its first card,
+                // and if the focus engine won't move there directly, a reset
+                // of the page with that card as its preferred focus.
                 try? await Task.sleep(for: .milliseconds(300))
-                resetFocus(in: pageFocus)
+                sectionLeadFocused = true
+                try? await Task.sleep(for: .milliseconds(150))
+                if !sectionLeadFocused { resetFocus(in: pageFocus) }
                 #if DEBUG
-                print("DEBUG focus: tab picked; page focus reset toward the section")
+                try? await Task.sleep(for: .milliseconds(100))
+                print("DEBUG focus: tab picked; the section's first card \(sectionLeadFocused ? "has" : "didn't get") focus")
                 #endif
                 // Back to the page's own default once focus has moved.
-                try? await Task.sleep(for: .milliseconds(600))
+                try? await Task.sleep(for: .milliseconds(500))
                 focusesSection = false
             }
         }
@@ -1489,6 +1497,8 @@ struct ExtraLockup: View {
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
+    /// The section's first card, for focus after a tab is picked.
+    @Environment(\.itemLead) private var itemLead
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1503,6 +1513,7 @@ struct ExtraLockup: View {
                 }
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
+            .sectionLead(itemLead)
             .cardButtonStyle()
             .keyboardTarget(action: play)
             .accessibilityLabel("Play \(item.displayTitle)")

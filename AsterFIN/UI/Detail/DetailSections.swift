@@ -132,6 +132,8 @@ struct ThemeMusicSection: View {
     #if os(tvOS)
     @Environment(\.resetFocus) private var resetFocus
     #endif
+    /// The page's marker for its section's first card (see `SectionLead`).
+    @Environment(\.sectionLead) private var lead
 
 
     /// Everything, in the order the rows show it, in the preferred version:
@@ -339,10 +341,12 @@ struct ThemeMusicSection: View {
             ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
                       focusTag: ($focusedCard, entry.id),
                       preferredIn: preferredScope(for: entry),
+                      lead: entry.id == queue.first?.id ? lead : nil,
                       addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } },
                       playCut: theme.availableCuts.count > 1 ? { cut in pressed(entry, cut: cut) } : nil) { pressed(entry) }
         case .chapter(let clip):
-            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id, focusTag: ($focusedCard, entry.id), preferredIn: preferredScope(for: entry)) { pressed(entry) }
+            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id, focusTag: ($focusedCard, entry.id), preferredIn: preferredScope(for: entry),
+                            lead: entry.id == queue.first?.id ? lead : nil) { pressed(entry) }
         }
     }
 
@@ -394,6 +398,8 @@ struct ThemeCard: View {
     /// The focus scope it's the preferred focus of, while it's the card Back
     /// in the panel returns to.
     var preferredIn: Namespace.ID?
+    /// The section's first card, for focus after a tab is picked.
+    var lead: SectionLead?
     /// For a theme the plugin published as a music video: adds it to a playlist.
     var addToPlaylist: (() -> Void)?
     /// Plays one version (TV size, full, music video); nil when it has only
@@ -458,6 +464,7 @@ struct ThemeCard: View {
             .cardButtonStyle()
             .focusTag(focusTag)
             .preferredFocus(in: preferredIn)
+            .sectionLead(lead)
             .contextMenu {
                 if let playCut {
                     ForEach(theme.availableCuts.reversed()) { cut in

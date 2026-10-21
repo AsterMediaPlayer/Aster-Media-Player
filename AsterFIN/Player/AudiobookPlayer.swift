@@ -102,7 +102,10 @@ final class AudiobookPlayer {
         observeInterruptions()
         #endif
         RemoteCommandLayout.useForAudiobooks()
-        let start = chapter.map { ($0.part, $0.start) } ?? book.resumePoint ?? (0, 0)
+        // Where listening stopped on this device, when nothing has played
+        // the book since elsewhere: the server's copy can lag (a car
+        // disconnecting) or be reset by its resume rules.
+        let start = chapter.map { ($0.part, $0.start) } ?? AudiobookPositions.resumePoint(for: book) ?? book.resumePoint ?? (0, 0)
         load(part: start.0, at: start.1, playing: true)
     }
 
@@ -118,7 +121,9 @@ final class AudiobookPlayer {
         playWhenReady = false
         isPlaying = false
         currentTime = playerSeconds ?? currentTime
-        report(paused: true)
+        // Saved on the server at once, not when next due: the app may be
+        // put away (or the phone leave the car) before then.
+        report(paused: true, saving: .now)
         updateNowPlayingPlayback()
     }
 
@@ -289,9 +294,16 @@ final class AudiobookPlayer {
     private func finishCurrent() {
         guard hasStarted, let book, book.parts.indices.contains(partIndex) else { return }
         hasStarted = false
-        let report = PlaybackReport(itemId: book.parts[partIndex].id, playSessionId: playSessionId, positionTicks: positionTicks, isPaused: true, playMethod: "DirectPlay")
-        noteLocally(positionTicks)
-        Task { [client] in await client?.reportStopped(report) }
+        let ticks = positionTicks
+        let report = PlaybackReport(itemId: book.parts[partIndex].id, playSessionId: playSessionId, positionTicks: ticks, isPaused: true, playMethod: "DirectPlay")
+        noteLocally(ticks)
+        Task { [client] in
+            await client?.reportStopped(report)
+            // Jellyfin's audiobook rules drop a position in a file's first
+            // (or last) minutes when playback stops; the place is set again
+            // straight after, leaving its played state alone.
+            if ticks > 0 { _ = try? await client?.saveResumePosition(itemId: report.itemId, ticks: ticks) }
+        }
     }
 
     private func partEnded() {
@@ -304,6 +316,7 @@ final class AudiobookPlayer {
             #if os(iOS)
             ListenAhead.shared.finished(bookId: book.id)
             #endif
+            AudiobookPositions.clear(bookId: book.id)
             finishCurrent()
             player.pause()
             isPlaying = false
@@ -316,8 +329,11 @@ final class AudiobookPlayer {
     /// For a downloaded book, keeps where listening got to on the device,
     /// for when the server can't be reached; handed over later.
     private func noteLocally(_ ticks: Int64, played: Bool = false) {
-        #if os(iOS)
         guard let book, book.parts.indices.contains(partIndex) else { return }
+        if ticks > 0, !played {
+            AudiobookPositions.note(bookId: book.id, part: partIndex, seconds: Double(ticks) / 10_000_000)
+        }
+        #if os(iOS)
         AudiobookDownloads.shared.noteProgress(bookId: book.id, partId: book.parts[partIndex].id, ticks: ticks, played: played)
         #endif
     }
@@ -407,7 +423,7 @@ final class AudiobookPlayer {
         statusObservation = nil
     }
 
-    private func report(paused: Bool, start: Bool = false) {
+    private func report(paused: Bool, start: Bool = false, saving: ResumePoints.Saving = .whenDue) {
         guard hasStarted, let book, let client, book.parts.indices.contains(partIndex) else { return }
         let report = PlaybackReport(itemId: book.parts[partIndex].id, playSessionId: playSessionId, positionTicks: positionTicks, isPaused: paused, playMethod: "DirectPlay")
         noteLocally(positionTicks)
@@ -415,7 +431,7 @@ final class AudiobookPlayer {
             if start {
                 await client.reportStart(report)
             } else {
-                await client.reportProgress(report)
+                await client.reportProgress(report, savingResumePoint: saving)
             }
         }
     }
@@ -438,6 +454,25 @@ final class AudiobookPlayer {
         let session = AVAudioSession.sharedInstance()
         let center = NotificationCenter.default
         interruptionObservers = [
+            // Headphones unplugged, or the car's Bluetooth or CarPlay gone:
+            // the system pauses the player by itself, so this pauses too,
+            // which saves where it got to at once.
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] note in
+                let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+                guard reason == .oldDeviceUnavailable else { return }
+                MainActor.assumeIsolated {
+                    guard let self, self.isPlaying else { return }
+                    self.pause()
+                }
+            },
+            // Put away (or the screen locked): where it is, saved now, in
+            // case the system ends the app before the next save is due.
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.report(paused: !self.isPlaying, saving: .now)
+                }
+            },
             center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: session, queue: .main) { [weak self] note in
                 let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
                 // Only the system's doing: the app letting the session go
@@ -569,5 +604,56 @@ enum RemoteCommandLayout {
         center.skipForwardCommand.preferredIntervals = [NSNumber(value: AudiobookPlayer.skipForwardSeconds)]
         center.changePlaybackRateCommand.isEnabled = true
         center.changePlaybackRateCommand.supportedPlaybackRates = AudiobookRates.choices.map { NSNumber(value: $0) }
+    }
+}
+
+/// Where each book was last listened to on this device, downloaded or not.
+/// The server's copy can trail it (saved every 30 seconds, and nothing when a
+/// car or headphones disconnect and the app is then ended) or be reset by
+/// Jellyfin's audiobook resume rules, so starting a book again prefers this,
+/// unless the book has been played elsewhere since.
+nonisolated enum AudiobookPositions {
+    private struct Position: Codable {
+        var part: Int
+        var seconds: Double
+        var updated: Date
+    }
+
+    private static let key = "AsterFIN.audiobookPositions"
+    /// How much later than this device the server's last play has to be to
+    /// count as listening elsewhere, rather than this device's own reports.
+    static let elsewhereMargin: TimeInterval = 120
+
+    private static func load() -> [String: Position] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [:] }
+        return (try? JSONDecoder().decode([String: Position].self, from: data)) ?? [:]
+    }
+
+    private static func save(_ positions: [String: Position]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(positions), forKey: key)
+    }
+
+    static func note(bookId: String, part: Int, seconds: Double) {
+        var positions = load()
+        positions[bookId] = Position(part: part, seconds: seconds, updated: Date())
+        save(positions)
+    }
+
+    /// The book was listened to the end.
+    static func clear(bookId: String) {
+        var positions = load()
+        guard positions.removeValue(forKey: bookId) != nil else { return }
+        save(positions)
+    }
+
+    /// This device's place in `book`, unless the server has heard of it
+    /// being played since (on another device).
+    static func resumePoint(for book: Audiobook) -> (part: Int, seconds: TimeInterval)? {
+        guard let position = load()[book.id], book.parts.indices.contains(position.part) else { return nil }
+        let lastPlayedElsewhere = book.parts.compactMap { JellyfinDate.parse($0.userData?.lastPlayedDate) }.max()
+        if let lastPlayedElsewhere, lastPlayedElsewhere > position.updated.addingTimeInterval(elsewhereMargin) {
+            return nil
+        }
+        return (position.part, position.seconds)
     }
 }

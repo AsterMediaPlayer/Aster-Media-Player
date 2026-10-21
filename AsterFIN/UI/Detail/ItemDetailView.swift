@@ -242,6 +242,10 @@ struct ItemDetailView: View {
     /// The page as one focus scope, the Now Playing panel included, so Back
     /// there can hand focus back to the card that started it.
     @Namespace private var pageFocus
+    /// The shown section (episodes, songs, related shows) as a scope of its
+    /// own, so picking a tab can hand focus to its first item.
+    @Namespace private var sectionFocus
+    @Environment(\.resetFocus) private var resetFocus
     #endif
     @State private var playback: PlaybackRequest?
     /// Where the Play button's middle is across the screen, which the
@@ -314,6 +318,9 @@ struct ItemDetailView: View {
                         // extras and details aren't one long scroll.
                         DetailSectionBar(sections: sections, selection: shownSectionBinding)
                         sectionContent
+                            #if os(tvOS)
+                            .focusScope(sectionFocus)
+                            #endif
                     } else {
                         shelves
                     }
@@ -372,6 +379,17 @@ struct ItemDetailView: View {
         .animation(.smooth(duration: 0.4), value: showsThemePanel)
         #if os(tvOS)
         .focusScope(pageFocus)
+        #endif
+        #if os(tvOS)
+        // A tab picked: focus goes down into what it shows (the first
+        // episode, song or show), once the new section is laid out. One with
+        // nothing to focus (Details) leaves it on the tab.
+        .onChange(of: shownSection) { _, _ in
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                resetFocus(in: sectionFocus)
+            }
+        }
         #endif
         // While this page shows the full panel, the slim one stays away.
         .onChange(of: showsThemePanel, initial: true) { _, shows in

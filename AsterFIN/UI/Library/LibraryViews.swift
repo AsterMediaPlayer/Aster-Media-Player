@@ -301,7 +301,17 @@ struct LibraryGridView: View {
     private func reloadIfNeeded(for key: String) async {
         guard loadedKey != key || model.items.isEmpty else { return }
         await reload()
-        if !Task.isCancelled { loadedKey = key }
+        guard !Task.isCancelled else { return }
+        loadedKey = key
+        #if os(tvOS)
+        // Focus starts on the first title, not the letters above the grid
+        // (the focus engine's pick, top left): Up from the top row reaches
+        // them. A beat later, once the grid is laid out.
+        if focusedTitle == nil, let first = sections.first?.items.first?.id ?? model.items.first?.id {
+            try? await Task.sleep(for: .milliseconds(350))
+            if !Task.isCancelled, focusedTitle == nil { focusedTitle = first }
+        }
+        #endif
     }
 
     /// Everything when sorted by name (for the sections), else page by page.

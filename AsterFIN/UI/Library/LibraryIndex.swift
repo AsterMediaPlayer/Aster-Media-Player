@@ -141,38 +141,88 @@ struct SectionedItemGrid: View {
         return [GridItem(.adaptive(minimum: width, maximum: width), spacing: Lockup.gridSpacing, alignment: .top)]
     }
 
+    /// Up to this many titles, the grid is built whole rather than as it
+    /// scrolls into view. A lazy grid stands placeholders in for rows not yet
+    /// built, and on Apple TV a press down lands on one, then jumps to the
+    /// real card a moment later: the bounce, and sometimes a second press.
+    /// Big libraries stay lazy, to open quickly.
+    static let builtWholeUpTo = 200
+
+    private var buildsWhole: Bool {
+        sections.reduce(0) { $0 + $1.items.count } <= Self.builtWholeUpTo
+    }
+
+    /// The grid's width, for how many titles fit in a row when built whole.
+    @State private var width: CGFloat = 0
+
+    private var itemWidth: CGFloat { landscape ? Lockup.landscapeWidth : Lockup.posterWidth }
+
+    private var perRow: Int {
+        guard width > 0 else { return 1 }
+        return max(1, Int((width + Lockup.gridSpacing) / (itemWidth + Lockup.gridSpacing)))
+    }
+
     var body: some View {
-        // Each letter is a grid of its own, the screen's width, and on Apple
-        // TV a focus section: down into a letter with one or two titles lands
-        // on them even when they aren't under the title focused, rather than
-        // the focus engine reaching past to a row further down (and bouncing
-        // back), as it did with every letter in one grid.
-        LazyVStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
-            ForEach(sections) { section in
+        // Each letter on its own, the screen's width, and on Apple TV a focus
+        // section: down into a letter with one or two titles lands on them.
+        Group {
+            if buildsWhole {
                 VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
-                    Text(section.key)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 12)
-                        .id(LibraryIndexBar.anchor(section.key))
-                        .accessibilityAddTraits(.isHeader)
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
-                        ForEach(section.items) { item in
-                            if landscape {
-                                LandscapeLockup(item: item, focus: focus)
-                            } else {
-                                PosterLockup(item: item, focus: focus)
+                    ForEach(sections) { section in
+                        VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                            header(section)
+                            ForEach(Array(stride(from: 0, to: section.items.count, by: perRow)), id: \.self) { start in
+                                HStack(alignment: .top, spacing: Lockup.gridSpacing) {
+                                    ForEach(section.items[start ..< min(start + perRow, section.items.count)]) { item in
+                                        lockup(item)
+                                    }
+                                }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .tvFocusSection()
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .tvFocusSection()
+            } else {
+                LazyVStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                    ForEach(sections) { section in
+                        VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                            header(section)
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                                ForEach(section.items) { item in
+                                    lockup(item)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .tvFocusSection()
+                    }
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
+    }
+
+    private func header(_ section: IndexSection) -> some View {
+        Text(section.key)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 12)
+            .id(LibraryIndexBar.anchor(section.key))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder
+    private func lockup(_ item: BaseItem) -> some View {
+        if landscape {
+            LandscapeLockup(item: item, focus: focus)
+        } else {
+            PosterLockup(item: item, focus: focus)
+        }
     }
 }
 

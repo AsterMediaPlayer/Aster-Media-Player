@@ -273,8 +273,20 @@ struct LibraryGridView: View {
             }
             #endif
         }
-        .task(id: sort) { await reload() }
+        .task(id: sort) { await reloadIfNeeded(for: sort.rawValue) }
         .onChange(of: model.items.count) { _, _ in updateSections() }
+    }
+
+    /// The sort the grid was last loaded for. Coming back to the grid (from
+    /// a title's page, or its player) leaves it as it was, so focus stays on
+    /// the title that was picked rather than the grid emptying and refilling
+    /// and focus jumping to the top.
+    @State private var loadedKey: String?
+
+    private func reloadIfNeeded(for key: String) async {
+        guard loadedKey != key || model.items.isEmpty else { return }
+        await reload()
+        if !Task.isCancelled { loadedKey = key }
     }
 
     /// Everything when sorted by name (for the sections), else page by page.
@@ -387,7 +399,7 @@ struct TypeGridView: View {
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reload() }
+        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
         .task(id: session.animeItemIds.count) { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
@@ -455,6 +467,16 @@ struct TypeGridView: View {
     }
 
     /// Everything when sorted by name (for the sections), else page by page.
+    /// What the grid was last loaded for (sort, and anime detection): coming
+    /// back to it leaves it as it was, so focus stays on the title picked.
+    @State private var loadedKey: String?
+
+    private func reloadIfNeeded(for key: String) async {
+        guard loadedKey != key || model.items.isEmpty else { return }
+        await reload()
+        if !Task.isCancelled { loadedKey = key }
+    }
+
     private func reload() async {
         sections = []
         await load(reset: true)

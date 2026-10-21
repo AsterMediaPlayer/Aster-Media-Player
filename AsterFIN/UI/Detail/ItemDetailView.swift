@@ -242,9 +242,10 @@ struct ItemDetailView: View {
     /// The page as one focus scope, the Now Playing panel included, so Back
     /// there can hand focus back to the card that started it.
     @Namespace private var pageFocus
-    /// The shown section (episodes, songs, related shows) as a scope of its
-    /// own, so picking a tab can hand focus to its first item.
-    @Namespace private var sectionFocus
+    /// A tab was just picked: the section it shows is the page's preferred
+    /// focus for a moment, so a reset of the page hands focus to its first
+    /// item (a reset only acts in the scope focus is in, the whole page).
+    @State private var focusesSection = false
     @Environment(\.resetFocus) private var resetFocus
     #endif
     @State private var playback: PlaybackRequest?
@@ -319,7 +320,7 @@ struct ItemDetailView: View {
                         DetailSectionBar(sections: sections, selection: shownSectionBinding)
                         sectionContent
                             #if os(tvOS)
-                            .focusScope(sectionFocus)
+                            .prefersDefaultFocus(focusesSection, in: pageFocus)
                             #endif
                     } else {
                         shelves
@@ -385,9 +386,16 @@ struct ItemDetailView: View {
         // episode, song or show), once the new section is laid out. One with
         // nothing to focus (Details) leaves it on the tab.
         .onChange(of: shownSection) { _, _ in
+            focusesSection = true
             Task {
                 try? await Task.sleep(for: .milliseconds(300))
-                resetFocus(in: sectionFocus)
+                resetFocus(in: pageFocus)
+                #if DEBUG
+                print("DEBUG focus: tab picked; page focus reset toward the section")
+                #endif
+                // Back to the page's own default once focus has moved.
+                try? await Task.sleep(for: .milliseconds(600))
+                focusesSection = false
             }
         }
         #endif

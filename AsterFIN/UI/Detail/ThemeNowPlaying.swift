@@ -401,6 +401,11 @@ struct ThemeNowPlayingPanel: View {
             control("backward.fill", label: "Previous") { deck.previous() }
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
                 .focused($playFocused)
+                #if DEBUG
+                .onChange(of: playFocused) { _, focused in
+                    print("DEBUG focus: panel's Play button \(focused ? "has" : "lost") focus\(compact ? " (slim panel)" : "")")
+                }
+                #endif
                 .task(id: session.themePanelFocusRequest) {
                     // Asked for (a card played, or Play/Pause held): once the
                     // press and the panel's own arrival have settled, as the
@@ -408,7 +413,6 @@ struct ThemeNowPlayingPanel: View {
                     guard session.themePanelFocusPending else { return }
                     try? await Task.sleep(for: .milliseconds(350))
                     guard !Task.isCancelled, session.themePanelFocusPending else { return }
-                    session.themePanelFocusPending = false
                     playFocused = true
                     #if DEBUG
                     print("DEBUG focus: panel's Play button asked for focus (request \(session.themePanelFocusRequest))")

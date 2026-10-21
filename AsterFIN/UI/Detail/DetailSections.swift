@@ -259,8 +259,7 @@ struct ThemeMusicSection: View {
             // Focus goes to the panel; Back there comes back to this card.
             if panelBesidePage {
                 session.themeReturnCard = entry.id
-                session.themePanelFocusPending = true
-                session.themePanelFocusRequest += 1
+                session.focusThemePanel()
                 #if DEBUG
                 print("DEBUG focus: played \(entry.id); the panel is to take focus")
                 #endif

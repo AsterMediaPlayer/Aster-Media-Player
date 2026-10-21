@@ -140,8 +140,7 @@ struct MainTabView: View {
         }
         .background {
             PlayPauseHoldDetector(isEnabled: { session.themeDeck.isActive }) {
-                session.themePanelFocusPending = true
-                session.themePanelFocusRequest += 1
+                session.focusThemePanel()
             }
             .allowsHitTesting(false)
         }

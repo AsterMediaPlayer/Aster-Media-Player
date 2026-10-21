@@ -44,8 +44,22 @@ final class AppSession {
     /// screen takes focus, on its play button.
     var themePanelFocusRequest = 0
     /// The panel takes focus as it appears (a card was just played and the
-    /// panel wasn't up yet).
+    /// panel wasn't up yet). Open for a moment, not taken by the first panel
+    /// to look: the panel is laid out more than once (`ViewThatFits`), and
+    /// only the copy on screen can take focus.
     var themePanelFocusPending = false
+
+    /// Asks the Now Playing panel to take focus, now or as it appears.
+    func focusThemePanel() {
+        themePanelFocusPending = true
+        themePanelFocusRequest += 1
+        let request = themePanelFocusRequest
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let self, self.themePanelFocusRequest == request else { return }
+            self.themePanelFocusPending = false
+        }
+    }
     /// The Music tab card that started what's playing, for Back in the
     /// panel to go back to; nil once its page has gone.
     var themeReturnCard: String?

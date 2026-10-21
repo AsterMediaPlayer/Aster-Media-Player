@@ -188,6 +188,14 @@ struct MainTabView: View {
                     AudiobookNowPlayingView()
                 }
         }
+        // The Now Playing panel's opening or ending, full screen, from any
+        // page the panel (or the slim one) shows on.
+        .background {
+            Color.clear
+                .appCover(isPresented: Binding(get: { session.themeFullScreen }, set: { session.themeFullScreen = $0 })) {
+                    ThemeDeckFullScreen(deck: session.themeDeck) { session.themeFullScreen = false }
+                }
+        }
         .background {
             Color.clear
                 .appCover(item: $linkedPlayback, onDismiss: {

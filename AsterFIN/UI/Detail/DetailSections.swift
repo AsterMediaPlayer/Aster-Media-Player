@@ -152,7 +152,7 @@ struct ThemeMusicSection: View {
                 playButtons
             }
             if !panelBesidePage, deck.isActive {
-                ThemeNowPlayingPanel(deck: deck, artwork: fallbackArtwork, seasonName: { Self.seasonName($0, in: seasons) }, fullScreen: fullScreen)
+                ThemeNowPlayingPanel(deck: deck, artwork: fallbackArtwork, seasonName: { Self.seasonName($0, in: seasons) })
                     .padding(.horizontal, Lockup.screenPadding)
             }
             row(title: "Openings", subtitle: "The songs that start each episode.", opening: true)

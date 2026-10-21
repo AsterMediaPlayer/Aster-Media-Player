@@ -351,8 +351,7 @@ struct ItemDetailView: View {
                 ThemeNowPlayingPanel(
                     deck: themeDeck,
                     artwork: session.client?.landscapeURL(for: detail, width: 800),
-                    seasonName: { ThemeMusicSection.seasonName($0, in: model.seasons) },
-                    fullScreen: { entry in themeFullScreen(entry) }
+                    seasonName: { ThemeMusicSection.seasonName($0, in: model.seasons) }
                 )
                 .frame(width: ThemePanelMetrics.width)
                 .shadow(color: .black.opacity(0.35), radius: 24, y: 10)

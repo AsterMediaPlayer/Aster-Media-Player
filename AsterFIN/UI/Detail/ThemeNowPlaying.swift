@@ -126,6 +126,28 @@ final class ThemeDeck {
         }
     }
 
+    /// After the player was driven by something else (the full-screen
+    /// player's own controls, or the remote there): what it's really doing.
+    func syncPlaying() {
+        guard current != nil else { return }
+        isPlaying = player.timeControlStatus != .paused
+    }
+
+    /// The song card for what's playing, and for a chapter clip the stretch
+    /// of its episode it covers (in the player's own time).
+    var songCard: (info: ThemeInfo, range: ClosedRange<Double>?)? {
+        let series = showItem?.seriesName ?? showItem?.displayTitle ?? ""
+        switch current {
+        case .theme(let theme):
+            return (ThemeInfo(theme: theme, series: series, seasonName: nil), nil)
+        case .chapter(let clip):
+            let range = Double(clip.startTicks) / 10_000_000 ... Double(clip.endTicks) / 10_000_000
+            return (ThemeInfo(clip: clip, series: series), range)
+        case nil:
+            return nil
+        }
+    }
+
     func togglePlaying() {
         guard current != nil else { return }
         if isPlaying {
@@ -234,8 +256,6 @@ struct ThemeNowPlayingPanel: View {
     let deck: ThemeDeck
     var artwork: URL?
     var seasonName: (OpEdTheme) -> String? = { _ in nil }
-    /// Full Screen, where the page can present it.
-    var fullScreen: ((OpeningEnding) -> Void)?
     /// Back to the show's page (the slim panel, away from it).
     var openShow: (() -> Void)?
     /// The slim panel that floats while browsing: no details, smaller.
@@ -375,9 +395,8 @@ struct ThemeNowPlayingPanel: View {
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)
-            if let fullScreen {
-                control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { fullScreen(entry) }
-            }
+            // The same player, bigger: it carries on rather than starting over.
+            control("arrow.up.left.and.arrow.down.right", label: "Full Screen") { session.themeFullScreen = true }
             if let openShow {
                 control("chevron.forward", label: "Go to the Show", action: openShow)
             }
@@ -433,6 +452,31 @@ struct ThemeNowPlayingPanel: View {
     private static func time(_ seconds: Double) -> String {
         let whole = max(Int(seconds.rounded(.down)), 0)
         return "\(whole / 60):" + String(format: "%02d", whole % 60)
+    }
+}
+
+/// The panel's opening or ending full screen, in the system player: its own
+/// player, so it goes on from where it was, and the panel (or the slim one)
+/// carries on from there once this closes. Closes by itself when the panel's
+/// list runs out.
+struct ThemeDeckFullScreen: View {
+    let deck: ThemeDeck
+    var close: () -> Void
+
+    var body: some View {
+        SystemPlayer(player: deck.player)
+            .ignoresSafeArea()
+            .background(Color.black)
+            .overlay {
+                if let card = deck.songCard {
+                    ThemeInfoOverlay(player: deck.player, range: card.range, info: card.info)
+                        .id(deck.current?.id)
+                }
+            }
+            .onChange(of: deck.isActive) { _, active in
+                if !active { close() }
+            }
+            .onDisappear { deck.syncPlaying() }
     }
 }
 

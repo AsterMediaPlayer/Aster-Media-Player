@@ -34,6 +34,9 @@ final class AppSession {
     /// Anime openings and endings picked on a show's Music tab: one player
     /// for the whole app, so one keeps playing while you browse.
     let themeDeck = ThemeDeck()
+    /// The opening or ending playing in the Now Playing panel (or the slim
+    /// one) is up full screen: the same player, so it carries on.
+    var themeFullScreen = false
     /// The title page showing the deck's full Now Playing panel, while one
     /// is on screen; everywhere else the slim one floats on the right.
     var themePanelPage: String?

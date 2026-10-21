@@ -201,8 +201,57 @@ struct SectionedItemGrid: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        #if os(tvOS)
+        // Up and down move a row at a time, by the grid's own layout. Left to
+        // the focus engine, a press landed on invisible stand-ins it puts in
+        // the gaps between cards (the titles, the letter headings), which sent
+        // it straight back: every move took two presses.
+        .onMoveCommand { direction in
+            guard buildsWhole, direction == .down || direction == .up, let focus, let current = focus.wrappedValue,
+                  let target = Self.target(from: current, down: direction == .down, in: sections, perRow: perRow) else { return }
+            #if DEBUG
+            print("DEBUG focus: grid moves \(direction == .down ? "down" : "up") to \(target)")
+            #endif
+            focus.wrappedValue = target
+            // Again once the focus engine has had its own go, in case it moved
+            // focus back meanwhile.
+            Task {
+                try? await Task.sleep(for: .milliseconds(80))
+                if focus.wrappedValue != target { focus.wrappedValue = target }
+            }
+        }
+        #endif
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
+    }
+
+    /// The card a press up or down from `current` goes to: the same column a
+    /// row along (the last card of a shorter row), crossing into the letter
+    /// before or after at its ends; nil off the top or bottom, or for left and
+    /// right, which the focus engine handles.
+    static func target(from current: String, down: Bool, in sections: [IndexSection], perRow: Int) -> String? {
+        guard perRow > 0,
+              let sectionIndex = sections.firstIndex(where: { $0.items.contains { $0.id == current } }),
+              let index = sections[sectionIndex].items.firstIndex(where: { $0.id == current }) else { return nil }
+        let items = sections[sectionIndex].items
+        let column = index % perRow
+        let row = index / perRow
+        let rows = (items.count + perRow - 1) / perRow
+        func card(row: Int, in items: [BaseItem]) -> String? {
+            let start = row * perRow
+            guard start < items.count else { return nil }
+            return items[min(start + column, items.count - 1)].id
+        }
+        if down {
+            if row + 1 < rows { return card(row: row + 1, in: items) }
+            guard sectionIndex + 1 < sections.count else { return nil }
+            return card(row: 0, in: sections[sectionIndex + 1].items)
+        } else {
+            if row > 0 { return card(row: row - 1, in: items) }
+            guard sectionIndex > 0 else { return nil }
+            let previous = sections[sectionIndex - 1].items
+            return card(row: (previous.count - 1) / perRow, in: previous)
+        }
     }
 
     private func header(_ section: IndexSection) -> some View {

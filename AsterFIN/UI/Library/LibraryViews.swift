@@ -286,7 +286,8 @@ struct LibraryGridView: View {
                 }
                 return id
             }
-            print("DEBUG focus: library \(parent.displayTitle): \(describe(old)) -> \(describe(new))")
+            let time = Date().formatted(.dateTime.minute().second().secondFraction(.fractional(3)))
+            print("DEBUG focus: \(time) library \(parent.displayTitle): \(describe(old)) -> \(describe(new))")
         }
         #endif
     }

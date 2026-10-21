@@ -116,10 +116,24 @@ nonisolated enum OpeningsEndings {
 
 /// A clip in the Openings & Endings row: the chapter's frame when the server
 /// has one, else the episode's picture, with where it comes from.
+extension View {
+    /// `focused(_:equals:)` when there's a binding to tag with.
+    @ViewBuilder
+    func focusTag(_ tag: (binding: FocusState<String?>.Binding, id: String)?) -> some View {
+        if let tag {
+            focused(tag.binding, equals: tag.id)
+        } else {
+            self
+        }
+    }
+}
+
 struct ThemeClipLockup: View {
     let clip: ThemeClip
     /// Whether it's the one in the Now Playing panel.
     var isPlaying = false
+    /// Where focus can be put back on it (Back from the Now Playing panel).
+    var focusTag: (binding: FocusState<String?>.Binding, id: String)?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -157,6 +171,7 @@ struct ThemeClipLockup: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
+            .focusTag(focusTag)
             .keyboardTarget(action: play)
             .accessibilityLabel("\(clip.title), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
 

@@ -121,6 +121,9 @@ struct ThemeMusicSection: View {
     @AppStorage(AppSettings.themeCutKey) private var preferredCut: ThemeCut = .tvSize
     /// A spoiler or NSFW theme waiting for the go-ahead.
     @State private var confirming: OpEdTheme?
+    /// The card with focus, so Back from the Now Playing panel can return
+    /// to the one that started it.
+    @FocusState private var focusedCard: String?
 
 
     /// Everything, in the order the rows show it, in the preferred version:
@@ -159,7 +162,14 @@ struct ThemeMusicSection: View {
             row(title: "Endings", subtitle: "The songs over the closing credits.", opening: false)
         }
         // On a phone the panel is part of this tab, so it stops with it.
-        .onDisappear { if !panelBesidePage { deck.stop() } }
+        .onDisappear {
+            if !panelBesidePage { deck.stop() }
+            // Back in the panel (the slim one, elsewhere) is ordinary again.
+            session.themeReturnCard = nil
+        }
+        .onChange(of: session.themeReturnFocusRequest) { _, _ in
+            if let card = session.themeReturnCard { focusedCard = card }
+        }
         .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
             Button("Play") {
                 if let theme = confirming { play(.theme(theme)) }
@@ -237,6 +247,14 @@ struct ThemeMusicSection: View {
     private func play(_ entry: OpeningEnding) {
         if usesPanel {
             start(entry, in: queue)
+            #if os(tvOS)
+            // Focus goes to the panel; Back there comes back to this card.
+            if panelBesidePage {
+                session.themeReturnCard = entry.id
+                session.themePanelFocusPending = true
+                session.themePanelFocusRequest += 1
+            }
+            #endif
         } else {
             deck.stop()
             fullScreen(entry)
@@ -290,10 +308,11 @@ struct ThemeMusicSection: View {
         switch entry {
         case .theme(let theme):
             ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
+                      focusTag: ($focusedCard, entry.id),
                       addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } },
                       playCut: theme.availableCuts.count > 1 ? { cut in pressed(entry, cut: cut) } : nil) { pressed(entry) }
         case .chapter(let clip):
-            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id) { pressed(entry) }
+            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id, focusTag: ($focusedCard, entry.id)) { pressed(entry) }
         }
     }
 
@@ -335,6 +354,8 @@ struct ThemeCard: View {
     var fallbackArtwork: URL?
     /// Whether it's the one in the Now Playing panel.
     var isPlaying = false
+    /// Where focus can be put back on it (Back from the Now Playing panel).
+    var focusTag: (binding: FocusState<String?>.Binding, id: String)?
     /// For a theme the plugin published as a music video: adds it to a playlist.
     var addToPlaylist: (() -> Void)?
     /// Plays one version (TV size, full, music video); nil when it has only
@@ -397,6 +418,7 @@ struct ThemeCard: View {
                 .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()
+            .focusTag(focusTag)
             .contextMenu {
                 if let playCut {
                     ForEach(theme.availableCuts.reversed()) { cut in

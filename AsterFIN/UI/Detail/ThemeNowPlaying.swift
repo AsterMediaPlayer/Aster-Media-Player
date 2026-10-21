@@ -288,14 +288,19 @@ struct ThemeNowPlayingPanel: View {
 
     var body: some View {
         if let entry = deck.current {
-            if compact {
-                panel(entry, showsDetails: false)
-            } else {
-                ViewThatFits(in: .vertical) {
-                    panel(entry, showsDetails: true)
+            Group {
+                if compact {
                     panel(entry, showsDetails: false)
+                } else {
+                    ViewThatFits(in: .vertical) {
+                        panel(entry, showsDetails: true)
+                        panel(entry, showsDetails: false)
+                    }
                 }
             }
+            // Back goes to the card that started it, while its page is up;
+            // otherwise Back does what it always does.
+            .tvExitCommand(perform: session.themeReturnCard == nil ? nil : { session.themeReturnFocusRequest += 1 })
         }
     }
 
@@ -392,6 +397,12 @@ struct ThemeNowPlayingPanel: View {
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
                 .focused($playFocused)
                 .onChange(of: session.themePanelFocusRequest) { _, _ in playFocused = true }
+                .onAppear {
+                    // A card was played before the panel was up: it takes focus now.
+                    guard session.themePanelFocusPending else { return }
+                    session.themePanelFocusPending = false
+                    Task { playFocused = true }
+                }
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }
             Spacer(minLength: 0)

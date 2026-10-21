@@ -43,6 +43,14 @@ final class AppSession {
     /// Bumped by holding the remote's Play/Pause: the Now Playing panel on
     /// screen takes focus, on its play button.
     var themePanelFocusRequest = 0
+    /// The panel takes focus as it appears (a card was just played and the
+    /// panel wasn't up yet).
+    var themePanelFocusPending = false
+    /// The Music tab card that started what's playing, for Back in the
+    /// panel to go back to; nil once its page has gone.
+    var themeReturnCard: String?
+    /// Bumped by Back in the panel: focus goes to `themeReturnCard`.
+    var themeReturnFocusRequest = 0
     /// Links arriving from the Top Shelf.
     let router = DeepLinkRouter()
 

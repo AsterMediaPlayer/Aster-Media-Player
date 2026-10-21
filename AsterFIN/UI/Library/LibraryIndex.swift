@@ -154,6 +154,10 @@ struct SectionedItemGrid: View {
 
     /// The grid's width, for how many titles fit in a row when built whole.
     @State private var width: CGFloat = 0
+    /// The last focus change in the grid: from which card to which, and
+    /// when. A press whose own move already went card to card is left alone;
+    /// one that bounced off a stand-in (back from nothing) is carried on.
+    @State private var lastFocusChange: (from: String?, to: String?, at: Date)?
 
     private var itemWidth: CGFloat { landscape ? Lockup.landscapeWidth : Lockup.posterWidth }
 
@@ -206,9 +210,17 @@ struct SectionedItemGrid: View {
         // the focus engine, a press landed on invisible stand-ins it puts in
         // the gaps between cards (the titles, the letter headings), which sent
         // it straight back: every move took two presses.
+        .onChange(of: focus?.wrappedValue) { old, new in
+            lastFocusChange = (old, new, Date())
+        }
         .onMoveCommand { direction in
-            guard buildsWhole, direction == .down || direction == .up, let focus, let current = focus.wrappedValue,
-                  let target = Self.target(from: current, down: direction == .down, in: sections, perRow: perRow) else { return }
+            guard buildsWhole, direction == .down || direction == .up, let focus, let current = focus.wrappedValue else { return }
+            // The focus engine's own move got there, card to card, just now.
+            if let change = lastFocusChange, change.to == current, change.from != nil, change.from != current,
+               Date().timeIntervalSince(change.at) < 0.3 {
+                return
+            }
+            guard let target = Self.target(from: current, down: direction == .down, in: sections, perRow: perRow) else { return }
             #if DEBUG
             print("DEBUG focus: grid moves \(direction == .down ? "down" : "up") to \(target)")
             #endif

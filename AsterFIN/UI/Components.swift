@@ -301,6 +301,12 @@ struct LandscapeLockup: View {
             return item.yearText
         case .movie:
             return item.yearText
+        case .musicVideo:
+            // The show it's from (the OP/ED plugin writes it as the album),
+            // and who sings it: "The Apothecary Diaries · Uru".
+            let artists = (item.artists ?? []).filter { !$0.isEmpty }.joined(separator: ", ")
+            let parts = [item.album, artists.isEmpty ? nil : artists].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
         default:
             return nil
         }

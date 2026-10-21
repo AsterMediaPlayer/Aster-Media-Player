@@ -142,17 +142,14 @@ struct SectionedItemGrid: View {
     }
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing, pinnedViews: []) {
+        // Each letter is a grid of its own, the screen's width, and on Apple
+        // TV a focus section: down into a letter with one or two titles lands
+        // on them even when they aren't under the title focused, rather than
+        // the focus engine reaching past to a row further down (and bouncing
+        // back), as it did with every letter in one grid.
+        LazyVStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
             ForEach(sections) { section in
-                Section {
-                    ForEach(section.items) { item in
-                        if landscape {
-                            LandscapeLockup(item: item, focus: focus)
-                        } else {
-                            PosterLockup(item: item, focus: focus)
-                        }
-                    }
-                } header: {
+                VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
                     Text(section.key)
                         .font(.title3.weight(.bold))
                         .foregroundStyle(.secondary)
@@ -160,7 +157,18 @@ struct SectionedItemGrid: View {
                         .padding(.top, 12)
                         .id(LibraryIndexBar.anchor(section.key))
                         .accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                        ForEach(section.items) { item in
+                            if landscape {
+                                LandscapeLockup(item: item, focus: focus)
+                            } else {
+                                PosterLockup(item: item, focus: focus)
+                            }
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .tvFocusSection()
             }
         }
         .padding(.horizontal, Lockup.screenPadding)

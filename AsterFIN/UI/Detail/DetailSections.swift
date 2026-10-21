@@ -168,7 +168,15 @@ struct ThemeMusicSection: View {
             session.themeReturnCard = nil
         }
         .onChange(of: session.themeReturnFocusRequest) { _, _ in
-            if let card = session.themeReturnCard { focusedCard = card }
+            guard let card = session.themeReturnCard else { return }
+            // A beat later, after Back's own handling.
+            Task {
+                try? await Task.sleep(for: .milliseconds(100))
+                focusedCard = card
+                #if DEBUG
+                print("DEBUG focus: card \(card) asked for focus")
+                #endif
+            }
         }
         .alert(confirming?.nsfw == true ? "NSFW" : "Spoilers", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
             Button("Play") {
@@ -253,6 +261,9 @@ struct ThemeMusicSection: View {
                 session.themeReturnCard = entry.id
                 session.themePanelFocusPending = true
                 session.themePanelFocusRequest += 1
+                #if DEBUG
+                print("DEBUG focus: played \(entry.id); the panel is to take focus")
+                #endif
             }
             #endif
         } else {

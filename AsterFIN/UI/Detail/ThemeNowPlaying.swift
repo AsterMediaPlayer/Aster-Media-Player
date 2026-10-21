@@ -300,7 +300,12 @@ struct ThemeNowPlayingPanel: View {
             }
             // Back goes to the card that started it, while its page is up;
             // otherwise Back does what it always does.
-            .tvExitCommand(perform: session.themeReturnCard == nil ? nil : { session.themeReturnFocusRequest += 1 })
+            .tvExitCommand(perform: session.themeReturnCard == nil ? nil : {
+                #if DEBUG
+                print("DEBUG focus: Back in the panel, returning to \(session.themeReturnCard ?? "-")")
+                #endif
+                session.themeReturnFocusRequest += 1
+            })
         }
     }
 
@@ -396,12 +401,18 @@ struct ThemeNowPlayingPanel: View {
             control("backward.fill", label: "Previous") { deck.previous() }
             control(deck.isPlaying ? "pause.fill" : "play.fill", label: deck.isPlaying ? "Pause" : "Play", prominent: true) { deck.togglePlaying() }
                 .focused($playFocused)
-                .onChange(of: session.themePanelFocusRequest) { _, _ in playFocused = true }
-                .onAppear {
-                    // A card was played before the panel was up: it takes focus now.
+                .task(id: session.themePanelFocusRequest) {
+                    // Asked for (a card played, or Play/Pause held): once the
+                    // press and the panel's own arrival have settled, as the
+                    // focus engine ignores a move it can't make yet.
                     guard session.themePanelFocusPending else { return }
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled, session.themePanelFocusPending else { return }
                     session.themePanelFocusPending = false
-                    Task { playFocused = true }
+                    playFocused = true
+                    #if DEBUG
+                    print("DEBUG focus: panel's Play button asked for focus (request \(session.themePanelFocusRequest))")
+                    #endif
                 }
             control("forward.fill", label: "Next") { deck.next() }
             control("stop.fill", label: "Stop") { deck.stop() }

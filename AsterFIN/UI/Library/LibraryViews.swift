@@ -402,6 +402,20 @@ struct TypeGridView: View {
         .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
         .task(id: session.animeItemIds.count) { await loadHero() }
+        #if DEBUG
+        // Where each move lands, with its letter, to see a press go astray.
+        .onChange(of: focusedLockup) { old, new in
+            func describe(_ id: String?) -> String {
+                guard let id else { return "nothing" }
+                if let section = sections.first(where: { $0.items.contains { $0.id == id } }),
+                   let index = section.items.firstIndex(where: { $0.id == id }) {
+                    return "[\(section.key) \(index + 1)/\(section.items.count)] \(section.items[index].displayTitle)"
+                }
+                return recent.contains(where: { $0.id == id }) ? "[Recently Added] \(id)" : id
+            }
+            print("DEBUG focus: grid \(describe(old)) -> \(describe(new))")
+        }
+        #endif
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
         }

@@ -238,6 +238,11 @@ struct ItemDetailView: View {
     @AppStorage(AppSettings.themeVideosKey) private var themeVideos = false
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @State private var model = DetailModel()
+    #if os(tvOS)
+    /// The page as one focus scope, the Now Playing panel included, so Back
+    /// there can hand focus back to the card that started it.
+    @Namespace private var pageFocus
+    #endif
     @State private var playback: PlaybackRequest?
     /// Where the Play button's middle is across the screen, which the
     /// episode bar centers the next episode under.
@@ -362,6 +367,9 @@ struct ItemDetailView: View {
             }
         }
         .animation(.smooth(duration: 0.4), value: showsThemePanel)
+        #if os(tvOS)
+        .focusScope(pageFocus)
+        #endif
         // While this page shows the full panel, the slim one stays away.
         .onChange(of: showsThemePanel, initial: true) { _, shows in
             if shows {
@@ -562,6 +570,7 @@ struct ItemDetailView: View {
             // player; it was already OK'd if it's a spoiler.
             ThemeMusicSection(entries: model.openingsEndings, seasons: model.seasons, fallbackArtwork: session.client?.landscapeURL(for: detail, width: 800),
                               show: detail, deck: themeDeck, panelBesidePage: themePanelBesidePage,
+                              focusScope: pageFocusScope,
                               fullScreen: { entry in themeFullScreen(entry) },
                               addToPlaylist: { ids in playlistRequest = PlaylistRequest(itemIds: ids) })
         case .extras:
@@ -663,6 +672,15 @@ struct ItemDetailView: View {
     }
 
     /// The full panel: on the page of the show whose theme is playing.
+    /// The page's focus scope, for the Music tab's cards (Apple TV).
+    private var pageFocusScope: Namespace.ID? {
+        #if os(tvOS)
+        pageFocus
+        #else
+        nil
+        #endif
+    }
+
     private var showsThemePanel: Bool {
         themeDeck.isActive && themeDeck.showItem?.id == detail.id && themePanelBesidePage && usesSections && !watchingOpening
     }

@@ -109,6 +109,9 @@ struct ThemeMusicSection: View {
     let deck: ThemeDeck
     /// Whether the page shows the panel beside everything (not on a phone).
     var panelBesidePage: Bool
+    /// The page's focus scope, holding the panel too: the card that started
+    /// what plays is its preferred focus, for Back in the panel to return to.
+    var focusScope: Namespace.ID?
     /// The panel's Full Screen, on a phone.
     var fullScreen: (OpeningEnding) -> Void
     /// Adds library items (the plugin's published music videos) to a playlist.
@@ -124,6 +127,9 @@ struct ThemeMusicSection: View {
     /// The card with focus, so Back from the Now Playing panel can return
     /// to the one that started it.
     @FocusState private var focusedCard: String?
+    #if os(tvOS)
+    @Environment(\.resetFocus) private var resetFocus
+    #endif
 
 
     /// Everything, in the order the rows show it, in the preferred version:
@@ -167,11 +173,22 @@ struct ThemeMusicSection: View {
             // Back in the panel (the slim one, elsewhere) is ordinary again.
             session.themeReturnCard = nil
         }
+        #if DEBUG
+        .onChange(of: focusedCard) { _, card in
+            print("DEBUG focus: Music tab focus on \(card ?? "nothing there")")
+        }
+        #endif
         .onChange(of: session.themeReturnFocusRequest) { _, _ in
             guard let card = session.themeReturnCard else { return }
-            // A beat later, after Back's own handling.
+            // A beat later, after Back's own handling. The focus engine takes
+            // a reset of the page's scope (whose preferred focus is the card)
+            // where it ignores a plain move into another region.
             Task {
                 try? await Task.sleep(for: .milliseconds(100))
+                #if os(tvOS)
+                if let focusScope { resetFocus(in: focusScope) }
+                #endif
+                focusedCard = nil
                 focusedCard = card
                 #if DEBUG
                 print("DEBUG focus: card \(card) asked for focus")
@@ -319,11 +336,17 @@ struct ThemeMusicSection: View {
         case .theme(let theme):
             ThemeCard(theme: theme, seasonName: Self.seasonName(theme, in: seasons), fallbackArtwork: fallbackArtwork, isPlaying: deck.current?.id == entry.id,
                       focusTag: ($focusedCard, entry.id),
+                      preferredIn: preferredScope(for: entry),
                       addToPlaylist: theme.libraryItemId.map { id in { addToPlaylist([id]) } },
                       playCut: theme.availableCuts.count > 1 ? { cut in pressed(entry, cut: cut) } : nil) { pressed(entry) }
         case .chapter(let clip):
-            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id, focusTag: ($focusedCard, entry.id)) { pressed(entry) }
+            ThemeClipLockup(clip: clip, isPlaying: deck.current?.id == entry.id, focusTag: ($focusedCard, entry.id), preferredIn: preferredScope(for: entry)) { pressed(entry) }
         }
+    }
+
+    /// The page's scope, when this card is the one Back in the panel returns to.
+    private func preferredScope(for entry: OpeningEnding) -> Namespace.ID? {
+        session.themeReturnCard == entry.id ? focusScope : nil
     }
 
     /// A season's name when the show has more than one, since OP 1 comes
@@ -366,6 +389,9 @@ struct ThemeCard: View {
     var isPlaying = false
     /// Where focus can be put back on it (Back from the Now Playing panel).
     var focusTag: (binding: FocusState<String?>.Binding, id: String)?
+    /// The focus scope it's the preferred focus of, while it's the card Back
+    /// in the panel returns to.
+    var preferredIn: Namespace.ID?
     /// For a theme the plugin published as a music video: adds it to a playlist.
     var addToPlaylist: (() -> Void)?
     /// Plays one version (TV size, full, music video); nil when it has only
@@ -429,6 +455,7 @@ struct ThemeCard: View {
             }
             .cardButtonStyle()
             .focusTag(focusTag)
+            .preferredFocus(in: preferredIn)
             .contextMenu {
                 if let playCut {
                     ForEach(theme.availableCuts.reversed()) { cut in

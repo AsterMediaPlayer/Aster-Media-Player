@@ -126,6 +126,20 @@ extension View {
             self
         }
     }
+
+    /// The preferred focus of `scope` (Apple TV), when there is one.
+    @ViewBuilder
+    func preferredFocus(in scope: Namespace.ID?) -> some View {
+        #if os(tvOS)
+        if let scope {
+            prefersDefaultFocus(true, in: scope)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
 }
 
 struct ThemeClipLockup: View {
@@ -134,6 +148,8 @@ struct ThemeClipLockup: View {
     var isPlaying = false
     /// Where focus can be put back on it (Back from the Now Playing panel).
     var focusTag: (binding: FocusState<String?>.Binding, id: String)?
+    /// The focus scope it's the preferred focus of (see `ThemeCard`).
+    var preferredIn: Namespace.ID?
     var play: () -> Void
 
     @Environment(AppSession.self) private var session
@@ -172,6 +188,7 @@ struct ThemeClipLockup: View {
             }
             .cardButtonStyle()
             .focusTag(focusTag)
+            .preferredFocus(in: preferredIn)
             .keyboardTarget(action: play)
             .accessibilityLabel("\(clip.title), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
 

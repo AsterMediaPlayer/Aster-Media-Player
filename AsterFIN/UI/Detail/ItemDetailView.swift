@@ -363,7 +363,10 @@ struct ItemDetailView: View {
                 .padding(.trailing, ThemePanelMetrics.trailing)
                 .padding(.vertical, ThemePanelMetrics.vertical)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                // A fade, not a slide: moving its glass controls across the screen
+                // has the system re-render the glass every frame off the main
+                // thread, filling the console with setPresentationValue faults.
+                .transition(.opacity)
             }
         }
         .animation(.smooth(duration: 0.4), value: showsThemePanel)

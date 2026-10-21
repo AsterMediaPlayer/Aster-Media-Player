@@ -1303,6 +1303,15 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
         ThemeCut.allCases.filter { cut($0) != nil }
     }
 
+    /// Versions the server has but is still making a playable copy of.
+    var preparingCuts: [ThemeCut] {
+        guard cut == .tvSize else { return [] }
+        var preparing: [ThemeCut] = []
+        if hasFullVersion == true, cut(.full) == nil { preparing.append(.full) }
+        if hasMusicVideo == true, cut(.musicVideo) == nil { preparing.append(.musicVideo) }
+        return preparing
+    }
+
     /// The version Settings prefers, or the nearest it has: a music video
     /// falls back to the full version, then the TV size.
     func preferring(_ preference: ThemeCut) -> OpEdTheme {

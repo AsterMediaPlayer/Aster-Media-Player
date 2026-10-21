@@ -422,11 +422,12 @@ private struct PlaybackSettingsView: View {
                         if !on { session.themeDeck.stop() }
                     }
                 SettingsNote("Openings and endings picked on a show's Music tab play in a panel beside the page, and keep playing in a small one while you browse. Off, they play full screen, one at a time.")
-                Picker("Version to play", selection: $themeCut) {
-                    ForEach(ThemeCut.allCases) { cut in
-                        Text(cut.settingTitle).tag(cut)
-                    }
-                }
+                // Not a Picker: its pushed list hangs on tvOS on a pushed page.
+                SettingsChoiceRow(
+                    title: "Version to play",
+                    options: ThemeCut.allCases.map { ($0, $0.settingTitle) },
+                    selection: $themeCut
+                )
                 SettingsNote("Where the server has it, a show's Music tab plays this version of each song: the TV size, the full-length song (an OP1-Full file beside OP1 in the OP/ED plugin's folder) or its music video (OP1-MV). A song without it plays the nearest it has: a music video falls back to the full version, then the TV size. Hold a song's card to play another. Watch OP and the opening behind a show's page always use the TV size.")
                 // Every music video library but the OP/ED plugin's, which
                 // the Anime tab always shows.

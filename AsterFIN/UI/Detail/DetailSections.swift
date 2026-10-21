@@ -370,11 +370,13 @@ struct ThemeCard: View {
                     }
                     HStack(spacing: 6) {
                         pill(badge)
-                        // Hold the card to pick one, or the TV size.
-                        if theme.cut(.full) != nil {
+                        // Hold the card to pick one, or the TV size. Shown as
+                        // soon as the server knows of it, while its copy is
+                        // still being made.
+                        if theme.hasFullVersion == true || theme.cut(.full) != nil {
                             pill("Full", systemImage: ThemeCut.full.symbol)
                         }
-                        if theme.cut(.musicVideo) != nil {
+                        if theme.hasMusicVideo == true || theme.cut(.musicVideo) != nil {
                             pill("MV", systemImage: ThemeCut.musicVideo.symbol)
                         }
                         if isPlaying {
@@ -400,6 +402,11 @@ struct ThemeCard: View {
                     ForEach(theme.availableCuts.reversed()) { cut in
                         Button(cut.playTitle, systemImage: cut.symbol) { playCut(cut) }
                     }
+                }
+                // A version the server is still making a copy of.
+                ForEach(theme.preparingCuts) { cut in
+                    Button("\(cut.settingTitle) (Preparing…)", systemImage: "hourglass") {}
+                        .disabled(true)
                 }
                 if let addToPlaylist {
                     Button("Add to Playlist", systemImage: "text.badge.plus", action: addToPlaylist)

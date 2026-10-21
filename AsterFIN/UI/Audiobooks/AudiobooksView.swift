@@ -839,6 +839,8 @@ struct AudiobookSpeedMenu: View {
 /// The full-screen audiobook player: cover, chapter progress, skips, speed
 /// and the chapter list.
 struct AudiobookNowPlayingView: View {
+    /// Where the progress bar's being dragged to, as a share of the chapter.
+    @State private var scrubPlace: Double?
     @Environment(AppSession.self) private var session
     @Environment(\.coverDismiss) private var dismiss
     @FocusState private var focusedControl: String?
@@ -952,10 +954,15 @@ struct AudiobookNowPlayingView: View {
     private var progress: some View {
         let bounds = player.chapterBounds
         let length = bounds.end - bounds.start
-        let into = min(max(player.currentTime - bounds.start, 0), length)
-        let bookLeft = max(player.bookDuration - player.bookElapsed, 0) / Double(player.rate)
+        let playing = min(max(player.currentTime - bounds.start, 0), length)
+        // While the bar's dragged, the times show where it's going.
+        let into = scrubPlace.map { $0 * length } ?? playing
+        let bookLeft = max(player.bookDuration - (player.bookElapsed - playing + into), 0) / Double(player.rate)
         return VStack(spacing: 8) {
-            ProgressBar(progress: length > 0 ? into / length : 0)
+            ScrubBar(progress: length > 0 ? playing / length : 0, scrubbing: $scrubPlace, accessibilityStep: length > 0 ? 30 / length : 0.05) { place in
+                // A chapter is always within one part, so this stays in it.
+                player.seek(to: bounds.start + place * length)
+            }
             HStack {
                 Text(MusicFormat.clock(into))
                 Spacer()

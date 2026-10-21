@@ -581,6 +581,53 @@ struct ProgressBar: View {
     }
 }
 
+/// A progress bar that can be dragged to a new place (iPhone, iPad, Mac),
+/// as the video player's timeline can: `scrubbing` follows the finger, for
+/// the times beside it to show where it's going, and `commit` is called with
+/// the place let go at. On Apple TV, where the remote has its own skip
+/// buttons, it's the plain bar.
+struct ScrubBar: View {
+    let progress: Double
+    @Binding var scrubbing: Double?
+    /// One VoiceOver adjustment, as a share of the bar (30 s of the length).
+    var accessibilityStep: Double = 0.05
+    var commit: (Double) -> Void
+
+    var body: some View {
+        #if os(tvOS)
+        ProgressBar(progress: progress)
+        #else
+        GeometryReader { proxy in
+            ProgressBar(progress: scrubbing ?? progress)
+                .scaleEffect(y: scrubbing == nil ? 1 : 1.6)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard proxy.size.width > 0 else { return }
+                            scrubbing = min(max(value.location.x / proxy.size.width, 0), 1)
+                        }
+                        .onEnded { _ in
+                            if let place = scrubbing { commit(place) }
+                            scrubbing = nil
+                        }
+                )
+        }
+        // A finger-sized strip around the thin bar.
+        .frame(height: 28)
+        .animation(.easeOut(duration: 0.15), value: scrubbing == nil)
+        .accessibilityElement()
+        .accessibilityLabel("Position")
+        .accessibilityValue("\(Int((progress * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            let step = direction == .increment ? accessibilityStep : -accessibilityStep
+            commit(min(max(progress + step, 0), 1))
+        }
+        #endif
+    }
+}
+
 struct UnplayedBadge: View {
     var body: some View {
         Circle()

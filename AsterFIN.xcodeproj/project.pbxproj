@@ -453,6 +453,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aster;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -503,6 +505,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aster;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -591,7 +595,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -622,7 +626,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

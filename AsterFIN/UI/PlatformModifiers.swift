@@ -21,6 +21,19 @@ extension View {
         #endif
     }
 
+    /// Apple TV: while `fromHero` (the hero has focus), a press down into
+    /// this row lands on `target`, its first card, rather than whichever
+    /// card is under the middle of the hero, from where the hero's own
+    /// `moveDown` then pulled focus across a moment later. At other times
+    /// nothing matches, so a press up from below picks its card as usual.
+    func heroLanding(_ binding: FocusState<String?>.Binding, on target: String?, fromHero: Bool) -> some View {
+        #if os(tvOS)
+        defaultFocus(binding, (fromHero ? target : nil) ?? "no-hero-landing", priority: fromHero ? .userInitiated : .automatic)
+        #else
+        self
+        #endif
+    }
+
     /// The tvOS lift-and-tilt card button style; a plain button elsewhere.
     @ViewBuilder
     func cardButtonStyle() -> some View {

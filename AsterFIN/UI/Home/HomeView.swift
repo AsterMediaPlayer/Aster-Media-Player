@@ -106,6 +106,8 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var model = HomeModel()
     @FocusState private var focusedLockup: String?
+    /// Whether the hero has focus, so a press down lands on the first card.
+    @State private var heroFocused = false
     #if os(macOS)
     @Environment(\.openItem) private var openItem
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -212,12 +214,15 @@ struct HomeView: View {
                                 // Once the hero has focus again, forget the shelf target so a
                                 // re-rendered poster cannot pull focus back down later.
                                 if focused { focusedLockup = nil }
+                                heroFocused = focused
                             }, keyboardPage: heroKeyboardPage, pageChanged: { page in
                                 #if os(macOS)
                                 heroPage = page
                                 #endif
                             })
                         }
+                        // Each shelf in turn; only the first holds the card.
+                        Group {
                         Shelf(title: "Continue Watching", items: model.continueWatching, keyboardSelection: keyboardSelection(in: "continue")) { item in
                             LandscapeLockup(item: item, focus: lockupFocus(for: "continue"))
                         }
@@ -244,6 +249,8 @@ struct HomeView: View {
                             }
                             .id(Self.rowID(shelf.id))
                         }
+                        }
+                        .heroLanding($focusedLockup, on: firstShelfItemID, fromHero: heroFocused)
                     }
                     .padding(.bottom, 80)
                 }

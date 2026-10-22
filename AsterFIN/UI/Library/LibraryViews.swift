@@ -352,6 +352,8 @@ struct TypeGridView: View {
     @State private var heroLoaded = false
     /// Where focus goes on pressing down from the hero: the first new title.
     @FocusState private var focusedLockup: String?
+    /// Whether the hero has focus, so a press down lands on the first new title.
+    @State private var heroFocused = false
     /// By name, every title in letter sections with an index.
     @State private var sections: [IndexSection] = []
 
@@ -381,6 +383,7 @@ struct TypeGridView: View {
                             focusedLockup = recent.first?.id
                         }, focusChanged: { focused in
                             if focused { focusedLockup = nil }
+                            heroFocused = focused
                         })
                     }
                     if heroLoaded {
@@ -436,6 +439,7 @@ struct TypeGridView: View {
         Shelf(title: "Recently Added", items: recent) { item in
             LandscapeLockup(item: item, focus: $focusedLockup)
         }
+        .heroLanding($focusedLockup, on: recent.first?.id, fromHero: heroFocused)
         #if os(tvOS)
         .onMoveCommand { direction in
             if direction == .down { moveDownFromRecent(reader) }

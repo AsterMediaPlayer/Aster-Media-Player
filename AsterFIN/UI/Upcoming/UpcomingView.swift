@@ -123,6 +123,8 @@ struct UpcomingView: View {
     @State private var model = UpcomingModel()
     /// Where focus goes on pressing down from the hero: the first card.
     @FocusState private var focusedCard: String?
+    /// Whether the hero has focus, so a press down lands on the first card.
+    @State private var heroFocused = false
     #if os(macOS)
     @Environment(\.openItem) private var openItem
     @Environment(KeyboardNavigation.self) private var keyboard
@@ -168,6 +170,7 @@ struct UpcomingView: View {
                     #endif
                 }, focusChanged: { focused in
                     if focused { focusedCard = nil }
+                    heroFocused = focused
                 }, keyboardPage: heroKeyboardPage, pageChanged: { page in
                     #if os(macOS)
                     heroPage = page
@@ -185,6 +188,7 @@ struct UpcomingView: View {
                         UpcomingCard(episode: episode, focus: position == 0 ? $focusedCard : nil)
                     }
                     .id(position == 0 ? Self.firstRowID : "upcoming-\(position)")
+                    .heroLanding($focusedCard, on: position == 0 ? entry.episodes.first?.id : nil, fromHero: heroFocused)
                 }
             }
             .padding(.bottom, Lockup.pageBottomPadding)

@@ -103,6 +103,8 @@ struct AnimeView: View {
     @State private var model = AnimeModel()
     /// Where focus goes on pressing down from the hero: the first library.
     @FocusState private var focusedTile: String?
+    /// Whether the hero has focus, so a press down lands on the first library.
+    @State private var heroFocused = false
     #if os(macOS)
     @Environment(\.openItem) private var openItem
     @Environment(KeyboardNavigation.self) private var keyboard
@@ -131,6 +133,7 @@ struct AnimeView: View {
                         #endif
                     }, focusChanged: { focused in
                         if focused { focusedTile = nil }
+                        heroFocused = focused
                     }, keyboardPage: heroKeyboardPage, pageChanged: { page in
                         #if os(macOS)
                         heroPage = page
@@ -162,6 +165,7 @@ struct AnimeView: View {
                         LibraryTile(library: library, focus: $focusedTile)
                     }
                     .id(Self.librariesRowID)
+                    .heroLanding($focusedTile, on: session.animeLibraries.first?.id, fromHero: heroFocused)
                     Shelf(title: "Continue Watching", items: model.continueWatching) { item in
                         LandscapeLockup(item: item)
                     }

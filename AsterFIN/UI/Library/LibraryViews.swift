@@ -321,7 +321,7 @@ struct LibraryGridView: View {
     private func jump(to key: String, _ reader: ScrollViewProxy) {
         guard let first = sections.first(where: { $0.key == key })?.items.first else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
-            reader.scrollTo(first.id, anchor: .top)
+            reader.scrollTo(LibraryIndexBar.anchor(key), anchor: .top)
         }
         #if os(tvOS)
         Task {
@@ -508,7 +508,7 @@ struct TypeGridView: View {
     private func jump(to key: String, _ reader: ScrollViewProxy) {
         guard let first = sections.first(where: { $0.key == key })?.items.first else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
-            reader.scrollTo(first.id, anchor: .top)
+            reader.scrollTo(LibraryIndexBar.anchor(key), anchor: .top)
         }
         #if os(tvOS)
         Task {

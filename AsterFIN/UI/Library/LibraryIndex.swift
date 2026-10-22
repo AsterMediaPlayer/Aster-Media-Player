@@ -141,11 +141,9 @@ struct SectionedItemGrid: View {
         return [GridItem(.adaptive(minimum: width, maximum: width), spacing: Lockup.gridSpacing, alignment: .top)]
     }
 
-    /// Up to this many titles, the grid is built whole rather than as it
-    /// scrolls into view. A lazy grid stands placeholders in for rows not yet
-    /// built, and on Apple TV a press down lands on one, then jumps to the
-    /// real card a moment later: the bounce, and sometimes a second press.
-    /// Big libraries stay lazy, to open quickly.
+    /// Off Apple TV, up to this many titles the grid is built whole rather
+    /// than as it scrolls into view; big libraries stay lazy, to open
+    /// quickly. Apple TV always builds lazy rows.
     static let builtWholeUpTo = 200
 
     private var buildsWhole: Bool {
@@ -173,29 +171,37 @@ struct SectionedItemGrid: View {
         // invisible stand-ins to catch presses, and the space under each card
         // (its title) caught every press down and sent it back to the card.
         Group {
+            #if os(tvOS)
+            // One lazy run of rows across every letter, built as they near the
+            // screen, so a move only involves the cards around it. Each
+            // letter sits in the margin beside its first row, so every row is
+            // spaced alike: a heading of its own made a tall gap, where the
+            // focus engine put a stand-in that bounced each press across
+            // letters, stuttering the scroll.
+            LazyVStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                ForEach(Self.rows(of: sections, perRow: perRow)) { row in
+                    HStack(alignment: .top, spacing: Lockup.gridSpacing) {
+                        ForEach(row.items) { item in
+                            lockup(item)
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if let letter = row.letter { marginLetter(letter) }
+                    }
+                }
+            }
+            #else
             if buildsWhole {
                 VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
                     ForEach(sections) { section in
                         VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
-                            #if !os(tvOS)
                             header(section)
-                            #endif
                             ForEach(Array(stride(from: 0, to: section.items.count, by: perRow)), id: \.self) { start in
                                 HStack(alignment: .top, spacing: Lockup.gridSpacing) {
                                     ForEach(section.items[start ..< min(start + perRow, section.items.count)]) { item in
                                         lockup(item)
                                     }
                                 }
-                                #if os(tvOS)
-                                // The letter sits in the margin beside its first
-                                // row, so every row is spaced alike. A heading of
-                                // its own made a tall gap, where the focus engine
-                                // put a stand-in that bounced each press across
-                                // letters, stuttering the scroll.
-                                .overlay(alignment: .topLeading) {
-                                    if start == 0 { marginLetter(section) }
-                                }
-                                #endif
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -216,6 +222,7 @@ struct SectionedItemGrid: View {
                     }
                 }
             }
+            #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -229,7 +236,7 @@ struct SectionedItemGrid: View {
             if let focus { FocusChangeWatcher(focus: focus, log: focusChanges) }
         }
         .onMoveCommand { direction in
-            guard buildsWhole, direction == .down || direction == .up, let focus, let current = focus.wrappedValue else { return }
+            guard direction == .down || direction == .up, let focus, let current = focus.wrappedValue else { return }
             // The focus engine's own move got there, card to card, just now.
             if let change = focusChanges.last, change.to == current, change.from != nil, change.from != current,
                Date().timeIntervalSince(change.at) < 0.3 {
@@ -288,15 +295,35 @@ struct SectionedItemGrid: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    /// One row of the grid. A letter's first row has the letter's anchor for
+    /// its id, so the index bar can scroll to it even before it's built.
+    struct Row: Identifiable {
+        let id: String
+        /// The letter shown beside it, on a letter's first row only.
+        let letter: String?
+        let items: ArraySlice<BaseItem>
+    }
+
+    /// The sections cut into rows of `perRow`, each letter starting a new row.
+    static func rows(of sections: [IndexSection], perRow: Int) -> [Row] {
+        let perRow = max(1, perRow)
+        return sections.flatMap { section in
+            stride(from: 0, to: section.items.count, by: perRow).map { start in
+                let items = section.items[start ..< min(start + perRow, section.items.count)]
+                let id = start == 0 ? LibraryIndexBar.anchor(section.key) : "\(LibraryIndexBar.anchor(section.key))-\(start)"
+                return Row(id: id, letter: start == 0 ? section.key : nil, items: items)
+            }
+        }
+    }
+
     /// A letter's label in the left margin, level with its first row's top.
-    private func marginLetter(_ section: IndexSection) -> some View {
-        Text(section.key)
+    private func marginLetter(_ key: String) -> some View {
+        Text(key)
             .font(.title3.weight(.bold))
             .foregroundStyle(.secondary)
             .frame(width: Lockup.screenPadding, alignment: .center)
             .offset(x: -Lockup.screenPadding)
             .padding(.top, 8)
-            .id(LibraryIndexBar.anchor(section.key))
             .accessibilityAddTraits(.isHeader)
     }
 

@@ -157,7 +157,9 @@ struct SectionedItemGrid: View {
     /// The last focus change in the grid: from which card to which, and
     /// when. A press whose own move already went card to card is left alone;
     /// one that bounced off a stand-in (back from nothing) is carried on.
-    @State private var lastFocusChange: (from: String?, to: String?, at: Date)?
+    /// Kept in a box SwiftUI doesn't watch, so a move doesn't rebuild every
+    /// card mid-animation.
+    @State private var focusChanges = FocusChangeLog()
 
     private var itemWidth: CGFloat { landscape ? Lockup.landscapeWidth : Lockup.posterWidth }
 
@@ -210,20 +212,18 @@ struct SectionedItemGrid: View {
         // the focus engine, a press landed on invisible stand-ins it puts in
         // the gaps between cards (the titles, the letter headings), which sent
         // it straight back: every move took two presses.
-        .onChange(of: focus?.wrappedValue) { old, new in
-            lastFocusChange = (old, new, Date())
+        // Watched from a background view, so only that view redraws per move.
+        .background {
+            if let focus { FocusChangeWatcher(focus: focus, log: focusChanges) }
         }
         .onMoveCommand { direction in
             guard buildsWhole, direction == .down || direction == .up, let focus, let current = focus.wrappedValue else { return }
             // The focus engine's own move got there, card to card, just now.
-            if let change = lastFocusChange, change.to == current, change.from != nil, change.from != current,
+            if let change = focusChanges.last, change.to == current, change.from != nil, change.from != current,
                Date().timeIntervalSince(change.at) < 0.3 {
                 return
             }
             guard let target = Self.target(from: current, down: direction == .down, in: sections, perRow: perRow) else { return }
-            #if DEBUG
-            print("DEBUG focus: grid moves \(direction == .down ? "down" : "up") to \(target)")
-            #endif
             focus.wrappedValue = target
             // Again once the focus engine has had its own go, in case it moved
             // focus back meanwhile.
@@ -283,6 +283,26 @@ struct SectionedItemGrid: View {
         } else {
             PosterLockup(item: item, focus: focus)
         }
+    }
+}
+
+/// A grid's last focus change, in a plain object: writing to it doesn't
+/// redraw anything.
+final class FocusChangeLog {
+    var last: (from: String?, to: String?, at: Date)?
+}
+
+/// Notes each focus change in a `FocusChangeLog`. Being its own small view,
+/// it's the only thing that redraws when focus moves.
+private struct FocusChangeWatcher: View {
+    let focus: FocusState<String?>.Binding
+    let log: FocusChangeLog
+
+    var body: some View {
+        Color.clear
+            .onChange(of: focus.wrappedValue) { old, new in
+                log.last = (old, new, Date())
+            }
     }
 }
 

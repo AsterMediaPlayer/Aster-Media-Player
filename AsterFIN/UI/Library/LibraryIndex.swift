@@ -177,13 +177,25 @@ struct SectionedItemGrid: View {
                 VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
                     ForEach(sections) { section in
                         VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
+                            #if !os(tvOS)
                             header(section)
+                            #endif
                             ForEach(Array(stride(from: 0, to: section.items.count, by: perRow)), id: \.self) { start in
                                 HStack(alignment: .top, spacing: Lockup.gridSpacing) {
                                     ForEach(section.items[start ..< min(start + perRow, section.items.count)]) { item in
                                         lockup(item)
                                     }
                                 }
+                                #if os(tvOS)
+                                // The letter sits in the margin beside its first
+                                // row, so every row is spaced alike. A heading of
+                                // its own made a tall gap, where the focus engine
+                                // put a stand-in that bounced each press across
+                                // letters, stuttering the scroll.
+                                .overlay(alignment: .topLeading) {
+                                    if start == 0 { marginLetter(section) }
+                                }
+                                #endif
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -272,6 +284,18 @@ struct SectionedItemGrid: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 12)
+            .id(LibraryIndexBar.anchor(section.key))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// A letter's label in the left margin, level with its first row's top.
+    private func marginLetter(_ section: IndexSection) -> some View {
+        Text(section.key)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.secondary)
+            .frame(width: Lockup.screenPadding, alignment: .center)
+            .offset(x: -Lockup.screenPadding)
+            .padding(.top, 8)
             .id(LibraryIndexBar.anchor(section.key))
             .accessibilityAddTraits(.isHeader)
     }

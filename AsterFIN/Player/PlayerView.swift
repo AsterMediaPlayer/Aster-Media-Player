@@ -867,8 +867,20 @@ struct SystemPlayer: UIViewControllerRepresentable {
     /// A tap on the video, which shows or hides the system controls (iOS).
     var onTap: (() -> Void)?
 
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate, AVPlayerViewControllerDelegate {
         var onTap: (() -> Void)?
+
+        #if os(iOS)
+        /// The player is embedded, not presented: it stays where it is under
+        /// the floating window, and is there again on return.
+        func playerViewControllerShouldAutomaticallyDismissAtPictureInPictureStart(_ playerViewController: AVPlayerViewController) -> Bool {
+            false
+        }
+
+        func playerViewController(_ playerViewController: AVPlayerViewController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+            completionHandler(true)
+        }
+        #endif
 
         private var lastReport = Date.distantPast
 
@@ -891,7 +903,14 @@ struct SystemPlayer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
+        #if os(iOS)
+        // Leaving the app while it plays moves the video into a floating window.
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.delegate = context.coordinator
+        #else
         controller.allowsPictureInPicturePlayback = false
+        #endif
         #if os(tvOS)
         controller.appliesPreferredDisplayCriteriaAutomatically = true
         #else

@@ -176,6 +176,11 @@ final class AetherPlayback {
     /// to letting this channel go first, rather than failing first.
     @ObservationIgnored private static var holdingUnavailableUntil = Date.distantPast
     @ObservationIgnored private var tuneMessageTask: Task<Void, Never>?
+    #if os(iOS)
+    /// The floating window the video moves into when the app leaves the
+    /// screen while it plays.
+    @ObservationIgnored private var pip: AetherPictureInPicture?
+    #endif
     /// A Channels-tab channel's next title, fetched while the one before it
     /// played on, so its start doesn't ask the server again.
     private struct PreparedTitle {
@@ -286,12 +291,28 @@ final class AetherPlayback {
             startReporting()
         }
         onItemStarted?(item)
+        #if os(iOS)
+        updatePictureInPicture()
+        #endif
         startTimedState()
         if isLive {
             // For the Top Shelf's recent channels.
             RecentChannels.record(item.id)
         }
     }
+
+    #if os(iOS)
+    /// The floating window on the engine playing now (another after a
+    /// channel change crosses over), with skipping as this title allows: Go
+    /// to Episode turns a channel into a plain title.
+    private func updatePictureInPicture() {
+        if pip?.engine !== engine {
+            pip?.stop()
+            pip = AetherPictureInPicture(engine: engine, followsTimeline: followsTimeline)
+        }
+        pip?.followsTimeline = followsTimeline
+    }
+    #endif
 
     /// A movie, episode or other video: the file itself, or a stream the
     /// server converts.
@@ -1004,6 +1025,10 @@ final class AetherPlayback {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        #if os(iOS)
+        pip?.stop()
+        pip = nil
+        #endif
         reportTask?.cancel()
         tuneTask?.cancel()
         tuneMessageTask?.cancel()

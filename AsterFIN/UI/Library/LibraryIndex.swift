@@ -158,6 +158,10 @@ struct SectionedItemGrid: View {
     /// Kept in a box SwiftUI doesn't watch, so a move doesn't rebuild every
     /// card mid-animation.
     @State private var focusChanges = FocusChangeLog()
+    /// The card focus left the grid from (for the sidebar, say). Coming
+    /// back, the focus engine would pick the card nearest where focus was,
+    /// often one row up; this one is preferred instead.
+    @State private var returnTo: String?
 
     private var itemWidth: CGFloat { landscape ? Lockup.landscapeWidth : Lockup.posterWidth }
 
@@ -233,22 +237,45 @@ struct SectionedItemGrid: View {
         // it straight back: every move took two presses.
         // Watched from a background view, so only that view redraws per move.
         .background {
-            if let focus { FocusChangeWatcher(focus: focus, log: focusChanges) }
+            if let focus { FocusChangeWatcher(focus: focus, log: focusChanges, returnTo: $returnTo) }
         }
+        .modifier(ReturnFocus(focus: focus, card: returnTo))
         .onMoveCommand { direction in
-            guard direction == .down || direction == .up, let focus, let current = focus.wrappedValue else { return }
-            // The focus engine's own move got there, card to card, just now.
-            if let change = focusChanges.last, change.to == current, change.from != nil, change.from != current,
-               Date().timeIntervalSince(change.at) < 0.3 {
-                return
+            guard direction == .down || direction == .up, let focus else { return }
+            // Each press gets a number: a later press's own move wins over
+            // this one's re-check below.
+            focusChanges.presses += 1
+            let press = focusChanges.presses
+            // The card the press started from. Focus can be on nothing for a
+            // moment: the lazy grid holds stand-ins for rows not built yet, and
+            // a press that lands on one leaves the grid's focus empty, then the
+            // focus engine picks some card on its own once the row is built.
+            // Moving on from the last card keeps the press to one row.
+            let from: String?
+            if let current = focus.wrappedValue {
+                // The focus engine's own move got there, card to card, just now.
+                if let change = focusChanges.last, change.to == current, change.from != nil, change.from != current,
+                   Date().timeIntervalSince(change.at) < 0.3 {
+                    return
+                }
+                from = current
+            } else if let change = focusChanges.last, change.to == nil, Date().timeIntervalSince(change.at) < 0.3 {
+                from = change.from
+            } else {
+                from = nil
             }
-            guard let target = Self.target(from: current, down: direction == .down, in: sections, perRow: perRow) else { return }
+            guard let from, let target = Self.target(from: from, down: direction == .down, in: sections, perRow: perRow) else { return }
             focus.wrappedValue = target
-            // Again once the focus engine has had its own go, in case it moved
-            // focus back meanwhile.
+            // Again once the focus engine has had its go (it may have moved
+            // focus on from a stand-in meanwhile), unless another press has
+            // come since: quick presses mustn't be pulled back to this one.
             Task {
-                try? await Task.sleep(for: .milliseconds(80))
-                if focus.wrappedValue != target { focus.wrappedValue = target }
+                // At 80 ms and 250 ms after the press.
+                for wait in [80, 170] {
+                    try? await Task.sleep(for: .milliseconds(wait))
+                    guard focusChanges.presses == press else { return }
+                    if focus.wrappedValue != target { focus.wrappedValue = target }
+                }
             }
         }
         #endif
@@ -341,6 +368,8 @@ struct SectionedItemGrid: View {
 /// redraw anything.
 final class FocusChangeLog {
     var last: (from: String?, to: String?, at: Date)?
+    /// How many up and down presses the grid has had.
+    var presses = 0
 }
 
 /// Notes each focus change in a `FocusChangeLog`. Being its own small view,
@@ -348,12 +377,47 @@ final class FocusChangeLog {
 private struct FocusChangeWatcher: View {
     let focus: FocusState<String?>.Binding
     let log: FocusChangeLog
+    @Binding var returnTo: String?
 
     var body: some View {
         Color.clear
             .onChange(of: focus.wrappedValue) { old, new in
                 log.last = (old, new, Date())
+                if let old, new == nil {
+                    // Focus left the grid. A hop onto a stand-in for an
+                    // unbuilt row is back on a card within a few
+                    // milliseconds; still out after that, it went elsewhere
+                    // (the sidebar, the letters), and coming back should land
+                    // on this card. (The remote's press into the sidebar never
+                    // reaches the grid, so it's told by focus alone.)
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        if focus.wrappedValue == nil, log.last?.to == nil, log.last?.from == old { returnTo = old }
+                    }
+                } else if new != nil, returnTo != nil {
+                    // Back in the grid: the card to return to has done its job.
+                    returnTo = nil
+                }
             }
+    }
+}
+
+/// Prefers `card` when focus moves into the grid by a press from outside
+/// (with `.userInitiated`, not only when the page first appears).
+private struct ReturnFocus: ViewModifier {
+    let focus: FocusState<String?>.Binding?
+    let card: String?
+
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        if let focus {
+            content.defaultFocus(focus, card, priority: .userInitiated)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 

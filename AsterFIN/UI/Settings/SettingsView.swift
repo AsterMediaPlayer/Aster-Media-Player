@@ -26,14 +26,20 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsDestination.audioSubtitles) {
                     Label("Audio & Subtitles", systemImage: "captions.bubble")
                 }
-                NavigationLink(value: SettingsDestination.discMenus) {
-                    Label("Disc Menus", systemImage: "opticaldisc")
+                // Disc menus come from a Jellyfin plugin, and Channels from
+                // playlist tags in Jellyfin's shape: neither on Emby yet.
+                if session.isJellyfin {
+                    NavigationLink(value: SettingsDestination.discMenus) {
+                        Label("Disc Menus", systemImage: "opticaldisc")
+                    }
                 }
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
-                NavigationLink(value: SettingsDestination.channels) {
-                    Label("Channels (Beta)", systemImage: "tv.and.mediabox")
+                if session.isJellyfin {
+                    NavigationLink(value: SettingsDestination.channels) {
+                        Label("Channels (Beta)", systemImage: "tv.and.mediabox")
+                    }
                 }
                 #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {

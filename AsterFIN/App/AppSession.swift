@@ -252,6 +252,8 @@ final class AppSession {
     private(set) var hasChannels = false
 
     func refreshChannels() async {
+        // Channels are playlist tags in Jellyfin's shape; Emby's differ.
+        guard isJellyfin else { hasChannels = false; return }
         guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
         hasChannels = ChannelsModel.taggedChannels(in: playlists).contains { $0.tags.isShown(to: userName) }
     }
@@ -263,7 +265,7 @@ final class AppSession {
         if let config = me.configuration {
             userConfiguration = config
         }
-        if canEditChannels { await convertOldChannelTags() }
+        if canEditChannels && isJellyfin { await convertOldChannelTags() }
     }
 
     /// Renames channel tags from the app's earlier name, "asterfin:…", to

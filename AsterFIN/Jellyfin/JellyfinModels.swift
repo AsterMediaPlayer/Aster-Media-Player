@@ -176,11 +176,15 @@ nonisolated struct ChapterInfo: Codable, Sendable, Hashable {
     var startPositionTicks: Int64
     var name: String?
     var imageTag: String?
+    /// Emby's mark on a chapter: Chapter, or IntroStart, IntroEnd and
+    /// CreditsStart (its stand-in for media segments).
+    var markerType: String?
 
     enum CodingKeys: String, CodingKey {
         case startPositionTicks = "StartPositionTicks"
         case name = "Name"
         case imageTag = "ImageTag"
+        case markerType = "MarkerType"
     }
 }
 

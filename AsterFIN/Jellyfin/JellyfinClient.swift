@@ -193,8 +193,10 @@ nonisolated final class JellyfinClient: Sendable {
         return try await post(AuthenticationResult.self, "/Users/AuthenticateByName", body: Body(Username: username, Pw: password))
     }
 
+    /// Jellyfin's; Emby has no Quick Connect.
     func quickConnectEnabled() async throws -> Bool {
-        try await get(Bool.self, "/QuickConnect/Enabled")
+        guard kind == .jellyfin else { return false }
+        return try await get(Bool.self, "/QuickConnect/Enabled")
     }
 
     func quickConnectInitiate() async throws -> QuickConnectResult {
@@ -508,19 +510,23 @@ nonisolated final class JellyfinClient: Sendable {
     /// or episode. Nil when the plugin isn't installed, the item is unknown,
     /// or the request fails; callers then fall back to chapter markers.
     func opEdThemes(for itemId: String) async -> [OpEdTheme]? {
-        try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
+        // Aster's server plugins are Jellyfin plugins.
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
     }
 
     /// The theme a published music video (or song) is, from the OP/ED
     /// plugin; nil for any other item, or without the plugin.
     func opEdTheme(forLibraryItem itemId: String) async -> OpEdTheme? {
-        try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
     }
 
     /// Live TV channels' groups, by channel id, from the Aster Channels
     /// plugin; nil without it (or before 0.2), which leaves Live TV as it was.
     func liveTvGroups() async -> [String: String]? {
-        try? await get(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups").byChannel
+        guard kind == .jellyfin else { return nil }
+        return try? await get(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups").byChannel
     }
 
     /// Puts a Live TV channel in `group`, or out of its group for nil
@@ -533,7 +539,8 @@ nonisolated final class JellyfinClient: Sendable {
     /// The OP/ED plugin's published libraries; nil without the plugin (or
     /// before 0.2).
     func opEdLibraries() async -> OpEdLibraries? {
-        try? await get(OpEdLibraries.self, "/OpEd/Library")
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdLibraries.self, "/OpEd/Library")
     }
 
     /// A library's newest music videos, for a shelf.
@@ -1171,7 +1178,11 @@ nonisolated final class JellyfinClient: Sendable {
             var MediaType: String
             var IsPublic: Bool?
         }
-        return try await post(PlaylistCreationResult.self, "/Playlists", body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType, IsPublic: isPublic)).id
+        // Emby reads these from the query rather than the body: both, there.
+        let query: [String: String?] = kind == .emby
+            ? ["Name": name, "Ids": itemIds.joined(separator: ","), "UserId": user, "MediaType": mediaType]
+            : [:]
+        return try await post(PlaylistCreationResult.self, "/Playlists", query: query, body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType, IsPublic: isPublic)).id
     }
 
     func addToPlaylist(_ playlistId: String, itemIds: [String]) async throws {
@@ -1225,6 +1236,7 @@ nonisolated final class JellyfinClient: Sendable {
     /// its own repeated parameter and rejects a comma-joined list with a 400,
     /// so all markers are fetched and the skippable kinds kept here.
     func mediaSegments(itemId: String) async throws -> [MediaSegment] {
+        if kind == .emby { return try await chapterSegments(itemId: itemId) }
         let request = authorizedRequest(url("/MediaSegments/\(itemId)"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return [] }
@@ -1236,11 +1248,35 @@ nonisolated final class JellyfinClient: Sendable {
             .filter { Self.skippableSegmentTypes.contains($0.type) }
     }
 
+    /// Emby has no media segments: it marks an intro (and where the credits
+    /// begin) as chapters, which become the same Intro and Outro segments.
+    private func chapterSegments(itemId: String) async throws -> [MediaSegment] {
+        let item = try await item(itemId)
+        return Self.segments(fromChapters: item.chapters ?? [], itemId: itemId, runTimeTicks: item.runTimeTicks)
+    }
+
+    /// Intro from IntroStart to IntroEnd, and credits from CreditsStart to the
+    /// end; chapters without those marks give nothing.
+    static func segments(fromChapters chapters: [ChapterInfo], itemId: String, runTimeTicks: Int64?) -> [MediaSegment] {
+        func mark(_ type: String) -> Int64? {
+            chapters.first { $0.markerType?.caseInsensitiveCompare(type) == .orderedSame }?.startPositionTicks
+        }
+        var segments: [MediaSegment] = []
+        if let start = mark("IntroStart"), let end = mark("IntroEnd"), end > start {
+            segments.append(MediaSegment(id: "\(itemId)-intro", itemId: itemId, type: "Intro", startTicks: start, endTicks: end))
+        }
+        if let start = mark("CreditsStart"), let end = runTimeTicks, end > start {
+            segments.append(MediaSegment(id: "\(itemId)-credits", itemId: itemId, type: "Outro", startTicks: start, endTicks: end))
+        }
+        return segments
+    }
+
     // MARK: JellyDisc
 
     /// The resolved disc menu for a movie, series or season, or nil when the
     /// server has none (404 is "nothing to show", never an error).
     func discMenu(for itemId: String) async throws -> DiscMenuDocument? {
+        guard kind == .jellyfin else { return nil }
         let request = authorizedRequest(url("/DiscMenus/\(itemId)/Menu"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return nil }

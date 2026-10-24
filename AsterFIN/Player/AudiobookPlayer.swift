@@ -473,19 +473,9 @@ final class AudiobookPlayer {
                     self.report(paused: !self.isPlaying, saving: .now)
                 }
             },
-            center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: session, queue: .main) { [weak self] note in
-                let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
-                // Only the system's doing: the app letting the session go
-                // itself isn't an interruption.
-                guard context?.source == .system else { return }
-                MainActor.assumeIsolated { self?.interrupted(began: true, shouldResume: false) }
-            },
-            center.addObserver(forName: AVAudioSession.resumptionRecommendationNotification, object: session, queue: .main) { [weak self] note in
-                let context = note.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
-                let shouldResume = context?.recommendation == .shouldResume
-                MainActor.assumeIsolated { self?.interrupted(began: false, shouldResume: shouldResume) }
-            },
-        ]
+        ] + observeAudioInterruptions { [weak self] began, shouldResume in
+            self?.interrupted(began: began, shouldResume: shouldResume)
+        }
     }
 
     private func interrupted(began: Bool, shouldResume: Bool) {

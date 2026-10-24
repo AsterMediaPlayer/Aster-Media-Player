@@ -224,6 +224,10 @@ struct MainTabView: View {
         }
         // Back from the background: changes made on another device since.
         .onChange(of: scenePhase) { old, phase in
+            #if os(iOS)
+            // Leaving: a fresh twelve hours for the On Now widget.
+            if phase == .background { ChannelTuner.writeOnNowGuide() }
+            #endif
             guard phase == .active, old == .background, let client = session.client else { return }
             Task {
                 await SettingsSync.pull(client: client)
@@ -234,6 +238,9 @@ struct MainTabView: View {
             Task { await followPendingLinks() }
         }
         .onChange(of: session.router.pendingPlayItemId) { _, _ in
+            Task { await followPendingLinks() }
+        }
+        .onChange(of: session.router.pendingChannelId) { _, _ in
             Task { await followPendingLinks() }
         }
         .onChange(of: session.router.pendingPlayback) { _, _ in
@@ -532,6 +539,15 @@ struct MainTabView: View {
             session.router.clear()
             if let item = try? await client.item(id) {
                 linkedPlayback = PlaybackRequest(itemId: item.id, startTicks: item.userData?.playbackPositionTicks ?? 0)
+            }
+            return
+        }
+        if let id = session.router.pendingChannelId {
+            session.router.clear()
+            // On a cold launch the channels aren't loaded yet.
+            if ChannelTuner.live(channelId: id) == nil { await session.refreshChannels() }
+            if let live = ChannelTuner.live(channelId: id) {
+                linkedPlayback = PlaybackRequest(entry: live.entry)
             }
             return
         }

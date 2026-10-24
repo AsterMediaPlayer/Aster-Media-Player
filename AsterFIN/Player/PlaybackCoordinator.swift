@@ -239,6 +239,9 @@ final class PlaybackCoordinator {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        #if os(iOS)
+        if reportsPlayback { WidgetRefresh.continueWatching() }
+        #endif
         countdownTask?.cancel()
         let position = currentPositionTicks
         #if os(iOS)

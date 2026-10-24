@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		CC358C56307D252800AC8EC1 /* SwiftAssRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = CC358C55307D252800AC8EC1 /* SwiftAssRenderer */; };
 		CC485BF5307EF29100F0C963 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = CC485BF4307EF29100F0C963 /* AetherEngine */; };
+		CC74E25B308C5517000B5EF7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC74E25A308C5517000B5EF7 /* WidgetKit.framework */; };
+		CC74E25D308C5517000B5EF7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC74E25C308C5517000B5EF7 /* SwiftUI.framework */; };
+		CC74E268308C5518000B5EF7 /* AsterFINWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC74E259308C5517000B5EF7 /* AsterFINWidgetsExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CC98BBB0307A859700B87F6E /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC98BBAF307A859700B87F6E /* TVServices.framework */; };
 		CC98BBB7307A859700B87F6E /* AsterFINTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */; platformFilters = (tvos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -20,6 +23,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = CC43C0673079BD3E008B3A22;
 			remoteInfo = AsterFIN;
+		};
+		CC74E266308C5518000B5EF7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CC43C0603079BD3E008B3A22 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CC74E258308C5517000B5EF7;
+			remoteInfo = AsterFINWidgetsExtension;
 		};
 		CC98BBB5307A859700B87F6E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -36,6 +46,7 @@
 			dstPath = "";
 			dstSubfolder = PlugIns;
 			files = (
+				CC74E268308C5518000B5EF7 /* AsterFINWidgetsExtension.appex in Embed Foundation Extensions */,
 				CC98BBB7307A859700B87F6E /* AsterFINTopShelf.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -45,11 +56,21 @@
 /* Begin PBXFileReference section */
 		CC43C0683079BD3E008B3A22 /* AsterFIN.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AsterFIN.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC43C07A3079BEAC008B3A22 /* AsterFINTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AsterFINTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC74E259308C5517000B5EF7 /* AsterFINWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AsterFINWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC74E25A308C5517000B5EF7 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
+		CC74E25C308C5517000B5EF7 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
 		CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AsterFINTopShelf.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC98BBAF307A859700B87F6E /* TVServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TVServices.framework; path = System/Library/Frameworks/TVServices.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CC74E26C308C5518000B5EF7 /* Exceptions for "AsterFINWidgets" folder in "AsterFINWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CC74E258308C5517000B5EF7 /* AsterFINWidgetsExtension */;
+		};
 		CC98BBBB307A859700B87F6E /* Exceptions for "AsterFINTopShelf" folder in "AsterFINTopShelf" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -80,6 +101,14 @@
 			path = AsterFINTests;
 			sourceTree = "<group>";
 		};
+		CC74E25E308C5517000B5EF7 /* AsterFINWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CC74E26C308C5518000B5EF7 /* Exceptions for "AsterFINWidgets" folder in "AsterFINWidgetsExtension" target */,
+			);
+			path = AsterFINWidgets;
+			sourceTree = "<group>";
+		};
 		CC98BBB1307A859700B87F6E /* AsterFINTopShelf */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -103,6 +132,13 @@
 			files = (
 			);
 		};
+		CC74E256308C5517000B5EF7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				CC74E25D308C5517000B5EF7 /* SwiftUI.framework in Frameworks */,
+				CC74E25B308C5517000B5EF7 /* WidgetKit.framework in Frameworks */,
+			);
+		};
 		CC98BBAA307A859700B87F6E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
@@ -118,6 +154,7 @@
 				CC43C06A3079BD3E008B3A22 /* AsterFIN */,
 				CC43C07B3079BEAC008B3A22 /* AsterFINTests */,
 				CC98BBB1307A859700B87F6E /* AsterFINTopShelf */,
+				CC74E25E308C5517000B5EF7 /* AsterFINWidgets */,
 				CC98BBAE307A859700B87F6E /* Frameworks */,
 				CC43C0693079BD3E008B3A22 /* Products */,
 			);
@@ -129,6 +166,7 @@
 				CC43C0683079BD3E008B3A22 /* AsterFIN.app */,
 				CC43C07A3079BEAC008B3A22 /* AsterFINTests.xctest */,
 				CC98BBAD307A859700B87F6E /* AsterFINTopShelf.appex */,
+				CC74E259308C5517000B5EF7 /* AsterFINWidgetsExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -137,6 +175,8 @@
 			isa = PBXGroup;
 			children = (
 				CC98BBAF307A859700B87F6E /* TVServices.framework */,
+				CC74E25A308C5517000B5EF7 /* WidgetKit.framework */,
+				CC74E25C308C5517000B5EF7 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -157,6 +197,7 @@
 			);
 			dependencies = (
 				CC98BBB6307A859700B87F6E /* PBXTargetDependency */,
+				CC74E267308C5518000B5EF7 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				CC43C06A3079BD3E008B3A22 /* AsterFIN */,
@@ -191,6 +232,24 @@
 			productReference = CC43C07A3079BEAC008B3A22 /* AsterFINTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		CC74E258308C5517000B5EF7 /* AsterFINWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC74E26B308C5518000B5EF7 /* Build configuration list for PBXNativeTarget "AsterFINWidgetsExtension" */;
+			buildPhases = (
+				CC74E255308C5517000B5EF7 /* Sources */,
+				CC74E256308C5517000B5EF7 /* Frameworks */,
+				CC74E257308C5517000B5EF7 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC74E25E308C5517000B5EF7 /* AsterFINWidgets */,
+			);
+			name = AsterFINWidgetsExtension;
+			productName = AsterFINWidgetsExtension;
+			productReference = CC74E259308C5517000B5EF7 /* AsterFINWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		CC98BBAC307A859700B87F6E /* AsterFINTopShelf */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CC98BBB8307A859700B87F6E /* Build configuration list for PBXNativeTarget "AsterFINTopShelf" */;
@@ -216,7 +275,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
+				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					CC43C0673079BD3E008B3A22 = {
@@ -224,6 +283,9 @@
 					};
 					CC43C0793079BEAC008B3A22 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					CC74E258308C5517000B5EF7 = {
+						CreatedOnToolsVersion = 27.1;
 					};
 					CC98BBAC307A859700B87F6E = {
 						CreatedOnToolsVersion = 27.0;
@@ -251,6 +313,7 @@
 				CC43C0673079BD3E008B3A22 /* AsterFIN */,
 				CC43C0793079BEAC008B3A22 /* AsterFINTests */,
 				CC98BBAC307A859700B87F6E /* AsterFINTopShelf */,
+				CC74E258308C5517000B5EF7 /* AsterFINWidgetsExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -262,6 +325,11 @@
 			);
 		};
 		CC43C0783079BEAC008B3A22 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		CC74E257308C5517000B5EF7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -284,6 +352,11 @@
 			files = (
 			);
 		};
+		CC74E255308C5517000B5EF7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 		CC98BBA9307A859700B87F6E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
@@ -296,6 +369,12 @@
 			isa = PBXTargetDependency;
 			target = CC43C0673079BD3E008B3A22 /* AsterFIN */;
 			targetProxy = CC43C0903079C000008B3A22 /* PBXContainerItemProxy */;
+		};
+		CC74E267308C5518000B5EF7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = CC74E258308C5517000B5EF7 /* AsterFINWidgetsExtension */;
+			targetProxy = CC74E266308C5518000B5EF7 /* PBXContainerItemProxy */;
 		};
 		CC98BBB6307A859700B87F6E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -586,6 +665,86 @@
 			};
 			name = Release;
 		};
+		CC74E269308C5518000B5EF7 /* Debug configuration for PBXNativeTarget "AsterFINWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AsterFINWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AsterFINWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.9.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos.AsterFINWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		CC74E26A308C5518000B5EF7 /* Release configuration for PBXNativeTarget "AsterFINWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AsterFINWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AsterFINWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.9.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos.AsterFINWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
 		CC98BBB9307A859700B87F6E /* Debug configuration for PBXNativeTarget "AsterFINTopShelf" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -672,6 +831,14 @@
 			buildConfigurations = (
 				CC43C07F3079BEAC008B3A22 /* Debug configuration for PBXNativeTarget "AsterFINTests" */,
 				CC43C0803079BEAC008B3A22 /* Release configuration for PBXNativeTarget "AsterFINTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		CC74E26B308C5518000B5EF7 /* Build configuration list for PBXNativeTarget "AsterFINWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC74E269308C5518000B5EF7 /* Debug configuration for PBXNativeTarget "AsterFINWidgetsExtension" */,
+				CC74E26A308C5518000B5EF7 /* Release configuration for PBXNativeTarget "AsterFINWidgetsExtension" */,
 			);
 			defaultConfigurationName = Release;
 		};

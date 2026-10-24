@@ -109,6 +109,9 @@ enum ChannelTuner {
     static func register(_ loaded: [PlaylistChannel]) {
         for channel in loaded { channels[channel.id] = channel }
         order = loaded.map(\.id)
+        #if os(iOS)
+        writeOnNowGuide()
+        #endif
     }
 
     /// The channels in number order, for flicking through them.

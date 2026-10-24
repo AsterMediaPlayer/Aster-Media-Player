@@ -3,7 +3,8 @@
 //  AsterFIN
 //
 //  Links into the app, from the Top Shelf: `aster://item/{id}` opens a
-//  title's page and `aster://play/{id}` starts playing it. A link that
+//  title's page and `aster://play/{id}` starts playing it; `aster://channel/{id}` tunes in a
+//  Channels-tab channel (from the On Now widget). A link that
 //  arrives before the main screen exists is held until it can be used.
 //
 
@@ -14,6 +15,8 @@ import Observation
 final class DeepLinkRouter {
     private(set) var pendingItemId: String?
     private(set) var pendingPlayItemId: String?
+    /// A Channels-tab channel to tune in, from the On Now widget.
+    private(set) var pendingChannelId: String?
     /// Playback asked for from inside the app, such as a lockup's long-press
     /// menu, played by the main screen so any tab can start it.
     private(set) var pendingPlayback: PlaybackRequest?
@@ -38,6 +41,8 @@ final class DeepLinkRouter {
             pendingPlayItemId = id
         case "item":
             pendingItemId = id
+        case "channel":
+            pendingChannelId = id
         default:
             break
         }
@@ -46,6 +51,7 @@ final class DeepLinkRouter {
     func clear() {
         pendingItemId = nil
         pendingPlayItemId = nil
+        pendingChannelId = nil
         pendingPlayback = nil
     }
 }

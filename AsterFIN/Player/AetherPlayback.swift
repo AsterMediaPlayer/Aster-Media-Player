@@ -1028,6 +1028,7 @@ final class AetherPlayback {
         #if os(iOS)
         pip?.stop()
         pip = nil
+        if reportsPlayback { WidgetRefresh.continueWatching() }
         #endif
         reportTask?.cancel()
         tuneTask?.cancel()

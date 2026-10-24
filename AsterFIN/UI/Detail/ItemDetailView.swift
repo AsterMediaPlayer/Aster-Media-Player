@@ -23,6 +23,9 @@ final class DetailModel {
     private(set) var similar: [BaseItem] = []
     private(set) var nextEpisode: BaseItem?
     private(set) var discMenu: DiscMenuDocument?
+    /// The item the disc menu belongs to: the page's own, or for a show
+    /// without one, the season it's showing.
+    private(set) var discMenuItemId: String?
     /// Openings and endings for anime series: the OP/ED plugin's, else ones
     /// found in the episodes' chapters.
     private(set) var openingsEndings: [OpeningEnding] = []
@@ -123,7 +126,6 @@ final class DetailModel {
             isLoading = false
 
             async let similarItems = client.similar(to: full.id, limit: 20)
-            async let menu = client.discMenu(for: full.id)
             async let themes: [OpeningEnding] = full.kind == .series && full.isAnime
                 ? Self.openingsEndings(for: full, client: client)
                 : []
@@ -154,9 +156,7 @@ final class DetailModel {
                 extras = (try? await client.specialFeatures(of: full.id)) ?? []
             }
             similar = (try? await similarItems) ?? []
-            if full.kind == .movie || full.kind == .series || full.kind == .season {
-                discMenu = try? await menu
-            }
+            await loadDiscMenu(client: client)
             openingsEndings = await themes
         } catch {
             errorMessage = error.localizedDescription
@@ -178,13 +178,35 @@ final class DetailModel {
         if current.kind == .episode, let seriesId = current.seriesId, let seasonId = current.seasonId {
             seasonEpisodes = (try? await client.episodes(seriesId: seriesId, seasonId: seasonId)) ?? seasonEpisodes
         }
-        discMenu = (try? await client.discMenu(for: current.id)) ?? discMenu
+        await loadDiscMenu(client: client)
     }
 
     func selectSeason(_ seasonId: String, client: JellyfinClient) async {
         guard let item, let seriesId = item.kind == .series ? item.id : item.seriesId else { return }
         selectedSeasonId = seasonId
         episodes = (try? await client.episodes(seriesId: seriesId, seasonId: seasonId)) ?? []
+        // A show's menu can be its season's: follow the season picked.
+        if item.kind == .series, discMenuItemId != item.id {
+            await loadDiscMenu(client: client)
+        }
+    }
+
+    /// The page's disc menu: its own (a movie's, show's or season's), or for
+    /// a show without one, the menu of the season it's showing, which is
+    /// where a one-season show's menu is often bound.
+    func loadDiscMenu(client: JellyfinClient) async {
+        guard let item, item.kind == .movie || item.kind == .series || item.kind == .season else { return }
+        if let own = (try? await client.discMenu(for: item.id)) ?? nil {
+            discMenu = own
+            discMenuItemId = item.id
+        } else if item.kind == .series, let seasonId = selectedSeasonId,
+                  let seasons = (try? await client.discMenu(for: seasonId)) ?? nil {
+            discMenu = seasons
+            discMenuItemId = seasonId
+        } else {
+            discMenu = nil
+            discMenuItemId = nil
+        }
     }
 
     func toggleFavorite(client: JellyfinClient) async {
@@ -524,7 +546,7 @@ struct ItemDetailView: View {
             Task { if let client = session.client { await model.refresh(client: client) } }
         }) {
             if let document = model.discMenu {
-                DiscMenuView(document: document, itemId: detail.id)
+                DiscMenuView(document: document, itemId: model.discMenuItemId ?? detail.id)
             }
         }
         .alert("Can't Play", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {

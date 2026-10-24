@@ -13,10 +13,6 @@ struct ChannelsView: View {
     @Environment(\.openItem) private var openItem
     @State private var model = ChannelsModel()
     @State private var guide: ChannelGuideSource?
-    /// The channel whose settings Select on its guide cell opened.
-    @State private var editingChannel: String?
-    /// Edit Channels is open.
-    @State private var editsChannels = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -25,7 +21,7 @@ struct ChannelsView: View {
                     .font(.largeTitle.weight(.bold))
                 Spacer()
                 Button {
-                    editsChannels = true
+                    openItem?.push(ChannelSettingsPage())
                 } label: {
                     Label("Edit Channels", systemImage: "slider.horizontal.3")
                 }
@@ -54,7 +50,7 @@ struct ChannelsView: View {
                     // On Apple TV, an administrator's Select on a channel
                     // opens its settings; everyone else's (and a tap on a
                     // touch screen) tunes in, as before.
-                    openChannel: Self.selectOpensSettings && session.canEditChannels ? { editingChannel = $0 } : nil,
+                    openChannel: Self.selectOpensSettings && session.canEditChannels ? { openItem?.push(ChannelSettingsPage(only: $0)) } : nil,
                     grouping: model.grouping,
                     emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it aster:channel in Jellyfin."
                 )
@@ -62,18 +58,13 @@ struct ChannelsView: View {
                 .id(ObjectIdentifier(guide))
             }
         }
-        // Pushed, so Back comes straight back to the guide.
-        .navigationDestination(item: $editingChannel) { channelId in
-            ChannelSettingsView(only: channelId)
+        // Pushed onto the tab's own path, so Back comes straight back to the
+        // guide, and under iPhone's More tab its bar steps aside for the
+        // page's (one back arrow). A push of the page's own, or a second
+        // copy of that bar-hiding, once crashed opening Channels under More.
+        .navigationDestination(for: ChannelSettingsPage.self) { page in
+            ChannelSettingsView(only: page.only)
         }
-        .navigationDestination(isPresented: $editsChannels) {
-            ChannelSettingsView()
-        }
-        #if os(iOS)
-        // These pushes skip the tab's path, so say a page is open: under the
-        // More tab, its bar would otherwise add a second back arrow.
-        .background(MoreBarHider(hidden: editingChannel != nil || editsChannels))
-        #endif
         // On showing, and again on coming back (from Edit Channels, say):
         // the channels are whatever the server's playlists are tagged as now.
         // Only playlists whose contents changed are fetched again.
@@ -116,4 +107,9 @@ struct ChannelsView: View {
         guard let live = ChannelTuner.live(channelId: channelId) else { return }
         session.router.play(PlaybackRequest(entry: live.entry))
     }
+}
+
+/// Edit Channels, or one channel's settings, as a page on the tab's path.
+struct ChannelSettingsPage: Hashable {
+    var only: String? = nil
 }

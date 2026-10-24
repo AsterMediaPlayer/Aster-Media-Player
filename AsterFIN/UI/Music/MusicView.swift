@@ -1113,6 +1113,8 @@ struct NowPlayingView: View {
     @Environment(\.coverDismiss) private var dismiss
     @FocusState private var focusedControl: String?
     @State private var showLyrics = false
+    /// Where the progress bar is being dragged to, as a share of the song.
+    @State private var scrubPlace: Double?
 
     private var player: MusicPlayer { session.music }
 
@@ -1220,12 +1222,17 @@ struct NowPlayingView: View {
     }
 
     private var progress: some View {
-        VStack(spacing: 8) {
-            ProgressBar(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
+        let length = player.duration
+        // While the bar's dragged, the times show where it's going.
+        let into = scrubPlace.map { $0 * length } ?? player.currentTime
+        return VStack(spacing: 8) {
+            ScrubBar(progress: length > 0 ? player.currentTime / length : 0, scrubbing: $scrubPlace, accessibilityStep: length > 0 ? 10 / length : 0.05) { place in
+                player.seek(to: place * length)
+            }
             HStack {
-                Text(MusicFormat.clock(player.currentTime))
+                Text(MusicFormat.clock(into))
                 Spacer()
-                Text("-" + MusicFormat.clock(max(player.duration - player.currentTime, 0)))
+                Text("-" + MusicFormat.clock(max(length - into, 0)))
             }
             .font(.caption)
             .foregroundStyle(.secondary)

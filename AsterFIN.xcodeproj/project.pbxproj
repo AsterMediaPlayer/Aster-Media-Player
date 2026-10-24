@@ -453,10 +453,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aster;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -466,7 +466,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos;
 				PRODUCT_NAME = AsterFIN;
 				REGISTER_APP_GROUPS = YES;
@@ -505,10 +505,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFIN/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aster;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Phillip Berryman";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Aster connects to your Jellyfin server on your home network to browse and play your media.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -518,7 +518,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos;
 				PRODUCT_NAME = AsterFIN;
 				REGISTER_APP_GROUPS = YES;
@@ -601,7 +601,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos.AsterFINTopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -632,7 +632,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.8.1;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.asterfin.tvos.AsterFINTopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

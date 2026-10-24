@@ -24,10 +24,10 @@ env:
 jobs:
   apple:
     name: Build (tvOS, iOS, macOS) and test
-    runs-on: macos-26
+    runs-on: macos-27
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Choose Xcode
         id: xcode

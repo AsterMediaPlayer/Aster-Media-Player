@@ -1,0 +1,91 @@
+# Builds the app for every platform it runs on and runs the tests, on every
+# push to main and every pull request. Nothing is signed: this checks the
+# code, it doesn't make something to install.
+#
+# It runs on a self-hosted runner on the developer's Mac (GitHub's own macOS
+# runners don't have Xcode 27 yet, and their minutes count ten times against
+# a private repository's allowance). Runs wait in the queue while that Mac is
+# off or asleep.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The app needs the OS 27 SDKs, so Xcode 27 or later.
+  MIN_XCODE: 27
+  # Kept between runs, and apart from the DerivedData Xcode itself uses.
+  DERIVED_DATA: ${{ github.workspace }}/../AsterCI-DerivedData
+
+jobs:
+  apple:
+    name: Build (tvOS, iOS, macOS) and test
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      # The newest Xcode in /Applications, chosen for this job only (through
+      # DEVELOPER_DIR, so the Mac's own xcode-select setting is left alone).
+      - name: Choose Xcode
+        id: xcode
+        run: |
+          best=""; bestv=0
+          for app in /Applications/Xcode*.app; do
+            v=$(defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null) || continue
+            if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$bestv" "$v" | sort -V | tail -1)" = "$v" ]; then best=$app; bestv=$v; fi
+          done
+          if [ -z "$best" ]; then echo "::error::No Xcode in /Applications."; exit 1; fi
+          echo "DEVELOPER_DIR=$best/Contents/Developer" >> "$GITHUB_ENV"
+          echo "Using $best ($bestv)"
+          if [ "${bestv%%.*}" -lt "$MIN_XCODE" ]; then
+            echo "::error::The newest Xcode here is $bestv; the app needs Xcode $MIN_XCODE or later."
+            exit 1
+          fi
+
+      # One step per platform, so a failure says which. AetherEngine is arm64
+      # only, so each builds for arm64.
+      - name: Build for tvOS
+        run: ./.github/xcbuild.sh tvOS 'generic/platform=tvOS Simulator'
+      - name: Build for iOS
+        if: (success() || failure()) && steps.xcode.outcome == 'success'
+        run: ./.github/xcbuild.sh iOS 'generic/platform=iOS Simulator'
+      - name: Build for macOS
+        if: (success() || failure()) && steps.xcode.outcome == 'success'
+        run: ./.github/xcbuild.sh macOS 'generic/platform=macOS'
+
+      - name: Test (on an Apple TV simulator)
+        if: (success() || failure()) && steps.xcode.outcome == 'success'
+        run: |
+          # The newest Apple TV simulator installed.
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          devs = json.load(sys.stdin)["devices"]
+          tv = [(rt, d) for rt, ds in devs.items() if "tvOS" in rt for d in ds]
+          tv.sort(key=lambda x: [int(n) for n in x[0].rsplit("tvOS-", 1)[1].split("-")])
+          print(tv[-1][1]["udid"] if tv else "")')
+          if [ -z "$udid" ]; then echo "::error::No Apple TV simulator installed (Xcode ▸ Settings ▸ Components)."; exit 1; fi
+          set -o pipefail
+          xcodebuild test \
+            -project AsterFIN.xcodeproj -scheme AsterFIN \
+            -destination "id=$udid" -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            | tee test.log | grep -E '(: error:|✘|Test run|\*\* TEST)' || true
+          grep -q '\*\* TEST SUCCEEDED \*\*' test.log
+
+      - name: Keep the logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: '*.log'

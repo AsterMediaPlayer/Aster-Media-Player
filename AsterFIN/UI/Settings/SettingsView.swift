@@ -607,6 +607,13 @@ struct ChannelSettingsView: View {
         return tagged.sorted { (numbers[$0.playlist.id] ?? 0, Self.name($0)) < (numbers[$1.playlist.id] ?? 0, Self.name($1)) }
     }
 
+    /// The groups the channels are in, A to Z, with `current` among them.
+    private func groupNames(including current: String?) -> [String] {
+        var names = Set(channels.compactMap(\.tags.group))
+        if let current { names.insert(current) }
+        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     /// The channel's own name, else its playlist's.
     nonisolated private static func name(_ channel: (playlist: BaseItem, tags: ChannelTags)) -> String {
         channel.tags.name ?? channel.playlist.displayTitle
@@ -854,6 +861,18 @@ struct ChannelSettingsView: View {
         }
         ChannelNameField(playlistName: playlist.displayTitle, name: tags.name) { name in
             update(playlist) { $0.name = name }
+        }
+        // The guide's group: one already in use, or a new one named here.
+        SettingsChoiceRow(
+            title: "Group",
+            options: [("", "None")] + groupNames(including: tags.group).map { ($0, $0) },
+            selection: Binding(
+                get: { tags.group ?? "" },
+                set: { group in update(playlist) { $0.group = group.isEmpty ? nil : group } }
+            )
+        )
+        NewGroupField { group in
+            update(playlist) { $0.group = group }
         }
         SettingsChoiceRow(
             title: "Number",
@@ -1366,6 +1385,22 @@ private struct NewChannelPicker: View {
 
 /// A channel's own name, saved when editing ends; empty goes back to the
 /// playlist's name.
+/// Names a new group and puts the channel in it; empty again after.
+private struct NewGroupField: View {
+    var save: (String) -> Void
+
+    @State private var draft = ""
+
+    var body: some View {
+        TextField("New Group", text: $draft, prompt: Text("New group…"))
+            .onSubmit {
+                let name = draft.trimmingCharacters(in: .whitespaces)
+                draft = ""
+                if !name.isEmpty { save(name) }
+            }
+    }
+}
+
 private struct ChannelNameField: View {
     let playlistName: String
     let name: String?

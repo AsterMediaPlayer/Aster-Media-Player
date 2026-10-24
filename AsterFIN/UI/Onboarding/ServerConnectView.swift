@@ -19,11 +19,11 @@ struct ServerConnectView: View {
             OnboardingLayout {
                 VStack(spacing: Onboarding.sectionSpacing) {
                     VStack(spacing: 12) {
-                        Image(systemName: "opticaldisc.fill")
-                            .font(.system(size: Onboarding.logoSize, weight: .thin))
-                            .foregroundStyle(.white)
-                        Text("Aster")
-                            .font(.system(size: Onboarding.titleSize, weight: .bold))
+                        Image("AsterLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: Onboarding.logoWidth)
+                            .accessibilityLabel("Aster Media Player")
                         Text("Connect to your Jellyfin server")
                             .font(.title3)
                             .foregroundStyle(.secondary)
@@ -119,6 +119,7 @@ struct OnboardingBackdrop: View {
 enum Onboarding {
     #if os(tvOS)
     static let logoSize: CGFloat = 96
+    static let logoWidth: CGFloat = 720
     static let titleSize: CGFloat = 64
     static let serverNameSize: CGFloat = 54
     static let fieldWidth: CGFloat = 900
@@ -134,6 +135,7 @@ enum Onboarding {
     static let controlSpacing: CGFloat = 24
     #else
     static let logoSize: CGFloat = 56
+    static let logoWidth: CGFloat = 300
     static let titleSize: CGFloat = 36
     static let serverNameSize: CGFloat = 30
     static let fieldWidth: CGFloat = 420

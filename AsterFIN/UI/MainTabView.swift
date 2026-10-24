@@ -553,7 +553,7 @@ struct MainTabView: View {
 /// back a page. At the tab's top level More's "back to the list" shows again.
 /// SwiftUI's toolbar visibility doesn't reach More's bar, so this goes
 /// through UIKit; tabs that aren't under More are left alone.
-private struct MoreBarHider: UIViewControllerRepresentable {
+struct MoreBarHider: UIViewControllerRepresentable {
     var hidden: Bool
 
     func makeUIViewController(context: Context) -> UIViewController {

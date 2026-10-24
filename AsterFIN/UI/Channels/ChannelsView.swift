@@ -15,6 +15,8 @@ struct ChannelsView: View {
     @State private var guide: ChannelGuideSource?
     /// The channel whose settings Select on its guide cell opened.
     @State private var editingChannel: String?
+    /// Edit Channels is open.
+    @State private var editsChannels = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,8 +24,8 @@ struct ChannelsView: View {
                 Text("Channels (Beta)")
                     .font(.largeTitle.weight(.bold))
                 Spacer()
-                NavigationLink {
-                    ChannelSettingsView()
+                Button {
+                    editsChannels = true
                 } label: {
                     Label("Edit Channels", systemImage: "slider.horizontal.3")
                 }
@@ -63,6 +65,14 @@ struct ChannelsView: View {
         .navigationDestination(item: $editingChannel) { channelId in
             ChannelSettingsView(only: channelId)
         }
+        .navigationDestination(isPresented: $editsChannels) {
+            ChannelSettingsView()
+        }
+        #if os(iOS)
+        // These pushes skip the tab's path, so say a page is open: under the
+        // More tab, its bar would otherwise add a second back arrow.
+        .background(MoreBarHider(hidden: editingChannel != nil || editsChannels))
+        #endif
         // On showing, and again on coming back (from Edit Channels, say):
         // the channels are whatever the server's playlists are tagged as now.
         // Only playlists whose contents changed are fetched again.

@@ -21,6 +21,17 @@ struct ChannelFlickBar: View {
                     .id(channel.id)
                     .transition(.opacity)
             }
+            // The group of the channel picked, when channels have groups:
+            // it changes as flicking crosses into the next group.
+            if let group = model.selectedGroup {
+                Text(group)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .id(group)
+                    .transition(.opacity)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.bottom, -14)
+            }
             HStack(spacing: 24) {
                 ForEach(-2...2, id: \.self) { offset in
                     if let channel = model.neighbour(offset) {
@@ -33,6 +44,7 @@ struct ChannelFlickBar: View {
             .frame(maxWidth: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: model.selectedChannel?.id)
+        .animation(.easeInOut(duration: 0.2), value: model.selectedGroup)
         .animation(.easeInOut(duration: 0.15), value: model.isOnGoTo)
         .padding(40)
         // A pane of glass over the picture, which shows through blurred;

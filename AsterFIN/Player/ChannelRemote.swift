@@ -25,14 +25,17 @@ struct ChannelRemoteList: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                Section {
-                    ForEach(model.channels) { channel in
-                        row(channel)
-                            .id(channel.id)
-                            .listRowBackground(channel.id == playingId ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.04))
+                // A section per group, in the flicking order; one without.
+                ForEach(sections, id: \.title) { section in
+                    Section {
+                        ForEach(section.channels) { channel in
+                            row(channel)
+                                .id(channel.id)
+                                .listRowBackground(channel.id == playingId ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.04))
+                        }
+                    } header: {
+                        Text(section.title)
                     }
-                } header: {
-                    Text("Channels")
                 }
             }
             .listStyle(.plain)
@@ -49,6 +52,21 @@ struct ChannelRemoteList: View {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+
+    /// The channels in runs of one group each, as they come (groups are
+    /// already together, in order); a single "Channels" without groups.
+    private var sections: [(title: String, channels: [FlickChannel])] {
+        var sections: [(title: String, channels: [FlickChannel])] = []
+        for channel in model.channels {
+            let title = channel.group ?? "Channels"
+            if sections.last?.title == title {
+                sections[sections.count - 1].channels.append(channel)
+            } else {
+                sections.append((title, [channel]))
+            }
+        }
+        return sections
     }
 
     private func row(_ channel: FlickChannel) -> some View {

@@ -51,6 +51,10 @@
 //    aster:user=peppy,jd      only these users get the channel (by Jellyfin user
 //                             name; everyone without the tag); repeat for more
 //    aster:channel-name=…     the channel's name, in place of the playlist's
+//    aster:group=Kids         the guide's group for the channel: groups go in
+//                             order of their lowest channel number, flicking
+//                             runs through one and into the next; without one
+//                             it's under "Other" (once any channel has a group)
 //
 //  "aster:" and the keys and values are read whatever their case (and so
 //  is "asterfin:", the app's earlier name, which `converted` rewrites). A tag
@@ -69,7 +73,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
     /// and rewritten with `converted`.
     static let oldPrefix = "asterfin:"
     /// The keys this reads and writes; other `aster:` tags are kept as they are.
-    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-playlist", "filler-types", "filler-type", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "align-fit", "user", "users", "channel-name"]
+    private static let keys: Set<String> = ["channel", "number", "mode", "logo", "reshuffle", "seed", "blocks", "bug", "bug-location", "bug-size", "bug-hide", "bug-opacity", "genre", "type", "library", "network", "collection", "years", "rating", "weight", "min-length", "max-length", "filler-playlists", "filler-playlist", "filler-types", "filler-type", "bumpers-at", "promo-count", "trailer-count", "interstitial-count", "break-length", "break-every", "align", "align-fit", "user", "users", "channel-name", "group"]
 
     var isChannel = false
     var number: Int?
@@ -155,6 +159,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
 
     /// Nil for the playlist's own name.
     var name: String?
+    /// The guide's group for the channel; nil for none.
+    var group: String?
 
     /// The longest block `blocks=` can ask for.
     static let longestBlock = 20
@@ -263,6 +269,8 @@ nonisolated struct ChannelTags: Equatable, Sendable {
                 Self.collect(value, into: &users)
             case "channel-name":
                 name = value.flatMap { $0.isEmpty ? nil : $0 }
+            case "group":
+                group = value.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
             default:
                 break
             }
@@ -316,6 +324,7 @@ nonisolated struct ChannelTags: Equatable, Sendable {
         }
         if !users.isEmpty { result.append(Self.prefix + "user=" + users.joined(separator: ",")) }
         if let name { result.append(Self.prefix + "channel-name=\(name)") }
+        if let group { result.append(Self.prefix + "group=\(group)") }
         return result
     }
 

@@ -23,6 +23,8 @@ nonisolated struct FlickChannel: Identifiable, Equatable, Sendable {
     /// A Channels-tab channel's bug, shown beside what's on.
     var bugURL: URL? = nil
     let now: FlickProgram?
+    /// Its group, when the channels have groups.
+    var group: String? = nil
 }
 
 nonisolated struct FlickProgram: Equatable, Sendable {
@@ -55,9 +57,12 @@ nonisolated struct FlickProgram: Equatable, Sendable {
 /// them, so the player can flick through them.
 enum LiveChannelDirectory {
     private(set) static var channels: [BaseItem] = []
+    /// Their groups, from the Aster Channels plugin, when there are any.
+    private(set) static var grouping: ChannelGrouping?
 
-    static func register(_ loaded: [BaseItem]) {
+    static func register(_ loaded: [BaseItem], grouping: ChannelGrouping? = nil) {
         channels = loaded
+        self.grouping = grouping
     }
 }
 
@@ -94,6 +99,10 @@ final class ChannelFlickModel {
         channels.indices.contains(selected) ? channels[selected] : nil
     }
 
+    /// The picked channel's group, for the row's heading; it changes as
+    /// flicking crosses from one group into the next.
+    var selectedGroup: String? { selectedChannel?.group }
+
     /// The picked channel's programme can be gone to on its own.
     var canGoTo: Bool { selectedChannel?.now?.itemId != nil }
 
@@ -129,7 +138,7 @@ final class ChannelFlickModel {
         if isLive {
             guard let loaded = try? await client.channels() else { return }
             let ordered = LiveTVModel.guideOrder(loaded)
-            LiveChannelDirectory.register(ordered)
+            LiveChannelDirectory.register(ordered, grouping: LiveChannelDirectory.grouping)
             channels = Self.liveChannels(ordered, client: client)
         } else {
             channels = Self.playlistChannels(client: client)
@@ -178,7 +187,8 @@ final class ChannelFlickModel {
                 number: channel.channelNumber,
                 name: channel.displayTitle,
                 logoURL: client.channelLogoURL(channel, width: 300),
-                now: program
+                now: program,
+                group: LiveChannelDirectory.grouping?.group(of: channel.id)
             )
         }
     }
@@ -222,7 +232,8 @@ final class ChannelFlickModel {
                 logoURL: channel.showsLogo ? picture : nil,
                 // The picture is a logo when it's the bug or the logo.
                 bugURL: channel.showsBug || channel.showsLogo ? picture : nil,
-                now: program
+                now: program,
+                group: ChannelTuner.grouping?.group(of: channel.id)
             )
         }
     }

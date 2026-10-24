@@ -31,6 +31,8 @@ nonisolated struct PlaylistChannel: Identifiable, Hashable, Sendable {
     var bugOpacity = ChannelTags.defaultBugOpacity
     /// From the `channel-name=` tag; nil for the playlist's own name.
     var customName: String?
+    /// From the `group=` tag; nil for none.
+    var group: String?
     /// The bumpers, promos and interstitials its breaks play; none for a
     /// channel without breaks.
     var breakClips = ChannelBreakClips.none
@@ -102,19 +104,24 @@ enum ChannelTuner {
     private static var channels: [String: PlaylistChannel] = [:]
     /// Seconds before a programme's end that tuning in starts the next one.
     static let tooLateToJoin: TimeInterval = 60
-    /// The channels as last loaded, in channel-number order.
+    /// The channels as last loaded, in channel-number order (by group
+    /// first, once channels have groups).
     private static var order: [String] = []
+    /// The channels' groups, when they have any.
+    private(set) static var grouping: ChannelGrouping?
 
     /// Takes the full list the Channels tab loaded, in order.
-    static func register(_ loaded: [PlaylistChannel]) {
+    static func register(_ loaded: [PlaylistChannel], grouping: ChannelGrouping? = nil) {
         for channel in loaded { channels[channel.id] = channel }
         order = loaded.map(\.id)
+        self.grouping = grouping
         #if os(iOS)
         writeOnNowGuide()
         #endif
     }
 
-    /// The channels in number order, for flicking through them.
+    /// The channels in number order (group by group), for flicking through
+    /// them: on from one group into the next.
     static var orderedChannels: [PlaylistChannel] {
         order.compactMap { channels[$0] }
     }
@@ -153,6 +160,8 @@ enum ChannelTuner {
 @Observable
 final class ChannelsModel {
     private(set) var channels: [PlaylistChannel] = []
+    /// The channels' groups, when they have any; the guide's filter.
+    private(set) var grouping: ChannelGrouping?
     private(set) var hasLoaded = false
     private(set) var errorMessage: String?
     /// Each channel's items as last fetched, with the playlist's item count
@@ -211,13 +220,16 @@ final class ChannelsModel {
                     playlist: entry.playlist, number: number, items: items, lineup: entry.tags.lineup,
                     showsLogo: entry.tags.showsLogo, showsBug: entry.tags.showsBug, bugCorner: entry.tags.bugCorner, bugSize: entry.tags.bugSize,
                     bugHideAfter: entry.tags.bugHideAfter, bugOpacity: entry.tags.bugOpacity, customName: entry.tags.name,
-                    breakClips: clips,
+                    group: entry.tags.group, breakClips: clips,
                     seriesLogo: PlaylistChannel.seriesLogo(of: items)
                 )
             }
             .sorted { ($0.number, $0.name) < ($1.number, $1.name) }
-            channels = built
-            ChannelTuner.register(built)
+            // By group once channels have them: each in order of its lowest number.
+            let grouped = ChannelGrouping.make(built, id: \.id, groupOf: \.group)
+            channels = grouped?.ordered ?? built
+            grouping = grouped?.grouping
+            ChannelTuner.register(channels, grouping: grouping)
         } catch {
             if channels.isEmpty { errorMessage = error.localizedDescription }
         }

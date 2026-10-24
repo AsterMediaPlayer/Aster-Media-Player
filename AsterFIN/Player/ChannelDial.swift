@@ -311,6 +311,13 @@ private struct ChannelDialCard: View {
                             .contentTransition(.numericText())
                     }
                     VStack(alignment: .leading, spacing: 2) {
+                        // Changes as the dial crosses into the next group.
+                        if let group = channel.group {
+                            Text(group)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                         Text(channel.name)
                             .font(.headline)
                             .lineLimit(1)

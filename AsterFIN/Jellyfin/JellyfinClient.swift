@@ -46,6 +46,8 @@ nonisolated final class JellyfinClient: Sendable {
     let baseURL: URL
     let accessToken: String?
     let userId: String?
+    /// Jellyfin or Emby: a few routes differ between them.
+    let kind: ServerKind
     let session: URLSession
 
     static let imageSession: URLSession = {
@@ -55,10 +57,11 @@ nonisolated final class JellyfinClient: Sendable {
         return URLSession(configuration: configuration)
     }()
 
-    init(baseURL: URL, accessToken: String? = nil, userId: String? = nil) {
+    init(baseURL: URL, accessToken: String? = nil, userId: String? = nil, kind: ServerKind = .jellyfin) {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.userId = userId
+        self.kind = kind
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.waitsForConnectivity = true
@@ -66,7 +69,7 @@ nonisolated final class JellyfinClient: Sendable {
     }
 
     func signedIn(token: String, userId: String) -> JellyfinClient {
-        JellyfinClient(baseURL: baseURL, accessToken: token, userId: userId)
+        JellyfinClient(baseURL: baseURL, accessToken: token, userId: userId, kind: kind)
     }
 
     // MARK: Request plumbing

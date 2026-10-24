@@ -75,6 +75,10 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
     var userId: String
     var userName: String
     var accessToken: String
+    /// Nil in sessions saved before Emby was supported: those are Jellyfin.
+    var serverKind: ServerKind?
+
+    var kind: ServerKind { serverKind ?? .jellyfin }
 
     private static let account = "session"
 

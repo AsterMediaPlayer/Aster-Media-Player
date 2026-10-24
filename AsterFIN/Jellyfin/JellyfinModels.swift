@@ -16,12 +16,34 @@ nonisolated struct PublicSystemInfo: Codable, Sendable, Equatable {
     var version: String?
     var id: String?
     var localAddress: String?
+    /// "Jellyfin Server" from Jellyfin; Emby sends none.
+    var productName: String?
 
     enum CodingKeys: String, CodingKey {
         case serverName = "ServerName"
         case version = "Version"
         case id = "Id"
         case localAddress = "LocalAddress"
+        case productName = "ProductName"
+    }
+
+    /// Which server answered.
+    var kind: ServerKind {
+        productName?.localizedCaseInsensitiveContains("Jellyfin") == true ? .jellyfin : .emby
+    }
+}
+
+/// The two servers Aster signs in to. Jellyfin began as a fork of Emby, so
+/// they share almost everything; where they differ (a few routes, and what
+/// each has that the other doesn't) the client and the app ask this.
+nonisolated enum ServerKind: String, Codable, Sendable {
+    case jellyfin, emby
+
+    var displayName: String {
+        switch self {
+        case .jellyfin: "Jellyfin"
+        case .emby: "Emby"
+        }
     }
 }
 

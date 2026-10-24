@@ -2,7 +2,8 @@
 //  ServerConnectView.swift
 //  AsterFIN
 //
-//  First launch: ask for the Jellyfin server address.
+//  First launch: ask for the Jellyfin or Emby server address (which it is
+//  comes from the server's own reply; see `PublicSystemInfo.kind`).
 //
 
 import SwiftUI
@@ -24,7 +25,7 @@ struct ServerConnectView: View {
                             .scaledToFit()
                             .frame(maxWidth: Onboarding.logoWidth)
                             .accessibilityLabel("Aster Media Player")
-                        Text("Connect to your Jellyfin server")
+                        Text("Connect to your Jellyfin or Emby server")
                             .font(.title3)
                             .foregroundStyle(.secondary)
                     }
@@ -90,7 +91,7 @@ struct ServerConnectView: View {
                         return
                     }
                 }
-                errorMessage = "Could not reach a Jellyfin server at that address. \(error.localizedDescription)"
+                errorMessage = "Could not reach a Jellyfin or Emby server at that address. \(error.localizedDescription)"
             }
         }
     }

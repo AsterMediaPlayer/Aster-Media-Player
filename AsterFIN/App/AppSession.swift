@@ -21,6 +21,12 @@ final class AppSession {
     private(set) var client: JellyfinClient?
     private(set) var serverURL: URL?
     private(set) var serverName: String?
+    /// Jellyfin or Emby. Jellyfin's plugins and extras (Quick Connect, OP/ED,
+    /// disc menus, Aster Channels) hide on Emby.
+    private(set) var serverKind: ServerKind = .jellyfin
+    static let serverKindKey = "AsterFIN.serverKind"
+
+    var isJellyfin: Bool { serverKind == .jellyfin }
     private(set) var userName: String?
     private(set) var userId: String?
 
@@ -291,20 +297,22 @@ final class AppSession {
 
     /// A client for the chosen server before anyone has signed in.
     var anonymousClient: JellyfinClient? {
-        serverURL.map { JellyfinClient(baseURL: $0) }
+        serverURL.map { JellyfinClient(baseURL: $0, kind: serverKind) }
     }
 
     func restore() {
         if let stored = StoredSession.load() {
             serverURL = stored.serverURL
             serverName = stored.serverName
+            serverKind = stored.kind
             userName = stored.userName
             userId = stored.userId
-            client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId)
+            client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
             phase = .signedIn
         } else if let saved = UserDefaults.standard.url(forKey: "AsterFIN.serverURL") {
             serverURL = saved
             serverName = UserDefaults.standard.string(forKey: "AsterFIN.serverName")
+            serverKind = UserDefaults.standard.string(forKey: Self.serverKindKey).flatMap(ServerKind.init(rawValue:)) ?? .jellyfin
             phase = .needsUser
         } else {
             phase = .needsServer
@@ -314,8 +322,10 @@ final class AppSession {
     func useServer(_ url: URL, info: PublicSystemInfo) {
         serverURL = url
         serverName = info.serverName
+        serverKind = info.kind
         UserDefaults.standard.set(url, forKey: "AsterFIN.serverURL")
         UserDefaults.standard.set(info.serverName, forKey: "AsterFIN.serverName")
+        UserDefaults.standard.set(info.kind.rawValue, forKey: Self.serverKindKey)
         phase = .needsUser
     }
 
@@ -332,11 +342,11 @@ final class AppSession {
 
     func signIn(_ result: AuthenticationResult) {
         guard let serverURL else { return }
-        let stored = StoredSession(serverURL: serverURL, serverName: serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken)
+        let stored = StoredSession(serverURL: serverURL, serverName: serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: serverKind)
         stored.save()
         userId = result.user.id
         userName = result.user.name
-        client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id)
+        client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id, kind: serverKind)
         phase = .signedIn
     }
 

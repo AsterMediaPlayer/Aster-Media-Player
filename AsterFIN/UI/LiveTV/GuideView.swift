@@ -1080,7 +1080,7 @@ struct ChannelCell: View {
             .background(RoundedRectangle(cornerRadius: GuideView.cornerRadius).fill(isFocused ? Color.white : Color(white: 0.16)))
         }
         .buttonStyle(GuideCellButtonStyle())
-        .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
+        .channelFavoriteMenu(channelId: channel.id, isFavorite: isFavorite, toggle: toggleFavorite)
         .accessibilityLabel("Watch \([channel.channelNumber, channel.displayTitle, groupCaption].compactMap { $0 }.joined(separator: " "))")
     }
 }

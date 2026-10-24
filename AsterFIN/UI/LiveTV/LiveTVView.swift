@@ -21,6 +21,10 @@ final class LiveTVModel {
     private(set) var seriesTimers: [SeriesTimerInfo] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    /// Each channel's group, from the Aster Channels plugin; nil without it.
+    private(set) var groups: [String: String]?
+    /// The channels' groups for the guide's filter, when there are any.
+    private(set) var grouping: ChannelGrouping?
 
     func load(client: JellyfinClient) async {
         isLoading = channels.isEmpty
@@ -32,9 +36,10 @@ final class LiveTVModel {
             async let sportsList = client.recommendedPrograms(limit: 20, isSports: true)
             async let kidsList = client.recommendedPrograms(limit: 20, isKids: true)
             async let newsList = client.recommendedPrograms(limit: 20, isNews: true)
-            channels = Self.guideOrder(try await channelList)
-            // So the player can flick through them in the same order.
-            LiveChannelDirectory.register(channels)
+            async let groupList = client.liveTvGroups()
+            let loaded = try await channelList
+            groups = await groupList
+            arrange(loaded)
             onNow = (try? await recommended) ?? []
             movies = (try? await movieList) ?? []
             sports = (try? await sportsList) ?? []
@@ -67,6 +72,47 @@ final class LiveTVModel {
     func isFavorite(channelId: String?) -> Bool {
         guard let channelId else { return false }
         return channels.first { $0.id == channelId }?.userData?.isFavorite == true
+    }
+
+    /// Puts a channel in a group (nil: none), for an administrator, and
+    /// lays the channels out again with every channel's group after.
+    func setGroup(_ group: String?, channelId: String, client: JellyfinClient) async throws {
+        groups = try await client.setLiveTvGroup(channelId: channelId, group: group)
+        arrange(channels)
+    }
+
+    /// The groups in use, A to Z, for picking one.
+    var groupNames: [String] {
+        Set((groups ?? [:]).values).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// The channels in the guide's order, with their groups, and handed to
+    /// the player so it flicks through them the same way.
+    private func arrange(_ loaded: [BaseItem]) {
+        let arranged = Self.arranged(loaded, groups: groups ?? [:])
+        channels = arranged.channels
+        grouping = arranged.grouping
+        LiveChannelDirectory.register(channels, grouping: arranged.listed, groups: groups ?? [:])
+    }
+
+    /// The guide's order: favourites first, then each group in order of its
+    /// lowest channel number (its channels by number), the ungrouped under
+    /// Other. Without groups, favourites then everything by number, as ever.
+    /// `grouping` is each channel's own group, for the guide's filter;
+    /// `listed` has the favourites as a group of their own, as they come
+    /// first, for the player's row.
+    static func arranged(_ channels: [BaseItem], groups: [String: String]) -> (channels: [BaseItem], grouping: ChannelGrouping?, listed: ChannelGrouping?) {
+        let byNumber = channels.sorted { channelOrder($0) < channelOrder($1) }
+        guard let made = ChannelGrouping.make(byNumber, id: \.id, groupOf: { groups[$0.id] }) else {
+            return (guideOrder(channels), nil, nil)
+        }
+        let isFavorite = { (channel: BaseItem) in channel.userData?.isFavorite == true }
+        let favorites = byNumber.filter(isFavorite)
+        let ordered = favorites + made.ordered.filter { !isFavorite($0) }
+        var listedGroups = made.grouping.groups
+        for favorite in favorites { listedGroups[favorite.id] = GuideView.favoritesGroup }
+        let listed = ChannelGrouping(groups: listedGroups, names: (favorites.isEmpty ? [] : [GuideView.favoritesGroup]) + made.grouping.names)
+        return (ordered, made.grouping, listed)
     }
 
     /// The guide's order: favourites first, then by channel number.
@@ -105,6 +151,8 @@ struct LiveTVView: View {
     @State private var guideModel = GuideModel()
     @State private var section: LiveTVSection = .onNow
     @State private var selectedProgram: BaseItem?
+    /// The channel whose group an administrator is choosing.
+    @State private var groupingChannel: BaseItem?
     /// The channel playing, full screen or in the mini player. It outlives
     /// the full-screen player so Back can leave it running in the header.
     /// Through AetherEngine (`aetherLive`), or the system player when the
@@ -143,12 +191,23 @@ struct LiveTVView: View {
                 case .onNow:
                     OnNowView(model: model, select: { selectedProgram = $0 }, playChannel: play(channelId:), toggleFavorite: toggleFavorite(channelId:))
                 case .guide:
-                    GuideView(model: guideModel, channels: model.channels, select: { selectedProgram = $0 }, playChannel: play(channelId:), toggleFavorite: toggleFavorite(channelId:))
+                    GuideView(model: guideModel, channels: model.channels, select: { selectedProgram = $0 }, playChannel: play(channelId:), toggleFavorite: toggleFavorite(channelId:), grouping: model.grouping, favoriteIds: Set(model.channels.filter { $0.userData?.isFavorite == true }.map(\.id)))
                 case .channels:
                     ChannelsGrid(channels: model.channels, playChannel: play(channelId:), toggleFavorite: toggleFavorite(channelId:))
                 case .recordings:
                     RecordingsView(model: model, select: { selectedProgram = $0 })
                 }
+            }
+        }
+        // An administrator's Group… on a channel's long-press menu, when the
+        // Aster Channels plugin keeps groups.
+        .environment(\.liveChannelGroupAction, session.canEditChannels && model.groups != nil ? LiveChannelGroupAction { id in
+            groupingChannel = model.channels.first { $0.id == id }
+        } : nil)
+        .sheet(item: $groupingChannel) { channel in
+            LiveChannelGroupSheet(channel: channel, current: model.groups?[channel.id], groups: model.groupNames) { group in
+                guard let client = session.client else { return }
+                try await model.setGroup(group, channelId: channel.id, client: client)
             }
         }
         .task { await reload() }
@@ -368,16 +427,126 @@ struct LiveTVView: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Opens a Live TV channel's Group choice: set by the Live TV tab for an
+    /// administrator, when the Aster Channels plugin keeps groups.
+    @Entry var liveChannelGroupAction: LiveChannelGroupAction? = nil
+}
+
+/// What Group… on a Live TV channel does. Always equal to another: only
+/// whether there is one matters, and it finds the channel when it's run, so
+/// the menus reading it don't redraw on every update.
+struct LiveChannelGroupAction: Equatable {
+    let run: (String) -> Void
+
+    func callAsFunction(_ channelId: String) { run(channelId) }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { true }
+}
+
 extension View {
-    /// A long-press menu to favorite or unfavorite a channel, when a toggle is supplied.
-    @ViewBuilder
-    func channelFavoriteMenu(isFavorite: Bool, toggle: (() -> Void)?) -> some View {
-        if let toggle {
-            contextMenu {
-                Button(isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: isFavorite ? "heart.slash" : "heart", action: toggle)
+    /// A long-press menu to favorite or unfavorite a channel, when a toggle
+    /// is supplied, and to put it in a group, for an administrator.
+    func channelFavoriteMenu(channelId: String, isFavorite: Bool, toggle: (() -> Void)?) -> some View {
+        modifier(ChannelMenu(channelId: channelId, isFavorite: isFavorite, toggle: toggle))
+    }
+}
+
+private struct ChannelMenu: ViewModifier {
+    let channelId: String
+    let isFavorite: Bool
+    let toggle: (() -> Void)?
+    @Environment(\.liveChannelGroupAction) private var groupAction
+
+    func body(content: Content) -> some View {
+        if toggle != nil || groupAction != nil {
+            content.contextMenu {
+                if let toggle {
+                    Button(isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: isFavorite ? "heart.slash" : "heart", action: toggle)
+                }
+                if let groupAction {
+                    Button("Group…", systemImage: "square.stack") { groupAction(channelId) }
+                }
             }
         } else {
-            self
+            content
+        }
+    }
+}
+
+/// Puts a Live TV channel in a group: none, one in use, or a new one. For
+/// an administrator; the Aster Channels plugin keeps it.
+struct LiveChannelGroupSheet: View {
+    let channel: BaseItem
+    let current: String?
+    let groups: [String]
+    var save: (String?) async throws -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var newGroup = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    choice("None", group: nil)
+                    ForEach(groups, id: \.self) { group in
+                        choice(group, group: group)
+                    }
+                }
+                Section("New Group") {
+                    TextField("New Group", text: $newGroup, prompt: Text("New group…"))
+                        .onSubmit {
+                            let name = newGroup.trimmingCharacters(in: .whitespaces)
+                            if !name.isEmpty { pick(name) }
+                        }
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+            }
+            .disabled(isSaving)
+            .navigationTitle([channel.channelNumber, channel.displayTitle].compactMap { $0 }.joined(separator: " "))
+            #if !os(tvOS)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            #endif
+        }
+    }
+
+    private func choice(_ title: String, group: String?) -> some View {
+        Button {
+            pick(group)
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                if group == current {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
+    }
+
+    private func pick(_ group: String?) {
+        isSaving = true
+        errorMessage = nil
+        Task {
+            do {
+                try await save(group)
+                dismiss()
+            } catch {
+                errorMessage = "Couldn't save the group. \(error.localizedDescription)"
+                isSaving = false
+            }
         }
     }
 }
@@ -559,7 +728,7 @@ struct ChannelTile: View {
             }
             .cardButtonStyle()
             .keyboardTarget(action: action)
-            .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
+            .channelFavoriteMenu(channelId: channel.id, isFavorite: isFavorite, toggle: toggleFavorite)
             .accessibilityLabel([channel.channelNumber, channel.displayTitle, channel.currentProgram?.name].compactMap { $0 }.joined(separator: ", "))
 
             Text([channel.channelNumber, channel.displayTitle].compactMap { $0 }.joined(separator: "  "))

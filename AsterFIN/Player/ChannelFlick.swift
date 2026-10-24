@@ -57,12 +57,16 @@ nonisolated struct FlickProgram: Equatable, Sendable {
 /// them, so the player can flick through them.
 enum LiveChannelDirectory {
     private(set) static var channels: [BaseItem] = []
-    /// Their groups, from the Aster Channels plugin, when there are any.
+    /// Their groups, from the Aster Channels plugin, when there are any,
+    /// with favourites as a group of their own (they come first).
     private(set) static var grouping: ChannelGrouping?
+    /// Each channel's own group, for laying a fresh list out the same way.
+    private(set) static var groups: [String: String] = [:]
 
-    static func register(_ loaded: [BaseItem], grouping: ChannelGrouping? = nil) {
+    static func register(_ loaded: [BaseItem], grouping: ChannelGrouping? = nil, groups: [String: String] = [:]) {
         channels = loaded
         self.grouping = grouping
+        self.groups = groups
     }
 }
 
@@ -137,8 +141,10 @@ final class ChannelFlickModel {
         let pickedId = selectedChannel?.id
         if isLive {
             guard let loaded = try? await client.channels() else { return }
-            let ordered = LiveTVModel.guideOrder(loaded)
-            LiveChannelDirectory.register(ordered, grouping: LiveChannelDirectory.grouping)
+            let groups = LiveChannelDirectory.groups
+            let arranged = LiveTVModel.arranged(loaded, groups: groups)
+            let ordered = arranged.channels
+            LiveChannelDirectory.register(ordered, grouping: arranged.listed, groups: groups)
             channels = Self.liveChannels(ordered, client: client)
         } else {
             channels = Self.playlistChannels(client: client)

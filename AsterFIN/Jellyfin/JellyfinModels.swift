@@ -1098,6 +1098,30 @@ nonisolated struct PlaybackReport: Encodable, Sendable {
 
 /// `GET /OpEd/Library` (plugin 0.2): the libraries the plugin publishes its
 /// themes in, each nil until it exists.
+/// `GET`/`POST /AsterChannels/LiveTvGroups` from the Aster Channels server
+/// plugin: each Live TV channel's group.
+nonisolated struct LiveTvGroupList: Codable, Sendable {
+    struct Entry: Codable, Sendable {
+        var channelId: String
+        var group: String
+
+        enum CodingKeys: String, CodingKey {
+            case channelId = "ChannelId"
+            case group = "Group"
+        }
+    }
+    var groups: [Entry]
+
+    enum CodingKeys: String, CodingKey {
+        case groups = "Groups"
+    }
+
+    /// The groups by channel id.
+    var byChannel: [String: String] {
+        Dictionary(groups.map { ($0.channelId, $0.group) }) { _, last in last }
+    }
+}
+
 nonisolated struct OpEdLibraries: Decodable, Sendable {
     var videosLibraryId: String?
     var songsLibraryId: String?

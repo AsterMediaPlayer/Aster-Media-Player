@@ -508,6 +508,19 @@ nonisolated final class JellyfinClient: Sendable {
         try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
     }
 
+    /// Live TV channels' groups, by channel id, from the Aster Channels
+    /// plugin; nil without it (or before 0.2), which leaves Live TV as it was.
+    func liveTvGroups() async -> [String: String]? {
+        try? await get(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups").byChannel
+    }
+
+    /// Puts a Live TV channel in `group`, or out of its group for nil
+    /// (administrators only); every channel's group after.
+    func setLiveTvGroup(channelId: String, group: String?) async throws -> [String: String] {
+        let change = LiveTvGroupList.Entry(channelId: channelId, group: group ?? "")
+        return try await post(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups", body: change).byChannel
+    }
+
     /// The OP/ED plugin's published libraries; nil without the plugin (or
     /// before 0.2).
     func opEdLibraries() async -> OpEdLibraries? {

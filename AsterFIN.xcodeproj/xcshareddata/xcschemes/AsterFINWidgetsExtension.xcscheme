@@ -63,7 +63,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CC74E258308C5517000B5EF7"
             BuildableName = "AsterFINWidgetsExtension.appex"
-            BlueprintName = "AsterFINWidgetsExtension"
             ReferencedContainer = "container:AsterFIN.xcodeproj">
          </BuildableReference>
       </RemoteRunnable>

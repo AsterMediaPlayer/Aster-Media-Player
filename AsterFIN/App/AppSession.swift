@@ -31,6 +31,10 @@ final class AppSession {
     private(set) var savedServers: [SavedServer] = []
     /// Bumped on switching server, so the main screen starts afresh.
     private(set) var serverGeneration = 0
+    /// The server in use asks for its password: it was away longer than its
+    /// lock-after setting.
+    private(set) var isLocked = false
+    private static let leftAtKey = "AsterFIN.leftAt"
 
     /// The saved server in use.
     var currentServerID: String? {
@@ -350,6 +354,7 @@ final class AppSession {
     /// Off to sign in to another server. The one in use stays saved and
     /// signed in, to switch back to.
     func changeServer() {
+        isLocked = false
         stopMedia()
         StoredSession.clear()
         client = nil
@@ -375,6 +380,7 @@ final class AppSession {
         UserDefaults.standard.set(stored.kind.rawValue, forKey: Self.serverKindKey)
         client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
         remember(stored)
+        isLocked = false
         serverGeneration += 1
         phase = .signedIn
         #if os(iOS)
@@ -389,6 +395,43 @@ final class AppSession {
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
         let result = try await client.authenticate(username: session.userName, password: password)
         return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)
+    }
+
+    func setLockAfter(_ minutes: Int?, for id: String) {
+        guard let index = savedServers.firstIndex(where: { $0.id == id }) else { return }
+        savedServers[index].lockAfterMinutes = minutes
+        SavedServers.save(savedServers)
+    }
+
+    /// The app left the screen: the clock for the lock starts.
+    func noteLeftApp() {
+        UserDefaults.standard.set(Date(), forKey: Self.leftAtKey)
+    }
+
+    /// The app is back (or just opened): locks the server in use if it was
+    /// away past its lock-after setting.
+    func checkLock() {
+        defer { UserDefaults.standard.removeObject(forKey: Self.leftAtKey) }
+        guard phase == .signedIn, !isLocked,
+              let id = currentServerID,
+              let minutes = savedServers.first(where: { $0.id == id })?.lockAfterMinutes,
+              let leftAt = UserDefaults.standard.object(forKey: Self.leftAtKey) as? Date,
+              Date().timeIntervalSince(leftAt) >= TimeInterval(minutes * 60) else { return }
+        stopMedia()
+        isLocked = true
+    }
+
+    /// The password was right: carry on, with the fresh sign-in.
+    func unlock(with fresh: StoredSession) {
+        fresh.save()
+        client = JellyfinClient(baseURL: fresh.serverURL, accessToken: fresh.accessToken, userId: fresh.userId, kind: fresh.kind)
+        remember(fresh)
+        isLocked = false
+    }
+
+    /// The saved server in use, for the lock screen.
+    var currentServer: SavedServer? {
+        currentServerID.flatMap { id in savedServers.first { $0.id == id } }
     }
 
     func setAsksPasswordToSwitch(_ asks: Bool, for id: String) {
@@ -454,6 +497,7 @@ final class AppSession {
 
     /// Signs out of the server in use (it's forgotten too); others stay saved.
     func signOut() {
+        isLocked = false
         stopMedia()
         let old = client
         Task { await old?.logout() }

@@ -136,3 +136,83 @@ private struct ServerPasswordSheet: View {
         }
     }
 }
+
+/// The server in use after the app was away longer than its lock-after:
+/// the user's password (checked by the server) to carry on, or another server.
+struct ServerLockView: View {
+    let server: SavedServer
+
+    @Environment(AppSession.self) private var session
+    @State private var password = ""
+    @State private var isChecking = false
+    @State private var errorMessage: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack {
+            OnboardingBackdrop()
+            OnboardingLayout {
+                VStack(spacing: Onboarding.sectionSpacing) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: Onboarding.logoSize * 0.7))
+                            .foregroundStyle(.secondary)
+                        Text(server.session.serverName ?? "Server")
+                            .font(.system(size: Onboarding.serverNameSize, weight: .bold))
+                        Text("Enter \(server.session.userName)'s password to carry on.")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    VStack(spacing: Onboarding.controlSpacing) {
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                            .onboardingField()
+                            .frame(maxWidth: Onboarding.credentialsWidth)
+                            .focused($focused)
+                            .onSubmit(check)
+                        Button {
+                            check()
+                        } label: {
+                            HStack {
+                                if isChecking { ProgressView().controlSize(.small) }
+                                Text("Unlock")
+                            }
+                            .frame(maxWidth: Onboarding.signInButtonWidth)
+                        }
+                        .onboardingPrimaryButton()
+                        .disabled(isChecking)
+                        Button("Use Another Server") { session.changeServer() }
+                            .onboardingSecondaryButton()
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .foregroundStyle(.red)
+                                .font(.callout)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .tvFocusSection()
+                }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(350))
+            focused = true
+        }
+    }
+
+    private func check() {
+        guard !isChecking else { return }
+        isChecking = true
+        errorMessage = nil
+        Task {
+            defer { isChecking = false }
+            do {
+                session.unlock(with: try await session.signInAgain(to: server, password: password))
+            } catch {
+                errorMessage = "That password didn't work. \(error.localizedDescription)"
+            }
+        }
+    }
+}
+

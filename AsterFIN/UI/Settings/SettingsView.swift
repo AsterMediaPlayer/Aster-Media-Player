@@ -1616,6 +1616,11 @@ private struct SavedServerPage: View {
 
     private var isInUse: Bool { server.id == session.currentServerID }
 
+    /// "5 Minutes", "1 Hour", "4 Hours".
+    static func lockTitle(_ minutes: Int) -> String {
+        Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .wide)).capitalized
+    }
+
     var body: some View {
         SettingsPage(title: current.session.serverName ?? "Server") {
             Section {
@@ -1635,6 +1640,18 @@ private struct SavedServerPage: View {
                 ))
             } footer: {
                 SettingsNote("Switching to this server asks for \(current.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
+            }
+            Section {
+                SettingsChoiceRow(
+                    title: "Lock After",
+                    options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
+                    selection: Binding(
+                        get: { current.lockAfterMinutes ?? 0 },
+                        set: { session.setLockAfter($0 > 0 ? $0 : nil, for: server.id) }
+                    )
+                )
+            } footer: {
+                SettingsNote("After this long away from Aster, coming back to this server asks for \(current.session.userName)'s password.")
             }
             if !isInUse {
                 Section {

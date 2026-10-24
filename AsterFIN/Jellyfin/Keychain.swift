@@ -105,6 +105,12 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     var session: StoredSession
     /// Switching to it asks for the user's own password first.
     var asksPasswordToSwitch = false
+    /// Minutes away from the app after which it asks for the password to
+    /// carry on with this server; nil for never.
+    var lockAfterMinutes: Int?
+
+    /// The lock-after choices offered, in minutes.
+    static let lockChoices = [5, 15, 30, 60, 240]
 
     /// One per server and user.
     var id: String { Self.id(session.serverURL, session.userId) }

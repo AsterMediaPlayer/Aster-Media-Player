@@ -62,9 +62,20 @@ final class AudiobookDownloads: NSObject {
     static let cellularSessionID = "app.asterfin.audiobooks.cellular"
 
     /// Newest first.
-    private(set) var records: [AudiobookDownload] = []
+    private(set) var records: [AudiobookDownload] = [] {
+        didSet { updateActivity() }
+    }
     /// Bytes come in for the parts downloading now, by task, for progress.
-    private(set) var bytesWritten: [String: Int64] = [:]
+    private(set) var bytesWritten: [String: Int64] = [:] {
+        didSet { updateActivity() }
+    }
+
+    /// The books downloading, for the downloads Live Activity.
+    private func updateActivity() {
+        DownloadsActivity.syncAudiobooks(records.filter { $0.state == .downloading }.map {
+            DownloadsActivity.Running(title: $0.title, progress: progress($0))
+        })
+    }
 
     @ObservationIgnored private var wifiSession: URLSession?
     @ObservationIgnored private var cellularSession: URLSession?

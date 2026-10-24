@@ -1581,10 +1581,11 @@ private struct AccountSettingsView: View {
                 Button("Switch User") { session.signOut() }
             }
             Section {
+                // By value, like every settings page: a page reached by an
+                // inline link froze on Apple TV when its own choice row
+                // (Lock After) opened another.
                 ForEach(session.savedServers) { server in
-                    NavigationLink {
-                        SavedServerPage(server: server)
-                    } label: {
+                    NavigationLink(value: SavedServerRoute(id: server.id)) {
                         SavedServerLabel(server: server, isCurrent: server.id == session.currentServerID)
                     }
                 }
@@ -1598,7 +1599,17 @@ private struct AccountSettingsView: View {
         .task {
             serverInfo = try? await session.client?.publicSystemInfo()
         }
+        .navigationDestination(for: SavedServerRoute.self) { route in
+            if let server = session.savedServers.first(where: { $0.id == route.id }) {
+                SavedServerPage(server: server)
+            }
+        }
     }
+}
+
+/// A saved server's page, as a value on the settings path.
+private struct SavedServerRoute: Hashable {
+    let id: String
 }
 
 /// One saved server: switch to it, ask for its password first, or forget it.

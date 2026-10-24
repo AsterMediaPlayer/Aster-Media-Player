@@ -46,6 +46,8 @@ nonisolated final class JellyfinClient: Sendable {
     let baseURL: URL
     let accessToken: String?
     let userId: String?
+    /// Jellyfin or Emby: a few routes differ between them.
+    let kind: ServerKind
     let session: URLSession
 
     static let imageSession: URLSession = {
@@ -55,10 +57,11 @@ nonisolated final class JellyfinClient: Sendable {
         return URLSession(configuration: configuration)
     }()
 
-    init(baseURL: URL, accessToken: String? = nil, userId: String? = nil) {
+    init(baseURL: URL, accessToken: String? = nil, userId: String? = nil, kind: ServerKind = .jellyfin) {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.userId = userId
+        self.kind = kind
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.waitsForConnectivity = true
@@ -66,7 +69,7 @@ nonisolated final class JellyfinClient: Sendable {
     }
 
     func signedIn(token: String, userId: String) -> JellyfinClient {
-        JellyfinClient(baseURL: baseURL, accessToken: token, userId: userId)
+        JellyfinClient(baseURL: baseURL, accessToken: token, userId: userId, kind: kind)
     }
 
     // MARK: Request plumbing
@@ -206,8 +209,10 @@ nonisolated final class JellyfinClient: Sendable {
         return try await post(AuthenticationResult.self, "/Users/AuthenticateByName", body: Body(Username: username, Pw: password))
     }
 
+    /// Jellyfin's; Emby has no Quick Connect.
     func quickConnectEnabled() async throws -> Bool {
-        try await get(Bool.self, "/QuickConnect/Enabled")
+        guard kind == .jellyfin else { return false }
+        return try await get(Bool.self, "/QuickConnect/Enabled")
     }
 
     func quickConnectInitiate() async throws -> QuickConnectResult {
@@ -237,14 +242,20 @@ nonisolated final class JellyfinClient: Sendable {
         return userId
     }
 
+    /// Jellyfin 10.9+'s path, or on Emby its older per-user form (the user
+    /// in the path; the `userId` query the app sends as well is ignored).
+    private func route(_ jellyfin: String, emby: @autoclosure () -> String) -> String {
+        kind == .emby ? emby() : jellyfin
+    }
+
     func userViews() async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get(ItemsResult.self, "/UserViews", query: ["userId": user]).items
+        return try await get(ItemsResult.self, route("/UserViews", emby: "/Users/\(user)/Views"), query: ["userId": user]).items
     }
 
     func item(_ id: String) async throws -> BaseItem {
         let user = try requireUser()
-        return try await get(BaseItem.self, "/Items/\(id)", query: ["userId": user, "fields": Self.detailFields])
+        return try await get(BaseItem.self, route("/Items/\(id)", emby: "/Users/\(user)/Items/\(id)"), query: ["userId": user, "fields": Self.detailFields])
     }
 
     func items(_ query: [String: String?]) async throws -> ItemsResult {
@@ -391,7 +402,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func latest(parentId: String?, limit: Int = 20, includeTypes: String? = nil) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get([BaseItem].self, "/Items/Latest", query: [
+        return try await get([BaseItem].self, route("/Items/Latest", emby: "/Users/\(user)/Items/Latest"), query: [
             "userId": user,
             "parentId": parentId,
             "limit": String(limit),
@@ -404,7 +415,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func resume(limit: Int = 20, parentId: String? = nil) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get(ItemsResult.self, "/UserItems/Resume", query: [
+        return try await get(ItemsResult.self, route("/UserItems/Resume", emby: "/Users/\(user)/Items/Resume"), query: [
             "userId": user,
             "parentId": parentId,
             "limit": String(limit),
@@ -515,19 +526,23 @@ nonisolated final class JellyfinClient: Sendable {
     /// or episode. Nil when the plugin isn't installed, the item is unknown,
     /// or the request fails; callers then fall back to chapter markers.
     func opEdThemes(for itemId: String) async -> [OpEdTheme]? {
-        try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
+        // Aster's server plugins are Jellyfin plugins.
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdThemeList.self, "/OpEd/Items/\(itemId)/Themes").themes
     }
 
     /// The theme a published music video (or song) is, from the OP/ED
     /// plugin; nil for any other item, or without the plugin.
     func opEdTheme(forLibraryItem itemId: String) async -> OpEdTheme? {
-        try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdTheme.self, "/OpEd/LibraryItems/\(itemId)/Theme")
     }
 
     /// Live TV channels' groups, by channel id, from the Aster Channels
     /// plugin; nil without it (or before 0.2), which leaves Live TV as it was.
     func liveTvGroups() async -> [String: String]? {
-        try? await get(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups").byChannel
+        guard kind == .jellyfin else { return nil }
+        return try? await get(LiveTvGroupList.self, "/AsterChannels/LiveTvGroups").byChannel
     }
 
     /// Puts a Live TV channel in `group`, or out of its group for nil
@@ -540,7 +555,8 @@ nonisolated final class JellyfinClient: Sendable {
     /// The OP/ED plugin's published libraries; nil without the plugin (or
     /// before 0.2).
     func opEdLibraries() async -> OpEdLibraries? {
-        try? await get(OpEdLibraries.self, "/OpEd/Library")
+        guard kind == .jellyfin else { return nil }
+        return try? await get(OpEdLibraries.self, "/OpEd/Library")
     }
 
     /// A library's newest music videos, for a shelf.
@@ -585,7 +601,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func specialFeatures(of id: String) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get([BaseItem].self, "/Items/\(id)/SpecialFeatures", query: ["userId": user])
+        return try await get([BaseItem].self, route("/Items/\(id)/SpecialFeatures", emby: "/Users/\(user)/Items/\(id)/SpecialFeatures"), query: ["userId": user])
     }
 
     func search(_ term: String, limit: Int = 60) async throws -> [BaseItem] {
@@ -602,19 +618,21 @@ nonisolated final class JellyfinClient: Sendable {
 
     func setFavorite(_ id: String, _ favorite: Bool) async throws {
         let user = try requireUser()
+        let path = route("/UserFavoriteItems/\(id)", emby: "/Users/\(user)/FavoriteItems/\(id)")
         if favorite {
-            try await post("/UserFavoriteItems/\(id)", query: ["userId": user])
+            try await post(path, query: ["userId": user])
         } else {
-            try await delete("/UserFavoriteItems/\(id)", query: ["userId": user])
+            try await delete(path, query: ["userId": user])
         }
     }
 
     func setPlayed(_ id: String, _ played: Bool) async throws {
         let user = try requireUser()
+        let path = route("/UserPlayedItems/\(id)", emby: "/Users/\(user)/PlayedItems/\(id)")
         if played {
-            try await post("/UserPlayedItems/\(id)", query: ["userId": user])
+            try await post(path, query: ["userId": user])
         } else {
-            try await delete("/UserPlayedItems/\(id)", query: ["userId": user])
+            try await delete(path, query: ["userId": user])
         }
     }
 
@@ -628,13 +646,17 @@ nonisolated final class JellyfinClient: Sendable {
     }
 
     func me() async throws -> JellyfinUser {
-        try await get(JellyfinUser.self, "/Users/Me")
+        // Emby has no /Users/Me: the signed-in user by id.
+        if kind == .emby {
+            return try await get(JellyfinUser.self, "/Users/\(try requireUser())")
+        }
+        return try await get(JellyfinUser.self, "/Users/Me")
     }
 
     /// Replaces the user's settings wholesale; send a complete configuration.
     func updateConfiguration(_ configuration: UserConfiguration) async throws {
         let user = try requireUser()
-        try await post("/Users/Configuration", query: ["userId": user], body: configuration)
+        try await post(route("/Users/Configuration", emby: "/Users/\(user)/Configuration"), query: ["userId": user], body: configuration)
     }
 
     /// `allowDirect: false` makes the server offer an HLS stream even when the
@@ -725,7 +747,7 @@ nonisolated final class JellyfinClient: Sendable {
     /// Sets the user's resume point on an item, leaving its watched state alone.
     func saveResumePosition(itemId: String, ticks: Int64) async throws {
         guard let userId else { return }
-        try await post("/UserItems/\(itemId)/UserData", query: ["userId": userId], body: ResumePositionUpdate(playbackPositionTicks: ticks))
+        try await post(route("/UserItems/\(itemId)/UserData", emby: "/Users/\(userId)/Items/\(itemId)/UserData"), query: ["userId": userId], body: ResumePositionUpdate(playbackPositionTicks: ticks))
     }
 
     // MARK: Images
@@ -1172,7 +1194,11 @@ nonisolated final class JellyfinClient: Sendable {
             var MediaType: String
             var IsPublic: Bool?
         }
-        return try await post(PlaylistCreationResult.self, "/Playlists", body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType, IsPublic: isPublic)).id
+        // Emby reads these from the query rather than the body: both, there.
+        let query: [String: String?] = kind == .emby
+            ? ["Name": name, "Ids": itemIds.joined(separator: ","), "UserId": user, "MediaType": mediaType]
+            : [:]
+        return try await post(PlaylistCreationResult.self, "/Playlists", query: query, body: Body(Name: name, Ids: itemIds, UserId: user, MediaType: mediaType, IsPublic: isPublic)).id
     }
 
     func addToPlaylist(_ playlistId: String, itemIds: [String]) async throws {
@@ -1226,6 +1252,7 @@ nonisolated final class JellyfinClient: Sendable {
     /// its own repeated parameter and rejects a comma-joined list with a 400,
     /// so all markers are fetched and the skippable kinds kept here.
     func mediaSegments(itemId: String) async throws -> [MediaSegment] {
+        if kind == .emby { return try await chapterSegments(itemId: itemId) }
         let request = authorizedRequest(url("/MediaSegments/\(itemId)"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return [] }
@@ -1237,11 +1264,35 @@ nonisolated final class JellyfinClient: Sendable {
             .filter { Self.skippableSegmentTypes.contains($0.type) }
     }
 
+    /// Emby has no media segments: it marks an intro (and where the credits
+    /// begin) as chapters, which become the same Intro and Outro segments.
+    private func chapterSegments(itemId: String) async throws -> [MediaSegment] {
+        let item = try await item(itemId)
+        return Self.segments(fromChapters: item.chapters ?? [], itemId: itemId, runTimeTicks: item.runTimeTicks)
+    }
+
+    /// Intro from IntroStart to IntroEnd, and credits from CreditsStart to the
+    /// end; chapters without those marks give nothing.
+    static func segments(fromChapters chapters: [ChapterInfo], itemId: String, runTimeTicks: Int64?) -> [MediaSegment] {
+        func mark(_ type: String) -> Int64? {
+            chapters.first { $0.markerType?.caseInsensitiveCompare(type) == .orderedSame }?.startPositionTicks
+        }
+        var segments: [MediaSegment] = []
+        if let start = mark("IntroStart"), let end = mark("IntroEnd"), end > start {
+            segments.append(MediaSegment(id: "\(itemId)-intro", itemId: itemId, type: "Intro", startTicks: start, endTicks: end))
+        }
+        if let start = mark("CreditsStart"), let end = runTimeTicks, end > start {
+            segments.append(MediaSegment(id: "\(itemId)-credits", itemId: itemId, type: "Outro", startTicks: start, endTicks: end))
+        }
+        return segments
+    }
+
     // MARK: JellyDisc
 
     /// The resolved disc menu for a movie, series or season, or nil when the
     /// server has none (404 is "nothing to show", never an error).
     func discMenu(for itemId: String) async throws -> DiscMenuDocument? {
+        guard kind == .jellyfin else { return nil }
         let request = authorizedRequest(url("/DiscMenus/\(itemId)/Menu"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return nil }

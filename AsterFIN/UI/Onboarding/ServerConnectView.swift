@@ -2,7 +2,8 @@
 //  ServerConnectView.swift
 //  AsterFIN
 //
-//  First launch: ask for the Jellyfin server address.
+//  First launch: ask for the Jellyfin or Emby server address (which it is
+//  comes from the server's own reply; see `PublicSystemInfo.kind`).
 //
 
 import SwiftUI
@@ -12,6 +13,7 @@ struct ServerConnectView: View {
     @State private var address: String = ""
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var switchRequest: SavedServer?
 
     var body: some View {
         ZStack {
@@ -24,7 +26,7 @@ struct ServerConnectView: View {
                             .scaledToFit()
                             .frame(maxWidth: Onboarding.logoWidth)
                             .accessibilityLabel("Aster Media Player")
-                        Text("Connect to your Jellyfin server")
+                        Text("Connect to your Jellyfin or Emby server")
                             .font(.title3)
                             .foregroundStyle(.secondary)
                     }
@@ -62,9 +64,30 @@ struct ServerConnectView: View {
                                 .multilineTextAlignment(.center)
                         }
                     }
+
+                    // Servers already signed in to: back to one without typing it.
+                    if !session.savedServers.isEmpty {
+                        VStack(spacing: Onboarding.controlSpacing) {
+                            Text("Your Servers")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            ForEach(session.savedServers) { server in
+                                Button {
+                                    switchRequest = server
+                                } label: {
+                                    SavedServerLabel(server: server)
+                                        .frame(maxWidth: Onboarding.fieldWidth)
+                                }
+                                .onboardingSecondaryButton()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .tvFocusSection()
+                    }
                 }
             }
         }
+        .savedServerSwitcher(request: $switchRequest)
     }
 
     private func connect() {
@@ -90,7 +113,7 @@ struct ServerConnectView: View {
                         return
                     }
                 }
-                errorMessage = "Could not reach a Jellyfin server at that address. \(error.localizedDescription)"
+                errorMessage = "Could not reach a Jellyfin or Emby server at that address. \(error.localizedDescription)"
             }
         }
     }

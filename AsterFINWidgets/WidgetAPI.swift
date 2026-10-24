@@ -50,7 +50,7 @@ nonisolated struct WidgetAPI: Sendable {
 
     /// Continue Watching, then Next Up, without repeats.
     func continueWatching(limit: Int) async -> [WidgetTitle] {
-        async let resume = items("/UserItems/Resume", ["limit": "\(limit)", "mediaTypes": "Video", "fields": "ParentId"])
+        async let resume = items(session.resumePath, ["limit": "\(limit)", "mediaTypes": "Video", "fields": "ParentId"])
         async let nextUp = items("/Shows/NextUp", ["limit": "\(limit)", "enableResumable": "false"])
         var seen = Set<String>()
         let found = ((try? await resume) ?? []) + ((try? await nextUp) ?? [])

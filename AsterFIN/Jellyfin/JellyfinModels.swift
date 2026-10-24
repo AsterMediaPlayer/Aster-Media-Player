@@ -16,12 +16,34 @@ nonisolated struct PublicSystemInfo: Codable, Sendable, Equatable {
     var version: String?
     var id: String?
     var localAddress: String?
+    /// "Jellyfin Server" from Jellyfin; Emby sends none.
+    var productName: String?
 
     enum CodingKeys: String, CodingKey {
         case serverName = "ServerName"
         case version = "Version"
         case id = "Id"
         case localAddress = "LocalAddress"
+        case productName = "ProductName"
+    }
+
+    /// Which server answered.
+    var kind: ServerKind {
+        productName?.localizedCaseInsensitiveContains("Jellyfin") == true ? .jellyfin : .emby
+    }
+}
+
+/// The two servers Aster signs in to. Jellyfin began as a fork of Emby, so
+/// they share almost everything; where they differ (a few routes, and what
+/// each has that the other doesn't) the client and the app ask this.
+nonisolated enum ServerKind: String, Codable, Sendable {
+    case jellyfin, emby
+
+    var displayName: String {
+        switch self {
+        case .jellyfin: "Jellyfin"
+        case .emby: "Emby"
+        }
     }
 }
 
@@ -138,6 +160,15 @@ nonisolated struct PersonInfo: Codable, Sendable, Hashable, Identifiable {
         case type = "Type"
         case primaryImageTag = "PrimaryImageTag"
     }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeFlexibleID(forKey: .id) ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        primaryImageTag = try container.decodeIfPresent(String.self, forKey: .primaryImageTag)
+    }
 }
 
 nonisolated struct NameGuidPair: Codable, Sendable, Hashable {
@@ -148,17 +179,42 @@ nonisolated struct NameGuidPair: Codable, Sendable, Hashable {
         case name = "Name"
         case id = "Id"
     }
+
+    init(name: String? = nil, id: String? = nil) {
+        self.name = name
+        self.id = id
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        id = try container.decodeFlexibleID(forKey: .id)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// An id as text (Jellyfin) or a number (Emby's studios, genres and
+    /// people), as text either way; nil when it's missing.
+    nonisolated func decodeFlexibleID(forKey key: Key) throws -> String? {
+        if let text = try? decodeIfPresent(String.self, forKey: key) { return text }
+        if let number = try? decodeIfPresent(Int64.self, forKey: key) { return String(number) }
+        return nil
+    }
 }
 
 nonisolated struct ChapterInfo: Codable, Sendable, Hashable {
     var startPositionTicks: Int64
     var name: String?
     var imageTag: String?
+    /// Emby's mark on a chapter: Chapter, or IntroStart, IntroEnd and
+    /// CreditsStart (its stand-in for media segments).
+    var markerType: String?
 
     enum CodingKeys: String, CodingKey {
         case startPositionTicks = "StartPositionTicks"
         case name = "Name"
         case imageTag = "ImageTag"
+        case markerType = "MarkerType"
     }
 }
 

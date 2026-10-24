@@ -27,6 +27,16 @@ final class AppSession {
     static let serverKindKey = "AsterFIN.serverKind"
 
     var isJellyfin: Bool { serverKind == .jellyfin }
+    /// Every server signed in to, to switch between.
+    private(set) var savedServers: [SavedServer] = []
+    /// Bumped on switching server, so the main screen starts afresh.
+    private(set) var serverGeneration = 0
+
+    /// The saved server in use.
+    var currentServerID: String? {
+        guard let serverURL, let userId else { return nil }
+        return SavedServer.id(serverURL, userId)
+    }
     private(set) var userName: String?
     private(set) var userId: String?
 
@@ -303,6 +313,12 @@ final class AppSession {
     }
 
     func restore() {
+        savedServers = SavedServers.load()
+        // Signed in before servers were saved: that one is the first.
+        if savedServers.isEmpty, let stored = StoredSession.load() {
+            savedServers = [SavedServer(session: stored)]
+            SavedServers.save(savedServers)
+        }
         if let stored = StoredSession.load() {
             serverURL = stored.serverURL
             serverName = stored.serverName
@@ -331,15 +347,96 @@ final class AppSession {
         phase = .needsUser
     }
 
+    /// Off to sign in to another server. The one in use stays saved and
+    /// signed in, to switch back to.
     func changeServer() {
-        music.stop()
-        audiobooks.stop()
-        Task { await client?.logout() }
+        stopMedia()
         StoredSession.clear()
         client = nil
         userId = nil
         userName = nil
         phase = .needsServer
+    }
+
+    /// Back to a saved server, with its saved sign-in or (`session`) a fresh
+    /// one from its password.
+    func switchServer(to saved: SavedServer, session fresh: StoredSession? = nil) {
+        let stored = fresh ?? saved.session
+        stopMedia()
+        resetServerState()
+        stored.save()
+        serverURL = stored.serverURL
+        serverName = stored.serverName
+        serverKind = stored.kind
+        userId = stored.userId
+        userName = stored.userName
+        UserDefaults.standard.set(stored.serverURL, forKey: "AsterFIN.serverURL")
+        UserDefaults.standard.set(stored.serverName, forKey: "AsterFIN.serverName")
+        UserDefaults.standard.set(stored.kind.rawValue, forKey: Self.serverKindKey)
+        client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
+        remember(stored)
+        serverGeneration += 1
+        phase = .signedIn
+        #if os(iOS)
+        WidgetRefresh.continueWatching()
+        #endif
+    }
+
+    /// Checks a saved server's password with the server itself, for one that
+    /// asks for it before switching; the fresh sign-in to switch with.
+    func signInAgain(to saved: SavedServer, password: String) async throws -> StoredSession {
+        let session = saved.session
+        let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
+        let result = try await client.authenticate(username: session.userName, password: password)
+        return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)
+    }
+
+    func setAsksPasswordToSwitch(_ asks: Bool, for id: String) {
+        guard let index = savedServers.firstIndex(where: { $0.id == id }) else { return }
+        savedServers[index].asksPasswordToSwitch = asks
+        SavedServers.save(savedServers)
+    }
+
+    /// Forgets a saved server (not the one in use), signing it out.
+    func removeServer(_ id: String) {
+        guard id != currentServerID, let saved = savedServers.first(where: { $0.id == id }) else { return }
+        savedServers.removeAll { $0.id == id }
+        SavedServers.save(savedServers)
+        let session = saved.session
+        Task { await JellyfinClient(baseURL: session.serverURL, accessToken: session.accessToken, userId: session.userId, kind: session.kind).logout() }
+    }
+
+    /// Adds or updates a server in the saved list, keeping its password setting.
+    private func remember(_ stored: StoredSession) {
+        let id = SavedServer.id(stored.serverURL, stored.userId)
+        if let index = savedServers.firstIndex(where: { $0.id == id }) {
+            savedServers[index].session = stored
+        } else {
+            savedServers.append(SavedServer(session: stored))
+        }
+        SavedServers.save(savedServers)
+    }
+
+    private func stopMedia() {
+        music.stop()
+        audiobooks.stop()
+    }
+
+    /// What was learned about the last server, cleared for the next.
+    private func resetServerState() {
+        animeLibraries = []
+        animeItemIds = []
+        hasMusic = false
+        hasLiveTV = false
+        bookLibraries = []
+        hasUpcoming = false
+        musicVideoLibraries = []
+        opEdVideosLibraryId = nil
+        animeMusicVideoLibraries = []
+        canDownload = false
+        canEditChannels = false
+        hasChannels = false
+        userConfiguration = nil
     }
 
     func signIn(_ result: AuthenticationResult) {
@@ -349,14 +446,21 @@ final class AppSession {
         userId = result.user.id
         userName = result.user.name
         client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id, kind: serverKind)
+        remember(stored)
+        resetServerState()
+        serverGeneration += 1
         phase = .signedIn
     }
 
+    /// Signs out of the server in use (it's forgotten too); others stay saved.
     func signOut() {
-        music.stop()
-        audiobooks.stop()
+        stopMedia()
         let old = client
         Task { await old?.logout() }
+        if let id = currentServerID {
+            savedServers.removeAll { $0.id == id }
+            SavedServers.save(savedServers)
+        }
         StoredSession.clear()
         client = nil
         userId = nil

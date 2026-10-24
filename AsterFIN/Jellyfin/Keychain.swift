@@ -97,3 +97,40 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
         Keychain.delete(account: account)
     }
 }
+
+/// A server signed in to, kept so the app can switch back to it without
+/// signing in again; the one in use is also the `StoredSession` the widget
+/// and Top Shelf read.
+nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
+    var session: StoredSession
+    /// Switching to it asks for the user's own password first.
+    var asksPasswordToSwitch = false
+
+    /// One per server and user.
+    var id: String { Self.id(session.serverURL, session.userId) }
+
+    static func id(_ url: URL, _ userId: String) -> String {
+        url.absoluteString + "|" + userId
+    }
+}
+
+/// The servers signed in to, in the Keychain beside the session in use.
+nonisolated enum SavedServers {
+    private static let account = "servers"
+
+    static func load() -> [SavedServer] {
+        guard let data = Keychain.load(account: account) else { return [] }
+        return (try? JSONDecoder().decode([SavedServer].self, from: data)) ?? []
+    }
+
+    static func save(_ servers: [SavedServer]) {
+        if let data = try? JSONEncoder().encode(servers) {
+            Keychain.save(data, account: account)
+        }
+    }
+
+    static func clear() {
+        Keychain.delete(account: account)
+    }
+}
+

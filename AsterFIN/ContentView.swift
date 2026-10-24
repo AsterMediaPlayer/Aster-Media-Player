@@ -20,7 +20,10 @@ struct ContentView: View {
             case .needsUser:
                 SignInView()
             case .signedIn:
+                // A switched server gets a fresh main screen: its own tabs,
+                // libraries and pages.
                 MainTabView()
+                    .id(session.serverGeneration)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: session.phase)

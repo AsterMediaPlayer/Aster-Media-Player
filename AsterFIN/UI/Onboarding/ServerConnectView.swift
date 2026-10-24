@@ -13,6 +13,7 @@ struct ServerConnectView: View {
     @State private var address: String = ""
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var switchRequest: SavedServer?
 
     var body: some View {
         ZStack {
@@ -63,9 +64,30 @@ struct ServerConnectView: View {
                                 .multilineTextAlignment(.center)
                         }
                     }
+
+                    // Servers already signed in to: back to one without typing it.
+                    if !session.savedServers.isEmpty {
+                        VStack(spacing: Onboarding.controlSpacing) {
+                            Text("Your Servers")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            ForEach(session.savedServers) { server in
+                                Button {
+                                    switchRequest = server
+                                } label: {
+                                    SavedServerLabel(server: server)
+                                        .frame(maxWidth: Onboarding.fieldWidth)
+                                }
+                                .onboardingSecondaryButton()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .tvFocusSection()
+                    }
                 }
             }
         }
+        .savedServerSwitcher(request: $switchRequest)
     }
 
     private func connect() {

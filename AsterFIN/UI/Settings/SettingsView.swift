@@ -1571,19 +1571,81 @@ private struct AccountSettingsView: View {
             Section("Server") {
                 LabeledContent("Server", value: session.serverName ?? session.serverURL?.host() ?? "")
                 LabeledContent("Address", value: session.serverURL?.absoluteString ?? "")
-                if let version = serverInfo?.version {
-                    LabeledContent("Jellyfin version", value: version)
+                if let serverInfo, let version = serverInfo.version {
+                    // Which server it is comes from the same reply.
+                    LabeledContent("\(serverInfo.kind.displayName) version", value: version)
                 }
-                Button("Change Server") { session.changeServer() }
             }
             Section("User") {
                 LabeledContent("User", value: session.userName ?? "")
                 Button("Switch User") { session.signOut() }
             }
+            Section {
+                ForEach(session.savedServers) { server in
+                    NavigationLink {
+                        SavedServerPage(server: server)
+                    } label: {
+                        SavedServerLabel(server: server, isCurrent: server.id == session.currentServerID)
+                    }
+                }
+                Button("Add Server") { session.changeServer() }
+            } header: {
+                Text("Servers")
+            } footer: {
+                SettingsNote("Servers you've signed in to stay signed in, to switch between. Add one to sign in to another Jellyfin or Emby server.")
+            }
         }
         .task {
             serverInfo = try? await session.client?.publicSystemInfo()
         }
+    }
+}
+
+/// One saved server: switch to it, ask for its password first, or forget it.
+private struct SavedServerPage: View {
+    let server: SavedServer
+
+    @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var switchRequest: SavedServer?
+
+    /// The server as saved now (its password setting can change here).
+    private var current: SavedServer {
+        session.savedServers.first { $0.id == server.id } ?? server
+    }
+
+    private var isInUse: Bool { server.id == session.currentServerID }
+
+    var body: some View {
+        SettingsPage(title: current.session.serverName ?? "Server") {
+            Section {
+                LabeledContent("Server", value: current.session.kind.displayName)
+                LabeledContent("Address", value: current.session.serverURL.absoluteString)
+                LabeledContent("User", value: current.session.userName)
+            }
+            Section {
+                if isInUse {
+                    SettingsNote("This is the server in use.")
+                } else {
+                    Button("Switch to This Server") { switchRequest = current }
+                }
+                Toggle("Ask for Password to Switch", isOn: Binding(
+                    get: { current.asksPasswordToSwitch },
+                    set: { session.setAsksPasswordToSwitch($0, for: server.id) }
+                ))
+            } footer: {
+                SettingsNote("Switching to this server asks for \(current.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
+            }
+            if !isInUse {
+                Section {
+                    Button("Remove Server", role: .destructive) {
+                        session.removeServer(server.id)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .savedServerSwitcher(request: $switchRequest)
     }
 }
 
@@ -1597,7 +1659,7 @@ private struct AboutSettingsView: View {
             Section {
                 LabeledContent("Aster Media Player", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     .focusable()
-                SettingsNote("A Jellyfin client for Apple TV, iPhone, iPad and Mac with DVD and Blu-ray style menus powered by the JellyDisc plugin.")
+                SettingsNote("A Jellyfin and Emby client for Apple TV, iPhone, iPad and Mac, with DVD and Blu-ray style menus on Jellyfin from the Aster Disc plugin.")
                     .focusable()
             }
         }

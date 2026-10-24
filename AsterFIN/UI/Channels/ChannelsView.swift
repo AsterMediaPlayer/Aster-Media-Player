@@ -55,6 +55,7 @@ struct ChannelsView: View {
                     // opens its settings; everyone else's (and a tap on a
                     // touch screen) tunes in, as before.
                     openChannel: Self.selectOpensSettings && session.canEditChannels ? { editingChannel = $0 } : nil,
+                    grouping: model.grouping,
                     emptyDetail: "Make a video playlist into a channel in Edit Channels, or tag it aster:channel in Jellyfin."
                 )
                 // A new guide (other channels, or the next day) starts afresh.

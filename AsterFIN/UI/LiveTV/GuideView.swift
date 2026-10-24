@@ -168,7 +168,51 @@ struct GuideView: View {
     var openChannel: ((String) -> Void)? = nil
     /// Nil leaves the favourites menu off the channel cells.
     var toggleFavorite: ((String) -> Void)? = nil
+    /// The channels' groups, for the filter along the top and the group
+    /// names in the channel column; nil when they have none.
+    var grouping: ChannelGrouping? = nil
+    /// Live TV's favourites, a group of their own at the front of the filter.
+    var favoriteIds: Set<String> = []
     var emptyDetail = "Add a tuner or M3U source in the Jellyfin dashboard."
+
+    /// The group picked in the filter; nil for all of them.
+    @State private var pickedGroup: String?
+    static let favoritesGroup = "Favorites"
+
+    /// The channels shown: the picked group's, or all of them.
+    private var rows: [BaseItem] {
+        guard let pickedGroup else { return channels }
+        if pickedGroup == Self.favoritesGroup {
+            return channels.filter { favoriteIds.contains($0.id) }
+        }
+        return channels.filter { grouping?.group(of: $0.id) == pickedGroup }
+    }
+
+    /// The filter's choices after All, in the order the channels come.
+    private var filterGroups: [String] {
+        guard let grouping else { return [] }
+        let favorites = channels.contains { favoriteIds.contains($0.id) }
+        return (favorites ? [Self.favoritesGroup] : []) + grouping.names
+    }
+
+    /// The group a row is listed under in All: Favorites for a favourite
+    /// (they come first), else its own.
+    private func listedGroup(_ channel: BaseItem) -> String? {
+        favoriteIds.contains(channel.id) ? Self.favoritesGroup : grouping?.group(of: channel.id)
+    }
+
+    /// Each group's name, on its first channel, in the All view.
+    private var captions: [String: String] {
+        guard grouping != nil, pickedGroup == nil else { return [:] }
+        var captions: [String: String] = [:]
+        var previous: String?
+        for channel in channels {
+            let group = listedGroup(channel)
+            if let group, group != previous { captions[channel.id] = group }
+            previous = group
+        }
+        return captions
+    }
 
     @Environment(AppSession.self) private var session
     @State private var windowStart = GuideModel.floorToHalfHour(Date())
@@ -210,12 +254,12 @@ struct GuideView: View {
     /// row and its neighbours, so the panel's picture is ready before focus
     /// arrives there.
     private func prefetchArtwork(around channelId: String) {
-        guard let client = session.client, let index = channels.firstIndex(where: { $0.id == channelId }) else { return }
+        guard let client = session.client, let index = rows.firstIndex(where: { $0.id == channelId }) else { return }
         let windowEnd = windowStart.addingTimeInterval(visibleMinutes * 60)
         var urls: [URL] = []
         for offset in -1...2 {
             let row = index + offset
-            guard channels.indices.contains(row), let programs = model.programs[channels[row].id] else { continue }
+            guard rows.indices.contains(row), let programs = model.programs[rows[row].id] else { continue }
             for program in programs {
                 guard let start = program.start, let end = program.end, end > windowStart, start < windowEnd else { continue }
                 if let url = model.programImageURL(program, width: GuideNowPlayingPanel.imageWidth, client: client) {
@@ -230,7 +274,7 @@ struct GuideView: View {
     /// the window (on now, unless the window has moved) on the row last
     /// highlighted, else the first.
     private var entryProgramId: String? {
-        guard let channelId = highlightedChannelId ?? channels.first?.id else { return nil }
+        guard let channelId = highlightedChannelId ?? rows.first?.id else { return nil }
         return firstVisibleProgram(in: channelId)?.id
     }
 
@@ -244,10 +288,10 @@ struct GuideView: View {
     }
 
     private var highlightedChannel: BaseItem? {
-        if let id = highlightedChannelId, let channel = channels.first(where: { $0.id == id }) {
+        if let id = highlightedChannelId, let channel = rows.first(where: { $0.id == id }) {
             return channel
         }
-        return channels.first
+        return rows.first
     }
 
     /// The focused programme, or what is airing on the focused channel, with
@@ -326,13 +370,17 @@ struct GuideView: View {
             .gesture(timeDrag)
             #endif
 
-            if channels.isEmpty {
+            if !filterGroups.isEmpty {
+                GuideGroupFilter(groups: filterGroups, picked: $pickedGroup)
+            }
+
+            if rows.isEmpty {
                 MessageView(systemImage: "antenna.radiowaves.left.and.right", title: "No channels", detail: emptyDetail)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
                         LazyVStack(spacing: 10) {
-                            ForEach(channels) { channel in
+                            ForEach(rows) { channel in
                                 GuideRow(
                                     channel: channel,
                                     logoURL: session.client.flatMap { model.channelLogoURL(channel, width: 200, client: $0) },
@@ -340,7 +388,7 @@ struct GuideView: View {
                                     guideStart: model.guideStart,
                                     windowStart: windowStart,
                                     visibleMinutes: visibleMinutes,
-                                    isFirstRow: channel.id == channels.first?.id,
+                                    isFirstRow: channel.id == rows.first?.id,
                                     focusNamespace: gridFocus,
                                     focus: $focusedProgram,
                                     channelFocus: $focusedChannel,
@@ -348,6 +396,7 @@ struct GuideView: View {
                                     playChannel: { playChannel(channel.id) },
                                     openChannel: openChannel.map { open in { open(channel.id) } },
                                     toggleFavorite: toggleFavorite.map { toggle in { toggle(channel.id) } },
+                                    groupCaption: captions[channel.id],
                                     select: select
                                 )
                                 .id(channel.id)
@@ -356,8 +405,8 @@ struct GuideView: View {
                                     model.ensurePrograms(for: channel.id, client: client)
                                     // Fetch a stretch of rows ahead too, so a held
                                     // button rarely reaches a row that is still loading.
-                                    if let index = channels.firstIndex(where: { $0.id == channel.id }) {
-                                        for next in channels.dropFirst(index + 1).prefix(10) {
+                                    if let index = rows.firstIndex(where: { $0.id == channel.id }) {
+                                        for next in rows.dropFirst(index + 1).prefix(10) {
                                             model.ensurePrograms(for: next.id, client: client)
                                         }
                                     }
@@ -387,6 +436,16 @@ struct GuideView: View {
                         transaction.disablesAnimations = true
                         withTransaction(transaction) {
                             proxy.scrollTo(id)
+                        }
+                    }
+                    // Another group: start at its first channel, at the top.
+                    .onChange(of: pickedGroup) { _, _ in
+                        highlightedProgramId = nil
+                        highlightedChannelId = rows.first?.id
+                        if let first = rows.first?.id {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { proxy.scrollTo(first, anchor: .top) }
                         }
                     }
                 }
@@ -435,7 +494,7 @@ struct GuideView: View {
         .task(id: highlightedProgram?.id) {
             guard let id = highlightedProgram?.id, let client = session.client else { return }
             model.ensureDetail(for: id, client: client)
-            if let channelId = highlightedChannelId ?? channels.first?.id {
+            if let channelId = highlightedChannelId ?? rows.first?.id {
                 prefetchArtwork(around: channelId)
             }
         }
@@ -799,6 +858,46 @@ struct GuideNowPlayingPanel: View {
 
 // MARK: - Rows and cells
 
+/// The guide's groups along the top: All, then each group in the order its
+/// channels come. Its own focus section, between the day picker and the grid,
+/// so focus crosses into and out of it in one press.
+struct GuideGroupFilter: View {
+    let groups: [String]
+    @Binding var picked: String?
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) {
+                choice("All", group: nil)
+                ForEach(groups, id: \.self) { group in
+                    choice(group, group: group)
+                }
+            }
+            .padding(.horizontal, GuideView.horizontalPadding)
+            .padding(.vertical, 6)
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+        .tvFocusSection()
+    }
+
+    // One button style for picked and not, varying the tint: switching
+    // styles makes it a new view, and focus drops off it (memory notes).
+    private func choice(_ title: String, group: String?) -> some View {
+        Button {
+            picked = group
+        } label: {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .tint(picked == group ? Color.accentColor : nil)
+        .accessibilityAddTraits(picked == group ? .isSelected : [])
+    }
+}
+
 struct GuideRow: View {
     let channel: BaseItem
     let logoURL: URL?
@@ -815,6 +914,8 @@ struct GuideRow: View {
     /// Select on the channel cell, in place of tuning in.
     var openChannel: (() -> Void)? = nil
     var toggleFavorite: (() -> Void)? = nil
+    /// The group's name, on a group's first row in the All view.
+    var groupCaption: String? = nil
     var select: (BaseItem) -> Void
 
     /// Programmes near the window, including one hour either side so focus can
@@ -832,7 +933,7 @@ struct GuideRow: View {
 
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
-            ChannelCell(channel: channel, logoURL: logoURL, isFocused: channelFocus.wrappedValue == channel.id, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, action: openChannel ?? playChannel)
+            ChannelCell(channel: channel, logoURL: logoURL, isFocused: channelFocus.wrappedValue == channel.id, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, groupCaption: groupCaption, action: openChannel ?? playChannel)
                 .frame(width: GuideView.channelColumnWidth, height: GuideView.rowHeight)
                 .focused(channelFocus, equals: channel.id)
 
@@ -927,6 +1028,9 @@ struct ChannelCell: View {
     var isFocused = false
     var isFavorite = false
     var toggleFavorite: (() -> Void)? = nil
+    /// The group's name, on the first channel of each group in the guide's
+    /// All view: inside the cell, so the rows keep their even spacing.
+    var groupCaption: String? = nil
     var action: () -> Void
 
     #if os(tvOS)
@@ -941,23 +1045,32 @@ struct ChannelCell: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Self.spacing) {
-                Text(channel.channelNumber ?? "")
-                    .font(Self.numberFont)
-                    .foregroundStyle(isFocused ? Color.black.opacity(0.7) : .secondary)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .frame(width: Self.numberWidth, alignment: .leading)
-                if let logo = logoURL {
-                    RemoteImage(url: logo, contentMode: .fit) {
-                        Text(channel.displayTitle).font(GuideView.titleFont).lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    Text(channel.displayTitle)
-                        .font(GuideView.titleFont)
-                        .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                if let groupCaption {
+                    Text(groupCaption.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isFocused ? Color.black.opacity(0.6) : Color.accentColor)
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                HStack(spacing: Self.spacing) {
+                    Text(channel.channelNumber ?? "")
+                        .font(Self.numberFont)
+                        .foregroundStyle(isFocused ? Color.black.opacity(0.7) : .secondary)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                        .frame(width: Self.numberWidth, alignment: .leading)
+                    if let logo = logoURL {
+                        RemoteImage(url: logo, contentMode: .fit) {
+                            Text(channel.displayTitle).font(GuideView.titleFont).lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Text(channel.displayTitle)
+                            .font(GuideView.titleFont)
+                            .lineLimit(groupCaption == nil ? 2 : 1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .padding(.horizontal, GuideView.cellPadding.leading)
@@ -968,7 +1081,7 @@ struct ChannelCell: View {
         }
         .buttonStyle(GuideCellButtonStyle())
         .channelFavoriteMenu(isFavorite: isFavorite, toggle: toggleFavorite)
-        .accessibilityLabel("Watch \([channel.channelNumber, channel.displayTitle].compactMap { $0 }.joined(separator: " "))")
+        .accessibilityLabel("Watch \([channel.channelNumber, channel.displayTitle, groupCaption].compactMap { $0 }.joined(separator: " "))")
     }
 }
 

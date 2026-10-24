@@ -293,6 +293,8 @@ final class AetherPlayback {
         onItemStarted?(item)
         #if os(iOS)
         updatePictureInPicture()
+        // A channel's schedule on the Lock Screen; Go to Episode leaves it.
+        if let channelId = entry.channelId { ChannelActivity.show(channelId: channelId) } else { ChannelActivity.end() }
         #endif
         startTimedState()
         if isLive {
@@ -1028,6 +1030,7 @@ final class AetherPlayback {
         #if os(iOS)
         pip?.stop()
         pip = nil
+        ChannelActivity.end()
         if reportsPlayback { WidgetRefresh.continueWatching() }
         #endif
         reportTask?.cancel()

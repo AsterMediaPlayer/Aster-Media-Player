@@ -164,7 +164,13 @@ final class DownloadStore: NSObject {
     static let cellularSessionID = "app.asterfin.downloads.cellular"
 
     /// Newest first.
-    private(set) var records: [DownloadRecord] = []
+    private(set) var records: [DownloadRecord] = [] {
+        didSet {
+            #if os(iOS)
+            DownloadsActivity.sync(records)
+            #endif
+        }
+    }
 
     @ObservationIgnored private var wifiSession: AVAssetDownloadURLSession?
     @ObservationIgnored private var cellularSession: AVAssetDownloadURLSession?

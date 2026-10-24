@@ -243,6 +243,9 @@ struct MainTabView: View {
         .onChange(of: session.router.pendingChannelId) { _, _ in
             Task { await followPendingLinks() }
         }
+        .onChange(of: session.router.pendingDownloads) { _, _ in
+            Task { await followPendingLinks() }
+        }
         .onChange(of: session.router.pendingPlayback) { _, _ in
             if let request = session.router.takePlayback() {
                 linkedPlayback = request
@@ -542,6 +545,13 @@ struct MainTabView: View {
             }
             return
         }
+        #if os(iOS)
+        if session.router.pendingDownloads {
+            session.router.clear()
+            tab = .downloads
+            return
+        }
+        #endif
         if let id = session.router.pendingChannelId {
             session.router.clear()
             // On a cold launch the channels aren't loaded yet.

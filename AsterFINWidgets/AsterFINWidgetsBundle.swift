@@ -2,7 +2,7 @@
 //  AsterFINWidgetsBundle.swift
 //  AsterFINWidgets
 //
-//  The Home Screen widgets.
+//  The Home Screen widgets and the Live Activities.
 //
 
 import SwiftUI
@@ -13,5 +13,7 @@ struct AsterFINWidgetsBundle: WidgetBundle {
     var body: some Widget {
         ContinueWatchingWidget()
         OnNowWidget()
+        DownloadsLiveActivity()
+        ChannelLiveActivity()
     }
 }

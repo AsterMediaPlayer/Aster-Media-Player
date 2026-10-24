@@ -25,7 +25,7 @@ final class ContentProvider: TVTopShelfContentProvider {
         shelfLog.notice("Loading for \(session.serverURL.absoluteString, privacy: .public)")
         let api = TopShelfAPI(session: session)
 
-        async let resume = Self.logged("Resume") { try await api.items("/UserItems/Resume", query: [
+        async let resume = Self.logged("Resume") { try await api.items(session.resumePath, query: [
             "limit": "10",
             "mediaTypes": "Video",
             "enableImageTypes": "Primary",

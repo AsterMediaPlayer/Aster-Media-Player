@@ -14,6 +14,13 @@ nonisolated struct TopShelfSession: Decodable, Sendable {
     var serverURL: URL
     var userId: String
     var accessToken: String
+    /// "jellyfin" or "emby"; nil in sessions saved before Emby, which are Jellyfin.
+    var serverKind: String?
+
+    /// Continue Watching's route: Jellyfin 10.9+'s, or Emby's per-user one.
+    var resumePath: String {
+        serverKind == "emby" ? "/Users/\(userId)/Items/Resume" : "/UserItems/Resume"
+    }
 
     private static let service = "com.berrymancloud.AsterFIN"
     private static let account = "session"

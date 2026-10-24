@@ -224,14 +224,20 @@ nonisolated final class JellyfinClient: Sendable {
         return userId
     }
 
+    /// Jellyfin 10.9+'s path, or on Emby its older per-user form (the user
+    /// in the path; the `userId` query the app sends as well is ignored).
+    private func route(_ jellyfin: String, emby: @autoclosure () -> String) -> String {
+        kind == .emby ? emby() : jellyfin
+    }
+
     func userViews() async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get(ItemsResult.self, "/UserViews", query: ["userId": user]).items
+        return try await get(ItemsResult.self, route("/UserViews", emby: "/Users/\(user)/Views"), query: ["userId": user]).items
     }
 
     func item(_ id: String) async throws -> BaseItem {
         let user = try requireUser()
-        return try await get(BaseItem.self, "/Items/\(id)", query: ["userId": user, "fields": Self.detailFields])
+        return try await get(BaseItem.self, route("/Items/\(id)", emby: "/Users/\(user)/Items/\(id)"), query: ["userId": user, "fields": Self.detailFields])
     }
 
     func items(_ query: [String: String?]) async throws -> ItemsResult {
@@ -378,7 +384,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func latest(parentId: String?, limit: Int = 20, includeTypes: String? = nil) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get([BaseItem].self, "/Items/Latest", query: [
+        return try await get([BaseItem].self, route("/Items/Latest", emby: "/Users/\(user)/Items/Latest"), query: [
             "userId": user,
             "parentId": parentId,
             "limit": String(limit),
@@ -391,7 +397,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func resume(limit: Int = 20, parentId: String? = nil) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get(ItemsResult.self, "/UserItems/Resume", query: [
+        return try await get(ItemsResult.self, route("/UserItems/Resume", emby: "/Users/\(user)/Items/Resume"), query: [
             "userId": user,
             "parentId": parentId,
             "limit": String(limit),
@@ -572,7 +578,7 @@ nonisolated final class JellyfinClient: Sendable {
 
     func specialFeatures(of id: String) async throws -> [BaseItem] {
         let user = try requireUser()
-        return try await get([BaseItem].self, "/Items/\(id)/SpecialFeatures", query: ["userId": user])
+        return try await get([BaseItem].self, route("/Items/\(id)/SpecialFeatures", emby: "/Users/\(user)/Items/\(id)/SpecialFeatures"), query: ["userId": user])
     }
 
     func search(_ term: String, limit: Int = 60) async throws -> [BaseItem] {
@@ -589,19 +595,21 @@ nonisolated final class JellyfinClient: Sendable {
 
     func setFavorite(_ id: String, _ favorite: Bool) async throws {
         let user = try requireUser()
+        let path = route("/UserFavoriteItems/\(id)", emby: "/Users/\(user)/FavoriteItems/\(id)")
         if favorite {
-            try await post("/UserFavoriteItems/\(id)", query: ["userId": user])
+            try await post(path, query: ["userId": user])
         } else {
-            try await delete("/UserFavoriteItems/\(id)", query: ["userId": user])
+            try await delete(path, query: ["userId": user])
         }
     }
 
     func setPlayed(_ id: String, _ played: Bool) async throws {
         let user = try requireUser()
+        let path = route("/UserPlayedItems/\(id)", emby: "/Users/\(user)/PlayedItems/\(id)")
         if played {
-            try await post("/UserPlayedItems/\(id)", query: ["userId": user])
+            try await post(path, query: ["userId": user])
         } else {
-            try await delete("/UserPlayedItems/\(id)", query: ["userId": user])
+            try await delete(path, query: ["userId": user])
         }
     }
 
@@ -615,13 +623,17 @@ nonisolated final class JellyfinClient: Sendable {
     }
 
     func me() async throws -> JellyfinUser {
-        try await get(JellyfinUser.self, "/Users/Me")
+        // Emby has no /Users/Me: the signed-in user by id.
+        if kind == .emby {
+            return try await get(JellyfinUser.self, "/Users/\(try requireUser())")
+        }
+        return try await get(JellyfinUser.self, "/Users/Me")
     }
 
     /// Replaces the user's settings wholesale; send a complete configuration.
     func updateConfiguration(_ configuration: UserConfiguration) async throws {
         let user = try requireUser()
-        try await post("/Users/Configuration", query: ["userId": user], body: configuration)
+        try await post(route("/Users/Configuration", emby: "/Users/\(user)/Configuration"), query: ["userId": user], body: configuration)
     }
 
     /// `allowDirect: false` makes the server offer an HLS stream even when the
@@ -712,7 +724,7 @@ nonisolated final class JellyfinClient: Sendable {
     /// Sets the user's resume point on an item, leaving its watched state alone.
     func saveResumePosition(itemId: String, ticks: Int64) async throws {
         guard let userId else { return }
-        try await post("/UserItems/\(itemId)/UserData", query: ["userId": userId], body: ResumePositionUpdate(playbackPositionTicks: ticks))
+        try await post(route("/UserItems/\(itemId)/UserData", emby: "/Users/\(userId)/Items/\(itemId)/UserData"), query: ["userId": userId], body: ResumePositionUpdate(playbackPositionTicks: ticks))
     }
 
     // MARK: Images

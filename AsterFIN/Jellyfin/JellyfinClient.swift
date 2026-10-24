@@ -98,13 +98,29 @@ nonisolated final class JellyfinClient: Sendable {
         return url(path, query: merged)
     }
 
+    /// A request carrying the sign-in, for the server only: any other
+    /// address (a disc menu's artwork or sound from a CDN or YouTube, say)
+    /// gets a plain request, so the token never leaves for another site.
     func authorizedRequest(_ url: URL, method: String = "GET") -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard isServer(url) else { return request }
         request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
         request.setValue(authorizationHeader, forHTTPHeaderField: "X-Emby-Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
+    }
+
+    /// Whether `url` is on this server: the same scheme, host and port, and
+    /// within the server's path (one behind a reverse proxy at /jellyfin).
+    func isServer(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == baseURL.scheme?.lowercased(),
+              let host = url.host()?.lowercased(), host == baseURL.host()?.lowercased() else { return false }
+        func port(_ url: URL) -> Int? { url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80) }
+        guard port(url) == port(baseURL) else { return false }
+        let base = baseURL.path().hasSuffix("/") ? String(baseURL.path().dropLast()) : baseURL.path()
+        let path = url.path()
+        return base.isEmpty || path == base || path.hasPrefix(base + "/")
     }
 
     @concurrent

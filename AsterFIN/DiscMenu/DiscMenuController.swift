@@ -232,7 +232,13 @@ final class DiscMenuController {
             if let chapter = entry.startChapter, let chapters = document.chapters, chapter >= 1, chapter <= chapters.count {
                 start = chapters[chapter - 1].startTicks
             }
-            pendingPlayback = PlaybackRequest(itemId: itemId, startTicks: start)
+            // A chapter belongs to one title; otherwise the menu's own item
+            // may be a season or show, whose feature is its episodes.
+            if entry.startChapter != nil {
+                pendingPlayback = PlaybackRequest(itemId: itemId, startTicks: start)
+            } else {
+                playFeature(label: entry.label)
+            }
         case .playExtra:
             audio.play(.select)
             guard let extra = entry.itemId else {
@@ -252,6 +258,41 @@ final class DiscMenuController {
             pendingPlayback = PlaybackRequest(itemId: itemId, startTicks: entry.startTicks ?? 0)
         case .unknown:
             break
+        }
+    }
+
+    /// The menu's feature: a movie (or episode) plays itself; a season or a
+    /// show (a menu bound to one) plays its episodes in order, as the player
+    /// only plays titles, never a season or show as such.
+    private func playFeature(label: String) {
+        let client = client
+        let itemId = itemId
+        Task { [weak self] in
+            guard let item = try? await client.item(itemId) else {
+                self?.pendingPlayback = PlaybackRequest(itemId: itemId)
+                return
+            }
+            let episodes: [BaseItem]
+            switch item.kind {
+            case .season:
+                if let seriesId = item.seriesId {
+                    episodes = (try? await client.episodes(seriesId: seriesId, seasonId: item.id)) ?? []
+                } else {
+                    episodes = []
+                }
+            case .series:
+                episodes = (try? await client.episodes(seriesId: item.id, seasonId: nil)) ?? []
+            default:
+                self?.pendingPlayback = PlaybackRequest(itemId: itemId)
+                return
+            }
+            guard let self else { return }
+            let ids = episodes.filter { $0.kind == .episode }.map(\.id)
+            if ids.isEmpty {
+                self.alertMessage = "\"\(label)\" has no episodes to play in this library."
+            } else {
+                self.pendingPlayback = PlaybackRequest(itemIds: ids)
+            }
         }
     }
 

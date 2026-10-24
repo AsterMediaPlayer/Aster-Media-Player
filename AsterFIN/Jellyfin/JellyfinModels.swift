@@ -160,6 +160,15 @@ nonisolated struct PersonInfo: Codable, Sendable, Hashable, Identifiable {
         case type = "Type"
         case primaryImageTag = "PrimaryImageTag"
     }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeFlexibleID(forKey: .id) ?? ""
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        primaryImageTag = try container.decodeIfPresent(String.self, forKey: .primaryImageTag)
+    }
 }
 
 nonisolated struct NameGuidPair: Codable, Sendable, Hashable {
@@ -169,6 +178,27 @@ nonisolated struct NameGuidPair: Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case name = "Name"
         case id = "Id"
+    }
+
+    init(name: String? = nil, id: String? = nil) {
+        self.name = name
+        self.id = id
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        id = try container.decodeFlexibleID(forKey: .id)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// An id as text (Jellyfin) or a number (Emby's studios, genres and
+    /// people), as text either way; nil when it's missing.
+    nonisolated func decodeFlexibleID(forKey key: Key) throws -> String? {
+        if let text = try? decodeIfPresent(String.self, forKey: key) { return text }
+        if let number = try? decodeIfPresent(Int64.self, forKey: key) { return String(number) }
+        return nil
     }
 }
 

@@ -276,7 +276,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2710;
-				LastUpgradeCheck = 2700;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					CC43C0673079BD3E008B3A22 = {
 						CreatedOnToolsVersion = 27.0;
@@ -671,6 +671,7 @@
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINWidgets/Info.plist;
@@ -711,6 +712,7 @@
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINWidgets/Info.plist;

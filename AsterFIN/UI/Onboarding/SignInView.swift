@@ -19,6 +19,7 @@ struct SignInView: View {
     @State private var quickConnectEnabled = false
     @State private var quickConnectCode: String?
     @State private var quickConnectTask: Task<Void, Never>?
+    @FocusState private var passwordFocused: Bool
 
     private var client: JellyfinClient? { session.anonymousClient }
 
@@ -56,6 +57,8 @@ struct SignInView: View {
                                         password = ""
                                         if user.hasPassword == false {
                                             signInWithPassword()
+                                        } else {
+                                            focusPassword()
                                         }
                                     } label: {
                                         VStack(spacing: 14) {
@@ -87,6 +90,7 @@ struct SignInView: View {
                             .frame(maxWidth: Onboarding.credentialsWidth)
                         SecureField("Password", text: $password)
                             .textContentType(.password)
+                            .focused($passwordFocused)
                             .onboardingField()
                             .frame(maxWidth: Onboarding.credentialsWidth)
                             .onSubmit(signInWithPassword)
@@ -120,6 +124,10 @@ struct SignInView: View {
                             }
                         }
                     }
+                    // The whole width, so a press down from a user anywhere
+                    // along the row above (one alone sits at the far left)
+                    // lands here rather than finding nothing below it.
+                    .frame(maxWidth: .infinity)
                     .tvFocusSection()
 
                     if let quickConnectCode {
@@ -155,6 +163,15 @@ struct SignInView: View {
         async let enabled = client.quickConnectEnabled()
         users = (try? await publicUsers) ?? []
         quickConnectEnabled = (try? await enabled) ?? false
+    }
+
+    /// To the password after a user's picked. Set in the press that picked
+    /// them, focus is ignored, so a moment later.
+    private func focusPassword() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            passwordFocused = true
+        }
     }
 
     private func signInWithPassword() {

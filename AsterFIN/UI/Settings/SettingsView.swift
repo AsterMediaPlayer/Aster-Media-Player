@@ -8,6 +8,10 @@ import SwiftUI
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
     case playback, audioSubtitles, discMenus, titlePages, channels, tabBar, downloads, account, about
+    /// A saved server's page under Account, and its Lock After choices, by
+    /// the server's id. Registered here at the root with the others: pages
+    /// registered further in froze Apple TV when they opened one more.
+    case savedServer(String), lockAfter(String)
 }
 
 /// The Settings root: one row per category, each opening its own page.
@@ -84,6 +88,8 @@ struct SettingsView: View {
                 #endif
             case .account: AccountSettingsView()
             case .about: AboutSettingsView()
+            case .savedServer(let id): SavedServerPage(serverID: id)
+            case .lockAfter(let id): LockAfterPage(serverID: id)
             }
         }
         // Settings that follow the user come from their server on opening.
@@ -1581,11 +1587,8 @@ private struct AccountSettingsView: View {
                 Button("Switch User") { session.signOut() }
             }
             Section {
-                // By value, like every settings page: a page reached by an
-                // inline link froze on Apple TV when its own choice row
-                // (Lock After) opened another.
                 ForEach(session.savedServers) { server in
-                    NavigationLink(value: SavedServerRoute(id: server.id)) {
+                    NavigationLink(value: SettingsDestination.savedServer(server.id)) {
                         SavedServerLabel(server: server, isCurrent: server.id == session.currentServerID)
                     }
                 }
@@ -1599,103 +1602,112 @@ private struct AccountSettingsView: View {
         .task {
             serverInfo = try? await session.client?.publicSystemInfo()
         }
-        .navigationDestination(for: SavedServerRoute.self) { route in
-            if let server = session.savedServers.first(where: { $0.id == route.id }) {
-                SavedServerPage(server: server)
-            }
-        }
     }
 }
 
-/// A saved server's page, as a value on the settings path.
-private struct SavedServerRoute: Hashable {
-    let id: String
-}
-
 /// One saved server: switch to it, ask for its password first, or forget it.
+/// It reads the server from the saved list by id, so its settings show as
+/// they change here.
 private struct SavedServerPage: View {
-    let server: SavedServer
+    let serverID: String
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var switchRequest: SavedServer?
 
-    /// The server as saved now (its password setting can change here).
-    private var current: SavedServer {
-        session.savedServers.first { $0.id == server.id } ?? server
-    }
-
-    private var isInUse: Bool { server.id == session.currentServerID }
-
-    /// "5 Minutes", "1 Hour", "4 Hours".
-    static func lockTitle(_ minutes: Int) -> String {
-        Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .wide)).capitalized
-    }
-
     var body: some View {
-        SettingsPage(title: current.session.serverName ?? "Server") {
+        if let server = session.savedServers.first(where: { $0.id == serverID }) {
+            content(server)
+        }
+    }
+
+    private var isInUse: Bool { serverID == session.currentServerID }
+
+    /// "Never", "5 Minutes", "1 Hour", "4 Hours".
+    static func lockTitle(_ minutes: Int) -> String {
+        guard minutes > 0 else { return "Never" }
+        return Duration.seconds(minutes * 60).formatted(.units(allowed: [.hours, .minutes], width: .wide)).capitalized
+    }
+
+    private func content(_ server: SavedServer) -> some View {
+        SettingsPage(title: server.session.serverName ?? "Server") {
             Section {
-                LabeledContent("Server", value: current.session.kind.displayName)
-                LabeledContent("Address", value: current.session.serverURL.absoluteString)
-                LabeledContent("User", value: current.session.userName)
+                LabeledContent("Server", value: server.session.kind.displayName)
+                LabeledContent("Address", value: server.session.serverURL.absoluteString)
+                LabeledContent("User", value: server.session.userName)
             }
             Section {
                 if isInUse {
                     SettingsNote("This is the server in use.")
                 } else {
-                    Button("Switch to This Server") { switchRequest = current }
+                    Button("Switch to This Server") { switchRequest = server }
                 }
                 Toggle("Ask for Password to Switch", isOn: Binding(
-                    get: { current.asksPasswordToSwitch },
-                    set: { session.setAsksPasswordToSwitch($0, for: server.id) }
+                    get: { server.asksPasswordToSwitch },
+                    set: { session.setAsksPasswordToSwitch($0, for: serverID) }
                 ))
             } footer: {
-                SettingsNote("Switching to this server asks for \(current.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
+                SettingsNote("Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
             }
             Section {
-                #if os(tvOS)
-                // The choices sit on this page: opening a page of them from
-                // here froze Apple TV in a loop of view updates.
-                ForEach([0] + SavedServer.lockChoices, id: \.self) { minutes in
-                    Button {
-                        session.setLockAfter(minutes > 0 ? minutes : nil, for: server.id)
-                    } label: {
-                        HStack {
-                            Text(minutes > 0 ? Self.lockTitle(minutes) : "Never")
-                            Spacer()
-                            if minutes == (current.lockAfterMinutes ?? 0) {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-                #else
+                #if os(macOS)
                 SettingsChoiceRow(
                     title: "Lock After",
                     options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
                     selection: Binding(
-                        get: { current.lockAfterMinutes ?? 0 },
-                        set: { session.setLockAfter($0 > 0 ? $0 : nil, for: server.id) }
+                        get: { server.lockAfterMinutes ?? 0 },
+                        set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
                     )
                 )
-                #endif
-            } header: {
-                #if os(tvOS)
-                Text("Lock After")
+                #else
+                // Its page goes on the path by value, like this one.
+                NavigationLink(value: SettingsDestination.lockAfter(serverID)) {
+                    LabeledContent("Lock After", value: Self.lockTitle(server.lockAfterMinutes ?? 0))
+                }
                 #endif
             } footer: {
-                SettingsNote("After this long away from Aster, coming back to this server asks for \(current.session.userName)'s password.")
+                SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s password.")
             }
             if !isInUse {
                 Section {
                     Button("Remove Server", role: .destructive) {
-                        session.removeServer(server.id)
+                        session.removeServer(serverID)
                         dismiss()
                     }
                 }
             }
         }
         .savedServerSwitcher(request: $switchRequest)
+    }
+}
+
+/// A saved server's Lock After choices: picking one saves it and goes back.
+private struct LockAfterPage: View {
+    let serverID: String
+
+    @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let chosen = session.savedServers.first { $0.id == serverID }?.lockAfterMinutes ?? 0
+        SettingsPage(title: "Lock After") {
+            Section {
+                ForEach([0] + SavedServer.lockChoices, id: \.self) { minutes in
+                    Button {
+                        session.setLockAfter(minutes > 0 ? minutes : nil, for: serverID)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(SavedServerPage.lockTitle(minutes))
+                            Spacer()
+                            if minutes == chosen {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

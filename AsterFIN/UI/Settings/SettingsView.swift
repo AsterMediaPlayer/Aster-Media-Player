@@ -1653,6 +1653,23 @@ private struct SavedServerPage: View {
                 SettingsNote("Switching to this server asks for \(current.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
             }
             Section {
+                #if os(tvOS)
+                // The choices sit on this page: opening a page of them from
+                // here froze Apple TV in a loop of view updates.
+                ForEach([0] + SavedServer.lockChoices, id: \.self) { minutes in
+                    Button {
+                        session.setLockAfter(minutes > 0 ? minutes : nil, for: server.id)
+                    } label: {
+                        HStack {
+                            Text(minutes > 0 ? Self.lockTitle(minutes) : "Never")
+                            Spacer()
+                            if minutes == (current.lockAfterMinutes ?? 0) {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                #else
                 SettingsChoiceRow(
                     title: "Lock After",
                     options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
@@ -1661,6 +1678,11 @@ private struct SavedServerPage: View {
                         set: { session.setLockAfter($0 > 0 ? $0 : nil, for: server.id) }
                     )
                 )
+                #endif
+            } header: {
+                #if os(tvOS)
+                Text("Lock After")
+                #endif
             } footer: {
                 SettingsNote("After this long away from Aster, coming back to this server asks for \(current.session.userName)'s password.")
             }

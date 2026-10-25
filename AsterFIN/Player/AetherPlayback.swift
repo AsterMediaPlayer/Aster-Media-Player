@@ -269,9 +269,11 @@ final class AetherPlayback {
         segments = markers
         upNext = next
         if AppSettings.themeCards, item.kind == .episode {
-            let themes = await jellyfin?.opEdThemes(for: item.id) ?? []
+            // The plugin's themes; without the plugin, AnimeThemes'.
+            let themes = await jellyfin?.opEdThemes(for: item.id)
+            let known = themes == nil ? await PlaybackCoordinator.knownThemes(for: item, client: client) : []
             guard self.item?.id == item.id, !stopped else { return }
-            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes ?? [], knownThemes: known)
         }
         if AppSettings.themeCards, item.kind == .musicVideo, let jellyfin {
             let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: jellyfin)

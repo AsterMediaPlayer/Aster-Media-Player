@@ -253,6 +253,16 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
         self.detail = detail
     }
 
+    /// From AnimeThemes, when the server has no OP/ED plugin.
+    init(known: KnownTheme, series: String, seasonName: String?) {
+        kicker = "\(known.isOpening ? "Opening" : "Ending") \(known.sequence)"
+        title = known.songTitle ?? series
+        artists = known.artists.isEmpty ? nil : known.artists.joined(separator: ", ")
+        self.series = known.songTitle == nil ? nil : series
+        let parts = [seasonName, known.episodes.map { "Episodes \($0)" }].compactMap { $0 }
+        detail = parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     init(clip: ThemeClip, series: String) {
         kicker = clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue
         title = series

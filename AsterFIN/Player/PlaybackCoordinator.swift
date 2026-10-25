@@ -475,9 +475,11 @@ final class PlaybackCoordinator {
             segments = loadedSegments
             upNext = next
             if AppSettings.themeCards, !isClip, item.kind == .episode {
-                let themes = await jellyfin?.opEdThemes(for: item.id) ?? []
+                // The plugin's themes; without the plugin, AnimeThemes'.
+                let themes = await jellyfin?.opEdThemes(for: item.id)
+                let known = themes == nil ? await Self.knownThemes(for: item, client: client) : []
                 if currentItem?.id == item.id {
-                    themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes)
+                    themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes ?? [], knownThemes: known)
                 }
             }
             if AppSettings.themeCards, !isClip, item.kind == .musicVideo, let jellyfin {
@@ -541,15 +543,17 @@ final class PlaybackCoordinator {
     /// only when the OP/ED plugin says a theme plays in it, so an ordinary
     /// show's intro gets no song card. The plugin names the song when it
     /// knows it.
+    /// Without the plugin, AnimeThemes' `knownThemes` name it instead.
     /// Used by both players.
-    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
+    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme], knownThemes: [KnownTheme] = []) -> [ThemeMoment] {
         guard item.kind == .episode else { return [] }
         let series = item.seriesName ?? item.displayTitle
         let playing = pluginThemes.filter { $0.playsInEpisode == true }
+        let known = knownThemes.filter { $0.plays(inEpisode: item.indexNumber) }
         var found: [(opening: Bool, range: ClosedRange<Double>, clip: ThemeClip?)] = OpeningsEndings.find(in: [item]).map { clip in
             (clip.kind == .opening, Double(clip.startTicks) / 10_000_000 ... Double(clip.endTicks) / 10_000_000, clip)
         }
-        if found.isEmpty, !playing.isEmpty {
+        if found.isEmpty, !playing.isEmpty || !known.isEmpty {
             for segment in segments where (segment.type == "Intro" || segment.type == "Outro") && segment.endTicks > segment.startTicks {
                 found.append((segment.type == "Intro", Double(segment.startTicks) / 10_000_000 ... Double(segment.endTicks) / 10_000_000, nil))
             }
@@ -558,6 +562,8 @@ final class PlaybackCoordinator {
             let info: ThemeInfo
             if let theme = playing.first(where: { $0.isOpening == entry.opening }) {
                 info = ThemeInfo(theme: theme, series: series, seasonName: item.seasonName)
+            } else if let theme = known.first(where: { $0.isOpening == entry.opening }) {
+                info = ThemeInfo(known: theme, series: series, seasonName: item.seasonName)
             } else if let clip = entry.clip {
                 info = ThemeInfo(clip: clip, series: series)
             } else {
@@ -565,6 +571,23 @@ final class PlaybackCoordinator {
             }
             return ThemeMoment(range: entry.range, info: info)
         }
+    }
+
+    /// The episode's openings and endings from AnimeThemes, for a server
+    /// without the OP/ED plugin: only for anime (matched by Shoko, or with
+    /// OP/ED chapters). The season's AniDB id finds it exactly where the
+    /// server has one; else the show's name and the year the season began.
+    static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
+        guard item.kind == .episode, let seriesName = item.seriesName,
+              item.isAnime || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
+        var season: BaseItem?
+        if let seasonId = item.seasonId { season = try? await client.item(seasonId) }
+        let aniDB = season?.providerIds?["AniDB"]
+        let year = season?.productionYear
+            ?? JellyfinDate.parse(season?.premiereDate).map { Calendar.current.component(.year, from: $0) }
+            ?? JellyfinDate.parse(item.premiereDate).map { Calendar.current.component(.year, from: $0) }
+            ?? item.productionYear
+        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year)
     }
 
     /// A music video is one song from start to finish, so its card covers

@@ -141,10 +141,25 @@ nonisolated final class PlexClient: MediaServer {
         if let start { request.setValue(String(start), forHTTPHeaderField: "X-Plex-Container-Start") }
         if let size { request.setValue(String(size), forHTTPHeaderField: "X-Plex-Container-Size") }
         let (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw PlexError.http(http.statusCode)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            #if DEBUG
+            print("DEBUG plex: \(path) -> \(status)")
+            #endif
+            throw PlexError.http(status)
         }
-        return try JSONDecoder().decode(PlexReply.self, from: data).mediaContainer
+        do {
+            let container = try JSONDecoder().decode(PlexReply.self, from: data).mediaContainer
+            #if DEBUG
+            print("DEBUG plex: \(path) -> \(container.metadata?.count ?? 0) titles")
+            #endif
+            return container
+        } catch {
+            #if DEBUG
+            print("DEBUG plex: \(path) couldn't be read: \(error)")
+            #endif
+            throw error
+        }
     }
 
     private func titles(_ path: String, query: [String: String?] = [:], start: Int? = nil, size: Int? = nil) async throws -> [BaseItem] {

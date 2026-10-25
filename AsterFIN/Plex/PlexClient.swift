@@ -329,23 +329,6 @@ nonisolated final class PlexClient: MediaServer {
 
     /// Plex has no per-device sign-in to end on the server.
     func logout() async {}
-
-    // MARK: Playing (P5)
-
-    func playbackInfo(_ request: PlaybackInfoRequest) async throws -> PlaybackInfoResponse { throw PlexError.notBuilt }
-    func directStreamURL(itemId: String, mediaSourceId: String, playSessionId: String?, container: String?) -> URL { baseURL }
-    func absoluteURL(serverRelative path: String) -> URL? { nil }
-    func reportStart(_ report: PlaybackReport) async {}
-    func reportProgress(_ report: PlaybackReport, resumePoint: ResumePoints.Saving) async {}
-    func reportStopped(_ report: PlaybackReport) async {}
-    func saveResumePosition(itemId: String, ticks: Int64) async throws { throw PlexError.notBuilt }
-    func stopTranscoding(playSessionId: String) async {}
-    func subtitleCues(itemId: String, mediaSourceId: String, streamIndex: Int) async throws -> [SubtitleCue] { throw PlexError.notBuilt }
-    func mediaSegments(itemId: String) async throws -> [MediaSegment] { [] }
-    /// Plex has no trickplay tiles (its BIF thumbnails come later).
-    func trickplayTileURL(itemId: String, width: Int, index: Int, mediaSourceId: String) -> URL { baseURL }
-    func chapterImageURL(itemId: String, index: Int, stamp: Int64?) -> URL { baseURL }
-    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL { baseURL }
 }
 
 /// The client for a saved sign-in, whichever server it's for.

@@ -94,14 +94,6 @@ struct PlayerView: View {
                     #endif
                     coordinator?.saveProgressNow()
                 }
-            // Plex's player comes in a later step.
-            if request != nil, session.client?.kind == .plex {
-                VStack(spacing: 30) {
-                    MessageView(systemImage: "play.slash", title: "Playing from Plex is coming soon",
-                                detail: "Browsing your Plex libraries works now; playing them is the next thing being built.")
-                    Button("Close", action: onFinished)
-                }
-            }
             #if canImport(AetherEngine)
             if let aether {
                 if let standby = aether.standbyEngine {
@@ -283,8 +275,7 @@ struct PlayerView: View {
                 return
             }
             #endif
-            // Plex plays from P5 on.
-            guard let request, let client = session.client, client.kind != .plex else { return }
+            guard let request, let client = session.client else { return }
             #if canImport(AetherEngine)
             guard aether == nil else { return }
             if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {

@@ -270,6 +270,10 @@ nonisolated final class JellyfinClient: Sendable {
         return try await get(ItemsResult.self, "/Items", query: merged)
     }
 
+    func items(_ query: ItemQuery) async throws -> ItemsResult {
+        try await items(query.jellyfinParameters)
+    }
+
     // MARK: Sources (for genre, network and collection Channels)
 
     /// The genres of the server's movies and shows, by name.

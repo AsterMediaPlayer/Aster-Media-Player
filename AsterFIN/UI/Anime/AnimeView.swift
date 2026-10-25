@@ -71,7 +71,7 @@ final class AnimeModel {
         // series instead, as the library rows below do, and each show once.
         let seriesIds = Set(newest.filter { $0.kind == .season }.compactMap(\.seriesId))
         var series: [String: BaseItem] = [:]
-        if !seriesIds.isEmpty, let found = try? await client.items(["ids": seriesIds.joined(separator: ",")]) {
+        if !seriesIds.isEmpty, let found = try? await client.items(ItemQuery(ids: Array(seriesIds))) {
             series = Dictionary(found.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
         var shown: [BaseItem] = []

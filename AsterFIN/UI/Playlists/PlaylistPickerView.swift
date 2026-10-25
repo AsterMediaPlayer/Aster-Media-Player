@@ -137,7 +137,7 @@ struct PlaylistPickerView: View {
 
     private func row(_ playlist: BaseItem) -> some View {
         HStack(spacing: Self.spacing) {
-            RemoteImage(url: session.client?.posterURL(for: playlist, width: 200), systemImage: "music.note.list")
+            RemoteImage(url: session.jellyfin?.posterURL(for: playlist, width: 200), systemImage: "music.note.list")
                 .frame(width: Self.artworkSize, height: Self.artworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
@@ -161,13 +161,13 @@ struct PlaylistPickerView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         playlists = (try? await client.playlists(mediaType: mediaType)) ?? []
         isLoading = false
     }
 
     private func add(to playlist: BaseItem) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         guard !itemIds.isEmpty else {
             errorMessage = "There's nothing to add."
             return
@@ -186,7 +186,7 @@ struct PlaylistPickerView: View {
     }
 
     private func create() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         let name = newName.trimmingCharacters(in: .whitespaces)
         isWorking = true
         Task {

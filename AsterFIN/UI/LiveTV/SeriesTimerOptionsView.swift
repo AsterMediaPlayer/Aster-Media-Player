@@ -134,7 +134,7 @@ struct SeriesTimerOptionsView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         do {
             timer = try await client.seriesTimer(timerId)
         } catch {
@@ -143,7 +143,7 @@ struct SeriesTimerOptionsView: View {
     }
 
     private func save() {
-        guard let client = session.client, let timer else { return }
+        guard let client = session.jellyfin, let timer else { return }
         isWorking = true
         Task {
             defer { isWorking = false }
@@ -158,7 +158,7 @@ struct SeriesTimerOptionsView: View {
     }
 
     private func cancelSeries() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         isWorking = true
         Task {
             defer { isWorking = false }

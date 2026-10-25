@@ -59,7 +59,7 @@ actor ResumePoints {
     /// Saves the report's position as the resume point when it's due, or
     /// at once with `force`. Live streams, which can't resume, are skipped,
     /// and so is a position outside the resume rules.
-    func progress(_ report: PlaybackReport, client: JellyfinClient, force: Bool) async {
+    func progress(_ report: PlaybackReport, client: any MediaServer, force: Bool) async {
         guard report.canSeek, Self.keepsResumePoint(at: report.positionTicks, runTime: report.runTimeTicks) else { return }
         let itemId = report.itemId
         let ticks = report.positionTicks

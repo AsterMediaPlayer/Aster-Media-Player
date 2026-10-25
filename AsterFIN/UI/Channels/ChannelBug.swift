@@ -52,7 +52,7 @@ struct ChannelBug: View {
     }
 
     var body: some View {
-        if let channel, let client = session.client,
+        if let channel, let client = session.jellyfin,
            let url = channel.logoURL(client: client, maxWidth: Int(Self.width * CGFloat(channel.bugSize) / 100 * 2)) {
             let corner = channel.bugCorner
             let width = Self.width * CGFloat(channel.bugSize) / 100

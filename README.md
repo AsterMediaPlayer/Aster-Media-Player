@@ -4,11 +4,11 @@
 
 # Aster Media Player
 
-A native Jellyfin client for Apple TV, iPhone, iPad and the Mac, written in SwiftUI.
+A native client for Jellyfin, Emby and Plex on Apple TV, iPhone, iPad and the Mac, written in SwiftUI.
 
-Aster covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
+Aster covers movies, TV, anime, music, audiobooks and live TV, and can turn your Jellyfin playlists into TV-style channels. Emby and Plex servers work too: see [Servers](#servers) for what each one gets. Title pages are laid out like the Apple TV app, with theme music and theme videos, and it plays JellyDisc DVD/Blu-ray-style disc menus. Videos play in **AetherEngine**, a player that plays the original file and switches every audio and subtitle track on the device, with Apple's own player as a fallback.
 
-> Aster is in beta (0.5). Expect rough edges, and please report what you find.
+> Aster is in beta (0.10). Expect rough edges, and please report what you find.
 
 ## Get Aster
 
@@ -77,7 +77,7 @@ Taken on Apple TV.
 
 ### Anime
 - **Anime tab:** libraries matched by Shoko/AniDB get their own tab and are left out of Movies and TV Shows. The tab has its own banner and appears only when the server has anime.
-- **Openings and endings:** they come from the OP/ED plugin, or from chapter markers if it isn't installed. While one plays, a "music video" card shows the song, artists and series.
+- **Openings and endings:** they come from the OP/ED plugin, or from chapter markers if it isn't installed. While one plays, a "music video" card shows the song, artists and series. Without the plugin (and on Emby and Plex), the song and artists come from [AnimeThemes](https://animethemes.moe). The card moves up out of the way while the player's controls are on screen.
 
 ### Music and audiobooks
 - **Music:** albums, artists, playlists and songs. The full player has shuffle, repeat and lyrics, plus system Now Playing info.
@@ -144,10 +144,24 @@ Shows always play their episodes in order and pick up where they left off. Speci
   - Videos play full screen (or in the window, if you'd rather).
   - Keyboard shortcuts: Space to play or pause, ← → to jump, Esc to close.
 - **Deep links:** `aster://item/{id}` opens a title page, and `aster://play/{id}` starts playback.
-- **Sign-in:** password or Quick Connect, with multiple users per server.
-- **Settings that follow you:** Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in Aster's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
+- **Sign-in:** password or Quick Connect on Jellyfin, password on Emby, and a plex.tv link code on Plex (then the server and the Plex Home profile, with its PIN). Several servers and users can be saved, and a server can lock after a while away.
+- **Settings that follow you** (Jellyfin and Emby): Up Next, skipping intros, styled subtitles, disc menus, theme music and videos, and song cards are kept on your Jellyfin server (in Aster's display preferences), so they match on every device you sign in on. Audio and subtitle languages use your Jellyfin user settings. Streaming quality, the system player switch, the tab bar and downloads stay per device.
 
-## Server requirements
+## Servers
+
+| | Jellyfin | Emby | Plex |
+| --- | :---: | :---: | :---: |
+| Home, libraries, title pages, search | ✓ | ✓ | ✓ |
+| Playback with resume and watched | ✓ | ✓ | ✓ |
+| Skip Intro and Skip Credits | ✓ | ✓ (chapter markers) | ✓ (Plex Pass markers, or chapters) |
+| Anime tab and song cards | ✓ | ✓ | ✓ |
+| Music, audiobooks, Live TV, channels, playlists, Upcoming | ✓ | ✓ | |
+| Downloads, favourites, trickplay previews, lyrics | ✓ | ✓ | |
+| Quick Connect, Aster's plugins (disc menus, OP/ED, channel groups) | ✓ | | |
+
+More detail, including what each server needs, is in [docs/emby-plex.md](docs/emby-plex.md).
+
+### Jellyfin
 
 Aster works with a recent Jellyfin server (10.10 or later recommended). All plugins are optional, and features that depend on them turn on when they're present:
 
@@ -159,6 +173,11 @@ Aster works with a recent Jellyfin server (10.10 or later recommended). All plug
 | Shoko | Detecting Anime libraries |
 
 Theme songs and theme videos use Jellyfin's standard theme media.
+
+### Emby and Plex
+
+- **Emby:** sign in with the server's address and your password, as on Jellyfin. Live TV needs Emby Premiere on the server.
+- **Plex:** choose **Sign in with Plex** and enter the code shown at plex.tv/link, then pick a server and a Plex Home profile. Intro and credits markers need Plex Pass on the server, with marker detection turned on in its Library settings; without them, chapters named Opening and Ending are used. Away from home, the server needs Remote Access turned on.
 
 ## Building
 
@@ -181,7 +200,9 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 | Folder | Contents |
 | --- | --- |
 | `AsterFIN/App` | Session state, settings, deep link routing |
-| `AsterFIN/Jellyfin` | API client, models, Keychain storage |
+| `AsterFIN/Server` | The server-neutral `MediaServer` protocol and typed queries every screen uses |
+| `AsterFIN/Jellyfin` | Jellyfin and Emby client, the app's models, Keychain storage |
+| `AsterFIN/Plex` | Plex client, plex.tv sign-in, and the mapping of Plex's titles into the app's models |
 | `AsterFIN/Player` | Both video players, subtitles (text and libass), music, audiobook and theme players |
 | `AsterFIN/DiscMenu` | JellyDisc menu models, rules, rendering, transitions, audio |
 | `AsterFIN/Downloads` | Video and audiobook downloads (iPhone and iPad) |
@@ -206,7 +227,11 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
 - **Mac:** the Mac app has no downloads yet.
-- **Anime without the OP/ED plugin:** openings and endings are guessed from chapter names.
+- **Anime without the OP/ED plugin:** openings and endings are found from chapter names, and their songs from AnimeThemes by the show's name and year, which can miss or pick the wrong season.
+- **Plex:**
+  - Music, audiobooks, Live TV, channels, playlists, Upcoming, downloads and favourites aren't built yet, so they're hidden on Plex. So are the widget's and Top Shelf's rows.
+  - Plex won't hand out subtitle tracks inside a file. On direct play AetherEngine draws them from the file itself; on a converted stream the server burns them in.
+  - A stream the server has to convert fails while its transcoder is at its limit (Settings ▸ Transcoder in Plex); Aster says so rather than showing a playback error.
 
 ## Open-source components
 

@@ -378,22 +378,9 @@ final class MusicPlayer {
     /// meanwhile, and carries on afterwards when the system recommends it.
     private func observeInterruptions() {
         guard interruptionObservers.isEmpty else { return }
-        let session = AVAudioSession.sharedInstance()
-        let center = NotificationCenter.default
-        interruptionObservers = [
-            center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: session, queue: .main) { [weak self] note in
-                let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
-                // Only the system's doing: the app letting the session go
-                // itself isn't an interruption.
-                guard context?.source == .system else { return }
-                MainActor.assumeIsolated { self?.interrupted(began: true, shouldResume: false) }
-            },
-            center.addObserver(forName: AVAudioSession.resumptionRecommendationNotification, object: session, queue: .main) { [weak self] note in
-                let context = note.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
-                let shouldResume = context?.recommendation == .shouldResume
-                MainActor.assumeIsolated { self?.interrupted(began: false, shouldResume: shouldResume) }
-            },
-        ]
+        interruptionObservers = observeAudioInterruptions { [weak self] began, shouldResume in
+            self?.interrupted(began: began, shouldResume: shouldResume)
+        }
     }
 
     private func interrupted(began: Bool, shouldResume: Bool) {
@@ -473,3 +460,38 @@ final class MusicPlayer {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 }
+
+#if !os(macOS)
+/// Observers for the system pausing the audio for a call or Siri, and for
+/// its say afterwards on playing on: `handler` gets whether the
+/// interruption began, and whether to play on. On iOS and tvOS 27 the
+/// system tells it by the session going inactive and a later
+/// recommendation; before, by one interruption notice for each end.
+func observeAudioInterruptions(_ handler: @escaping @MainActor (_ began: Bool, _ shouldResume: Bool) -> Void) -> [NSObjectProtocol] {
+    let session = AVAudioSession.sharedInstance()
+    let center = NotificationCenter.default
+    if #available(iOS 27, tvOS 27, *) {
+        return [
+            center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: session, queue: .main) { note in
+                let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
+                // Only the system's doing: the app letting the session go
+                // itself isn't an interruption.
+                guard context?.source == .system else { return }
+                MainActor.assumeIsolated { handler(true, false) }
+            },
+            center.addObserver(forName: AVAudioSession.resumptionRecommendationNotification, object: session, queue: .main) { note in
+                let context = note.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
+                let shouldResume = context?.recommendation == .shouldResume
+                MainActor.assumeIsolated { handler(false, shouldResume) }
+            },
+        ]
+    }
+    return [
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { note in
+            guard let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:)) else { return }
+            let options = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+            MainActor.assumeIsolated { handler(type == .began, options.contains(.shouldResume)) }
+        },
+    ]
+}
+#endif

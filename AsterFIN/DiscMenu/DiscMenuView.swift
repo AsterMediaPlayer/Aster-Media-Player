@@ -75,7 +75,7 @@ struct DiscMenuView: View {
         }
         #endif
         .onAppear {
-            if controller == nil, let client = session.client {
+            if controller == nil, let client = session.jellyfin {
                 let created = DiscMenuController(document: document, itemId: itemId, client: client, soundsEnabled: soundsEnabled)
                 controller = created
                 created.open()

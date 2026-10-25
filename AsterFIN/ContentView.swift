@@ -24,6 +24,9 @@ struct ContentView: View {
                 if session.isLocked, let server = session.currentServer {
                     // Away past the server's lock-after: its password first.
                     ServerLockView(server: server)
+                } else if session.needsWelcome {
+                    // Once per server: what Aster and its plugins do.
+                    WelcomeView()
                 } else {
                     // A switched server gets a fresh main screen: its own
                     // tabs, libraries and pages.
@@ -34,14 +37,19 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: session.phase)
         .animation(.easeInOut(duration: 0.3), value: session.isLocked)
+        .animation(.easeInOut(duration: 0.3), value: session.needsWelcome)
         // Leaving starts the lock's clock; coming back (or opening) checks it.
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background: session.noteLeftApp()
-            case .active: session.checkLock()
+            case .active:
+                session.checkLock()
+                Task { await session.refreshPlexConnection() }
             default: break
             }
         }
+        // A Plex server's address may have changed since it was saved.
+        .task { await session.refreshPlexConnection() }
         // macOS draws full-screen presentations (the player...) from here.
         .appCoverHost()
     }

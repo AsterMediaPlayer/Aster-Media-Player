@@ -69,7 +69,7 @@ nonisolated struct TrickplayInfo: Codable, Sendable, Hashable {
 final class ScrubPreviewSource {
     static let previewWidth = 320
 
-    private let client: JellyfinClient
+    private let client: any MediaServer
     private let itemId: String
     private let mediaSourceId: String
     private let info: TrickplayInfo
@@ -77,7 +77,7 @@ final class ScrubPreviewSource {
     private var loading: [Int: Task<CGImage?, Never>] = [:]
 
     /// Nil when the item has no trickplay images for this file.
-    init?(client: JellyfinClient, item: BaseItem, mediaSourceId: String?) {
+    init?(client: any MediaServer, item: BaseItem, mediaSourceId: String?) {
         guard let trickplay = item.trickplay, !trickplay.isEmpty else { return nil }
         let sourceId = mediaSourceId.flatMap { trickplay[$0] != nil ? $0 : nil } ?? trickplay.keys.sorted().first
         guard let sourceId, let resolutions = trickplay[sourceId], let info = TrickplayInfo.best(in: resolutions, near: Self.previewWidth) else { return nil }

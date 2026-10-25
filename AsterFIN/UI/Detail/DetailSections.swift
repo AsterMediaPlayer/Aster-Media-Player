@@ -293,7 +293,7 @@ struct ThemeMusicSection: View {
     }
 
     private func start(_ entry: OpeningEnding, in queue: [OpeningEnding]) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         deck.showItem = show
         deck.artwork = fallbackArtwork
         deck.play(entry, in: queue, client: client)
@@ -503,7 +503,7 @@ struct ThemeCard: View {
             .frame(width: Lockup.landscapeWidth, alignment: .leading)
         }
         .task(id: theme.id) {
-            guard let client = session.client else { return }
+            guard let client = session.jellyfin else { return }
             preview = await ThemePreviews.shared.preview(for: theme, client: client)
         }
     }

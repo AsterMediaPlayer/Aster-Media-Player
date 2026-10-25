@@ -191,12 +191,8 @@ final class DiscToneSynth {
     private func ensureRunning() -> Bool {
         if !connected {
             engine.attach(node)
-            do {
-                try engine.connectNode(node, to: engine.mainMixerNode, format: format)
-                connected = true
-            } catch {
-                return false
-            }
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+            connected = true
         }
         if !started {
             engine.prepare()
@@ -208,11 +204,7 @@ final class DiscToneSynth {
             }
         }
         if !node.isPlaying {
-            do {
-                try node.playAudio()
-            } catch {
-                return false
-            }
+            node.play()
         }
         return true
     }

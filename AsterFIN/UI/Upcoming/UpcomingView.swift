@@ -273,7 +273,7 @@ struct UpcomingView: View {
     #endif
 
     private func reload() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client)
     }
 }
@@ -293,10 +293,10 @@ private struct UpcomingCard: View {
         let destination = UpcomingSchedule.destination(for: episode)
         NavigationLink(value: destination) {
             ZStack(alignment: .bottomLeading) {
-                RemoteImage(url: session.client?.backdropURL(for: episode, width: 800), systemImage: "tv")
+                RemoteImage(url: session.jellyfin?.backdropURL(for: episode, width: 800), systemImage: "tv")
                 LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: UnitPoint(x: 0.5, y: 0.35), endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 4) {
-                    if let logo = session.client?.logoURL(for: episode, width: 400) {
+                    if let logo = session.jellyfin?.logoURL(for: episode, width: 400) {
                         RemoteImage(url: logo, contentMode: .fit) {
                             Text(title).font(.headline)
                         }

@@ -157,7 +157,7 @@ struct ThemeClipLockup: View {
     @Environment(AppSession.self) private var session
 
     private var imageURL: URL? {
-        guard let client = session.client else { return nil }
+        guard let client = session.jellyfin else { return nil }
         if let tag = clip.chapterImageTag {
             return client.chapterImageURL(itemId: clip.episode.id, index: clip.chapterIndex, tag: tag)
         }
@@ -253,6 +253,16 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
         self.detail = detail
     }
 
+    /// From AnimeThemes, when the server has no OP/ED plugin.
+    init(known: KnownTheme, series: String, seasonName: String?) {
+        kicker = "\(known.isOpening ? "Opening" : "Ending") \(known.sequence)"
+        title = known.songTitle ?? series
+        artists = known.artists.isEmpty ? nil : known.artists.joined(separator: ", ")
+        self.series = known.songTitle == nil ? nil : series
+        let parts = [seasonName, known.episodes.map { "Episodes \($0)" }].compactMap { $0 }
+        detail = parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     init(clip: ThemeClip, series: String) {
         kicker = clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue
         title = series
@@ -270,6 +280,8 @@ struct ThemeInfoCard: View {
     /// notch, in landscape): the text keeps clear of it, though the shade
     /// still runs to the corner.
     var safeLeading: CGFloat = 0
+    /// The player's controls' height, when they're up: the card goes above.
+    var bottomInset: CGFloat = 0
 
     /// The card at TV size, or scaled down for a phone or tablet.
     private enum Metrics {
@@ -284,6 +296,7 @@ struct ThemeInfoCard: View {
         static let maxWidth: CGFloat = 900
         static let leading: CGFloat = 90
         static let bottom: CGFloat = 120
+        static let aboveControls: CGFloat = 30
         static let shade = CGSize(width: 1100, height: 500)
         #else
         static let barGap: CGFloat = 12
@@ -296,6 +309,7 @@ struct ThemeInfoCard: View {
         static let maxWidth: CGFloat = 420
         static let leading: CGFloat = 24
         static let bottom: CGFloat = 40
+        static let aboveControls: CGFloat = 12
         static let shade = CGSize(width: 520, height: 240)
         #endif
     }
@@ -337,7 +351,7 @@ struct ThemeInfoCard: View {
         .shadow(color: .black.opacity(0.7), radius: 6, x: 0, y: 2)
         .frame(maxWidth: Metrics.maxWidth, alignment: .leading)
         .padding(.leading, max(Metrics.leading, safeLeading + 8))
-        .padding(.bottom, Metrics.bottom)
+        .padding(.bottom, bottomInset > 0 ? bottomInset + Metrics.aboveControls : Metrics.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .background(alignment: .bottomLeading) {
             // A soft shade behind the text so it reads over bright frames.
@@ -353,7 +367,9 @@ struct ThemeInfoCard: View {
                 startRadiusFraction: 0,
                 endRadiusFraction: 1
             )
-            .frame(width: Metrics.shade.width, height: Metrics.shade.height)
+            // Taller when the card is lifted over the controls, so it still
+            // reaches behind the text.
+            .frame(width: Metrics.shade.width, height: Metrics.shade.height + bottomInset)
         }
     }
 }
@@ -370,6 +386,9 @@ struct ThemeInfoOverlay: View {
     /// when it is part of a longer video (an episode's OP chapter).
     var range: ClosedRange<Double>?
     let info: ThemeInfo
+    /// How far up the player's controls reach while they're on screen
+    /// (zero while they're hidden): the card sits above them, never under.
+    var bottomInset: CGFloat = 0
 
     @State private var visible = false
     /// How far the screen's left edge is cut into (the Dynamic Island, or
@@ -385,7 +404,7 @@ struct ThemeInfoOverlay: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             if visible {
-                ThemeInfoCard(info: info, safeLeading: safeLeading)
+                ThemeInfoCard(info: info, safeLeading: safeLeading, bottomInset: bottomInset)
                     .transition(.asymmetric(
                         insertion: .move(edge: .leading).combined(with: .opacity),
                         removal: .opacity
@@ -402,6 +421,7 @@ struct ThemeInfoOverlay: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .animation(.easeInOut(duration: 0.6), value: visible)
+        .animation(.easeInOut(duration: 0.35), value: bottomInset)
         .onAppear(perform: start)
         .onDisappear(perform: stop)
     }

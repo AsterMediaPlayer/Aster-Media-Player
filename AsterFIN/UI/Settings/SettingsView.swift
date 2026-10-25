@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, channels, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, channels, serverPlugins, tabBar, downloads, account, about
     /// A saved server's page under Account, and its Lock After choices, by
     /// the server's id. Registered here at the root with the others: pages
     /// registered further in froze Apple TV when they opened one more.
@@ -44,6 +44,9 @@ struct SettingsView: View {
                     NavigationLink(value: SettingsDestination.channels) {
                         Label("Channels (Beta)", systemImage: "tv.and.mediabox")
                     }
+                    NavigationLink(value: SettingsDestination.serverPlugins) {
+                        Label("Server Plugins", systemImage: "puzzlepiece.extension")
+                    }
                 }
                 #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {
@@ -74,6 +77,7 @@ struct SettingsView: View {
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
             case .channels: ChannelSettingsView()
+            case .serverPlugins: ServerPluginsSettingsView()
             case .tabBar:
                 #if os(iOS)
                 TabBarSettingsView()
@@ -94,7 +98,7 @@ struct SettingsView: View {
         }
         // Settings that follow the user come from their server on opening.
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            if let client = session.jellyfin { await SettingsSync.pull(client: client) }
         }
     }
 }
@@ -117,6 +121,10 @@ struct MacSettingsView: View {
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
             ChannelSettingsView()
                 .tabItem { Label("Channels (Beta)", systemImage: "tv.and.mediabox") }
+            if session.isJellyfin {
+                ServerPluginsSettingsView()
+                    .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
+            }
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
             AboutSettingsView()
@@ -125,7 +133,7 @@ struct MacSettingsView: View {
         .frame(width: 560)
         .frame(minHeight: 380)
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            if let client = session.jellyfin { await SettingsSync.pull(client: client) }
         }
     }
 }
@@ -156,6 +164,52 @@ private struct SettingsPage<Content: View>: View {
             content()
         }
         #endif
+    }
+}
+
+/// Aster's companion plugins on the server: the welcome screen's switches,
+/// any time.
+private struct ServerPluginsSettingsView: View {
+    @Environment(AppSession.self) private var session
+    @State private var model = ServerPluginsModel()
+
+    var body: some View {
+        SettingsPage(title: "Server Plugins") {
+            Section {
+                if model.isAdministrator == nil {
+                    ProgressView()
+                } else {
+                    ForEach(AsterPlugin.allCases) { plugin in
+                        ServerPluginRow(plugin: plugin, model: model)
+                    }
+                }
+            } footer: {
+                if model.isAdministrator == true {
+                    SettingsNote("Free plugins for Jellyfin that add more to Aster. Switching one on installs it on your server; off turns it off and keeps its settings. Either takes a server restart.")
+                }
+            }
+            if model.isAdministrator == true, model.needsRestart || model.restart != .idle || model.errorMessage != nil {
+                Section {
+                    ServerRestartControls(model: model)
+                    if let error = model.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            Section {
+                AuroraNote()
+                if model.isAdministrator == false {
+                    AskYourAdministratorNote()
+                }
+            }
+            Section {
+                Button("Show Welcome Screen") {
+                    session.showWelcomeAgain()
+                }
+            }
+        }
+        .task { await model.load(session) }
     }
 }
 
@@ -1245,7 +1299,7 @@ struct ChannelSettingsView: View {
     private func save(_ playlist: BaseItem, _ tags: ChannelTags) {
         var tags = tags
         if tags.number == nil { tags.number = numbers[playlist.id] }
-        guard canEdit, let client = session.client, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        guard canEdit, let client = session.jellyfin, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
         let previous = playlists[index].tags
         let updated = tags.applied(to: previous)
         playlists[index].tags = updated
@@ -1262,7 +1316,7 @@ struct ChannelSettingsView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         async let genres = client.videoGenres()
         async let views = client.userViews()
         async let studios = client.videoStudios()
@@ -1298,7 +1352,7 @@ struct ChannelSettingsView: View {
             if let playlist = playlists.first(where: { $0.id == id }) { turnOn(playlist) }
             return
         }
-        guard canEdit, !isCreating, let client = session.client else { return }
+        guard canEdit, !isCreating, let client = session.jellyfin else { return }
         isCreating = true
         var tags = ChannelTags(isChannel: true, number: (numbers.values.max() ?? 0) + 1)
         switch source {
@@ -1600,7 +1654,7 @@ private struct AccountSettingsView: View {
             }
         }
         .task {
-            serverInfo = try? await session.client?.publicSystemInfo()
+            serverInfo = try? await session.jellyfin?.publicSystemInfo()
         }
     }
 }
@@ -1614,6 +1668,7 @@ private struct SavedServerPage: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var switchRequest: SavedServer?
+    @State private var signingInToPlex = false
 
     var body: some View {
         if let server = session.savedServers.first(where: { $0.id == serverID }) {
@@ -1642,31 +1697,48 @@ private struct SavedServerPage: View {
                 } else {
                     Button("Switch to This Server") { switchRequest = server }
                 }
-                Toggle("Ask for Password to Switch", isOn: Binding(
-                    get: { server.asksPasswordToSwitch },
-                    set: { session.setAsksPasswordToSwitch($0, for: serverID) }
-                ))
-            } footer: {
-                SettingsNote("Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
-            }
-            Section {
-                #if os(macOS)
-                SettingsChoiceRow(
-                    title: "Lock After",
-                    options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
-                    selection: Binding(
-                        get: { server.lockAfterMinutes ?? 0 },
-                        set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
-                    )
-                )
-                #else
-                // Its page goes on the path by value, like this one.
-                NavigationLink(value: SettingsDestination.lockAfter(serverID)) {
-                    LabeledContent("Lock After", value: Self.lockTitle(server.lockAfterMinutes ?? 0))
+                if server.canBeLocked {
+                    Toggle("Ask for \(server.credentialName.capitalized) to Switch", isOn: Binding(
+                        get: { server.asksPasswordToSwitch },
+                        set: { session.setAsksPasswordToSwitch($0, for: serverID) }
+                    ))
                 }
-                #endif
             } footer: {
-                SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s password.")
+                if server.canBeLocked {
+                    SettingsNote(server.session.kind == .plex
+                        ? "Switching to this server asks for \(server.session.userName)'s Plex Home PIN first, checked by plex.tv, so others on this device can't switch to it."
+                        : "Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
+                } else {
+                    SettingsNote("Locking asks for \(server.session.userName)'s Plex Home PIN. Sign in with Plex again to lock this server (a profile without a PIN needs one added in Plex under Settings ▸ Plex Home first).")
+                }
+            }
+            // A sign-in from before PINs could be checked: sign in afresh.
+            // (Also the page's one control then, so the remote can leave it.)
+            if server.session.kind == .plex, !server.canBeLocked {
+                Section {
+                    Button("Sign In with Plex Again") { signingInToPlex = true }
+                }
+            }
+            if server.canBeLocked {
+                Section {
+                    #if os(macOS)
+                    SettingsChoiceRow(
+                        title: "Lock After",
+                        options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
+                        selection: Binding(
+                            get: { server.lockAfterMinutes ?? 0 },
+                            set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
+                        )
+                    )
+                    #else
+                    // Its page goes on the path by value, like this one.
+                    NavigationLink(value: SettingsDestination.lockAfter(serverID)) {
+                        LabeledContent("Lock After", value: Self.lockTitle(server.lockAfterMinutes ?? 0))
+                    }
+                    #endif
+                } footer: {
+                    SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s \(server.credentialName).")
+                }
             }
             if !isInUse {
                 Section {
@@ -1678,6 +1750,16 @@ private struct SavedServerPage: View {
             }
         }
         .savedServerSwitcher(request: $switchRequest)
+        #if os(macOS)
+        .sheet(isPresented: $signingInToPlex) {
+            PlexSignInView()
+                .frame(minWidth: 520, minHeight: 560)
+        }
+        #else
+        .fullScreenCover(isPresented: $signingInToPlex) {
+            PlexSignInView()
+        }
+        #endif
     }
 }
 

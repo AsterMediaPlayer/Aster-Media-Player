@@ -209,13 +209,13 @@ struct MainTabView: View {
         // channels (playlists tagged as one), alongside the loading below
         // rather than holding it up.
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            if let client = session.jellyfin { await SettingsSync.pull(client: client) }
             await session.refreshChannels()
         }
         .task {
             guard let client = session.client else { return }
             await session.refreshUserConfiguration()
-            let views = (try? await client.userViews()) ?? []
+            let views = (try? await client.libraries()) ?? []
             session.noteLibraries(views)
             await session.refreshUpcoming()
             await session.detectAnimeLibraries(among: views)
@@ -228,7 +228,7 @@ struct MainTabView: View {
             // Leaving: a fresh twelve hours for the On Now widget.
             if phase == .background { ChannelTuner.writeOnNowGuide() }
             #endif
-            guard phase == .active, old == .background, let client = session.client else { return }
+            guard phase == .active, old == .background, let client = session.jellyfin else { return }
             Task {
                 await SettingsSync.pull(client: client)
                 await session.refreshChannels()

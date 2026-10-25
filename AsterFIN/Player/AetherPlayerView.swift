@@ -79,7 +79,7 @@ struct AetherPlayerView: View {
     /// Keeps one set of channels across channel changes; none once what
     /// plays isn't a channel (Go to Episode).
     private func updateFlick() {
-        guard let channelId = playingChannel, let client = session.client else {
+        guard let channelId = playingChannel, let client = session.jellyfin else {
             flick = nil
             return
         }
@@ -112,13 +112,9 @@ struct AetherPlayerView: View {
             if playback.hasStarted, !playback.endCardVisible {
                 ChannelBug(channelId: playback.channelId, videoAspect: videoAspect, playing: playback.item)
             }
-            // An anime episode's opening or ending gets its song card, as it
-            // does in the system player.
-            if playback.hasStarted, !playback.endCardVisible {
-                ForEach(playback.themeMoments) { moment in
-                    ThemeInfoOverlay(currentTime: { engine.clock.currentTime }, range: moment.range, info: moment.info)
-                }
-            }
+            #if !os(tvOS)
+            songCards
+            #endif
             // The Up Next card takes the screen (and the remote) on its own.
             if !playback.endCardVisible {
                 #if os(tvOS)
@@ -128,6 +124,11 @@ struct AetherPlayerView: View {
                 skipButton
                 #endif
             }
+            #if os(tvOS)
+            // Over the controls' shade: the controls say how tall they are,
+            // and the card sits above them.
+            songCards
+            #endif
 
             // Changing channel: the one playing carries on until the next is
             // ready, and says so; or says the next one couldn't be tuned.
@@ -241,6 +242,17 @@ struct AetherPlayerView: View {
         let from = engine.seekTarget ?? engine.clock.currentTime
         let to = min(max(from + seconds, 0), max(engine.duration - 1, 0))
         Task { await engine.seek(to: to) }
+    }
+
+    /// An anime episode's opening or ending gets its song card, as it does
+    /// in the system player.
+    @ViewBuilder
+    private var songCards: some View {
+        if playback.hasStarted, !playback.endCardVisible {
+            ForEach(playback.themeMoments) { moment in
+                ThemeInfoOverlay(currentTime: { engine.clock.currentTime }, range: moment.range, info: moment.info, bottomInset: playback.controlsHeight)
+            }
+        }
     }
 
     // MARK: iPhone, iPad and Mac

@@ -37,7 +37,7 @@ struct ProgramDetailView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: session.client?.programImageURL(artwork, width: 1920)) { Color(white: 0.08) }
+            RemoteImage(url: session.jellyfin?.programImageURL(artwork, width: 1920)) { Color(white: 0.08) }
                 .ignoresSafeArea()
             LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.75), .black.opacity(0.97)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
@@ -117,7 +117,7 @@ struct ProgramDetailView: View {
         #endif
         .task {
             channelFavorite = isChannelFavorite ?? false
-            guard let client = session.client else { return }
+            guard let client = session.jellyfin else { return }
             detail = try? await client.program(program.id)
         }
         .appCover(item: $playback) { request in
@@ -127,7 +127,7 @@ struct ProgramDetailView: View {
             if let seriesTimerId = current.seriesTimerId {
                 SeriesTimerOptionsView(timerId: seriesTimerId) {
                     Task {
-                        guard let client = session.client else { return }
+                        guard let client = session.jellyfin else { return }
                         if let refreshed = try? await client.program(program.id) {
                             detail = refreshed
                             onUpdate(refreshed)
@@ -231,7 +231,7 @@ struct ProgramDetailView: View {
     }
 
     private func perform(_ work: @escaping (JellyfinClient) async throws -> Void) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         isWorking = true
         Task {
             defer { isWorking = false }

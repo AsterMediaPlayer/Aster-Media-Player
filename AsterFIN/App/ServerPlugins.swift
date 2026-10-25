@@ -47,14 +47,23 @@ nonisolated enum AsterPlugin: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// What it gets you, in a few words.
+    var headline: String {
+        switch self {
+        case .channels: "Live TV, sorted"
+        case .disc: "Real disc menus"
+        case .opEd: "Every anime opening and ending"
+        }
+    }
+
     var summary: String {
         switch self {
         case .channels:
-            "Groups for your Live TV channels in Aster's guide and when flicking channels, and a Channels page in Jellyfin's dashboard for editing Aster's channels."
+            "Group your Live TV channels into sports, news, kids and more, in the guide and as you flip. Then rename, renumber and rearrange Aster's channels right from Jellyfin's dashboard."
         case .disc:
-            "Disc-style menus for a film's or show's special features, like the menu on the disc itself."
+            "Explore a film's extras through a menu just like the one on the disc, with moving backgrounds and music. Pick from a community catalogue, or design your own."
         case .opEd:
-            "Anime openings and endings for your shows, to watch on their own, as theme videos, or one after another."
+            "Watch a show's openings and endings on their own, play them back to back, or have each series greet you with its theme song. The song and artist come along too."
         }
     }
 
@@ -113,14 +122,14 @@ nonisolated enum PluginState: Equatable, Sendable {
     var caption: String {
         switch self {
         case .unknown: ""
-        case .notInstalled: "Not installed"
+        case .notInstalled: "Not installed yet"
         case .installing: "Installing…"
-        case .afterRestart(let on): on ? "Ready after the server restarts" : "Turns off after the server restarts"
-        case .active: "Installed"
-        case .disabled: "Turned off"
-        case .needsNewerServer(let version): "Needs Jellyfin \(version) or later"
-        case .broken: "Jellyfin couldn't load it; see Plugins in Jellyfin's dashboard"
-        case .present(let present): present ? "On your server" : "Not on your server"
+        case .afterRestart(let on): on ? "Ready after a quick server restart" : "Turns off after a server restart"
+        case .active: "On"
+        case .disabled: "Off"
+        case .needsNewerServer(let version): "Needs Jellyfin \(version) or newer"
+        case .broken: "Jellyfin couldn't start it. Check Plugins in your dashboard."
+        case .present(let present): present ? "On your server" : "Not on your server yet"
         }
     }
 

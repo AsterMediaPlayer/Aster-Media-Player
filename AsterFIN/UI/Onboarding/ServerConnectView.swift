@@ -14,6 +14,7 @@ struct ServerConnectView: View {
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var switchRequest: SavedServer?
+    @State private var showingPlexSignIn = false
 
     var body: some View {
         ZStack {
@@ -63,6 +64,15 @@ struct ServerConnectView: View {
                                 .font(.callout)
                                 .multilineTextAlignment(.center)
                         }
+
+                        // Plex is found through plex.tv, not by its address.
+                        Button {
+                            showingPlexSignIn = true
+                        } label: {
+                            Text("Sign in with Plex")
+                                .frame(maxWidth: Onboarding.buttonWidth)
+                        }
+                        .onboardingSecondaryButton()
                     }
 
                     // Servers already signed in to: back to one without typing it.
@@ -88,6 +98,16 @@ struct ServerConnectView: View {
             }
         }
         .savedServerSwitcher(request: $switchRequest)
+        #if os(macOS)
+        .sheet(isPresented: $showingPlexSignIn) {
+            PlexSignInView()
+                .frame(minWidth: 520, minHeight: 560)
+        }
+        #else
+        .fullScreenCover(isPresented: $showingPlexSignIn) {
+            PlexSignInView()
+        }
+        #endif
     }
 
     private func connect() {

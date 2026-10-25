@@ -42,10 +42,14 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background: session.noteLeftApp()
-            case .active: session.checkLock()
+            case .active:
+                session.checkLock()
+                Task { await session.refreshPlexConnection() }
             default: break
             }
         }
+        // A Plex server's address may have changed since it was saved.
+        .task { await session.refreshPlexConnection() }
         // macOS draws full-screen presentations (the player...) from here.
         .appCoverHost()
     }

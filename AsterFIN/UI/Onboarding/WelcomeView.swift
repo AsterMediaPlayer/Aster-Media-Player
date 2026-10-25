@@ -174,10 +174,13 @@ private struct WelcomeCard<Accessory: View, Detail: View>: View {
     var eyebrow: String?
     let title: String
     let text: String
-    /// A card that is a tvOS card button has that button's platter instead.
-    var framed = true
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var detail: Detail
+
+    /// Whether the card (a focusable card, or the button it's the label of)
+    /// has focus on Apple TV: it lifts and brightens, so it's clear where
+    /// the remote is.
+    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -208,11 +211,26 @@ private struct WelcomeCard<Accessory: View, Detail: View>: View {
         .padding(Welcome.cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            if framed {
-                RoundedRectangle(cornerRadius: Welcome.cornerRadius, style: .continuous)
-                    .fill(.white.opacity(0.07))
-            }
+            RoundedRectangle(cornerRadius: Welcome.cornerRadius, style: .continuous)
+                .fill(.white.opacity(isFocused ? 0.2 : 0.07))
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: Welcome.cornerRadius, style: .continuous)
+                .strokeBorder(.white.opacity(isFocused ? 0.7 : 0), lineWidth: 3)
+        }
+        .scaleEffect(isFocused ? 1.03 : 1)
+        .shadow(color: .black.opacity(isFocused ? 0.45 : 0), radius: 24, y: 12)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+/// A card that is a button on Apple TV: the card draws its own focus, so
+/// the system's lift and platter stay out of it.
+private struct WelcomeCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -242,15 +260,19 @@ private struct PluginCard: View {
         let canSwitch = model.isAdministrator == true && state.canSwitch && model.restart != .restarting
         if model.isAdministrator == true {
             #if os(tvOS)
+            // Never disabled: a disabled button can't take focus, and the
+            // remote would jump over the card. A press does nothing then.
             Button {
+                guard canSwitch else { return }
                 Task { await model.set(plugin, on: !state.isOn, session: session) }
             } label: {
-                card(state, framed: false) { OnOffBadge(isOn: state.isOn) }
+                card(state) {
+                    if state.canSwitch { OnOffBadge(isOn: state.isOn) }
+                }
             }
-            .buttonStyle(.card)
-            .disabled(!canSwitch)
+            .buttonStyle(WelcomeCardButtonStyle())
             #else
-            card(state, framed: true) {
+            card(state) {
                 Toggle(plugin.packageName, isOn: Binding(
                     get: { state.isOn },
                     set: { on in Task { await model.set(plugin, on: on, session: session) } }
@@ -261,14 +283,14 @@ private struct PluginCard: View {
             }
             #endif
         } else {
-            card(state, framed: true) { EmptyView() }
+            card(state) { EmptyView() }
                 .welcomeFocusable()
         }
     }
 
-    private func card<Accessory: View>(_ state: PluginState, framed: Bool, @ViewBuilder accessory: () -> Accessory) -> some View {
+    private func card<Accessory: View>(_ state: PluginState, @ViewBuilder accessory: () -> Accessory) -> some View {
         WelcomeCard(systemImage: plugin.systemImage, eyebrow: plugin.packageName, title: plugin.headline,
-                    text: plugin.summary, framed: framed, accessory: accessory) {
+                    text: plugin.summary, accessory: accessory) {
             PluginStatusLine(state: state)
                 .padding(.top, 4)
         }
@@ -456,12 +478,11 @@ struct ServerRestartControls: View {
 
 extension View {
     /// On Apple TV a card that only informs still takes focus, so the
-    /// remote can scroll the page to it.
+    /// remote can scroll the page to it; the card draws the focus itself.
     @ViewBuilder
     func welcomeFocusable() -> some View {
         #if os(tvOS)
         focusable()
-            .hoverEffect(.highlight)
         #else
         self
         #endif

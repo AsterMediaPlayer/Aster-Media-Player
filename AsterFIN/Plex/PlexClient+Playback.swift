@@ -128,21 +128,13 @@ nonisolated extension PlexClient {
     // MARK: Helpers
 
     private func metadata(_ id: String) async throws -> PlexMetadata? {
-        let request = request(url("/library/metadata/\(id)", query: ["includeMarkers": "1", "includeChapters": "1"]))
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw PlexError.http(http.statusCode)
-        }
+        let data = try await perform(request(url("/library/metadata/\(id)", query: ["includeMarkers": "1", "includeChapters": "1"])))
         return try JSONDecoder().decode(PlexReply.self, from: data).mediaContainer.metadata?.first
     }
 
     @discardableResult
     private func send(_ url: URL, method: String = "GET") async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request(url, method: method))
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw PlexError.http(http.statusCode)
-        }
-        return data
+        try await perform(request(url, method: method))
     }
 
     private func timeline(_ report: PlaybackReport, state: String) async {

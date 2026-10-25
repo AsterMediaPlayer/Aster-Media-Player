@@ -973,6 +973,7 @@ final class PlaybackCoordinator {
             print("DEBUG playback: giving up at \(entry.fallback) (\(message)); started \(hasStarted), played before \(entry.hasPlayed), reloads \(entry.stallRetries)")
             #endif
             errorMessage = message
+            explainPlexFailure(message, wasConverting: alreadyTranscoding || entry.fallback != .none)
             return
         }
         #if DEBUG
@@ -991,6 +992,19 @@ final class PlaybackCoordinator {
         queue[index].stallRetries = 0
         queue[index].startTicks = position
         Task { await play(index: index) }
+    }
+
+    /// On Plex, the player's own words for a failure ("the operation
+    /// couldn't be completed") give way to the server's reason, when it
+    /// has one: gone, transcoder busy, or the relay's limit.
+    private func explainPlexFailure(_ message: String, wasConverting: Bool) {
+        guard let plex = client as? PlexClient else { return }
+        let session = playSessionId
+        Task {
+            guard let trouble = await plex.playbackTrouble(wasConverting: wasConverting, playSessionId: session),
+                  errorMessage == message else { return }
+            errorMessage = trouble.localizedDescription
+        }
     }
 
     // MARK: Tuning

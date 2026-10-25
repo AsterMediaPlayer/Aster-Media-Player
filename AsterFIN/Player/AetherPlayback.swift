@@ -955,6 +955,16 @@ final class AetherPlayback {
         }
         guard let onFallback else {
             errorMessage = reason
+            // On Plex, the server's reason when it has one.
+            if let plex = client as? PlexClient {
+                let session = playSessionId
+                let converting = isConverted
+                Task {
+                    guard let trouble = await plex.playbackTrouble(wasConverting: converting, playSessionId: session),
+                          errorMessage == reason else { return }
+                    errorMessage = trouble.localizedDescription
+                }
+            }
             return
         }
         fellBack = true

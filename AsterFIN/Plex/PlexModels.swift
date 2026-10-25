@@ -25,13 +25,21 @@ nonisolated struct PlexContainer: Decodable, Sendable {
     var metadata: [PlexMetadata]?
     var directory: [PlexDirectory]?
     var hub: [PlexHub]?
+    var transcodeSession: [PlexTranscodeSession]?
 
     enum CodingKeys: String, CodingKey {
         case size, totalSize, offset
         case metadata = "Metadata"
         case directory = "Directory"
         case hub = "Hub"
+        case transcodeSession = "TranscodeSession"
     }
+}
+
+/// A conversion the server is running; `key` is the session the player
+/// gave it.
+nonisolated struct PlexTranscodeSession: Decodable, Sendable {
+    var key: String?
 }
 
 /// A library section. A show's season list also carries one with no type,

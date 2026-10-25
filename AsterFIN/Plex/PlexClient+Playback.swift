@@ -48,11 +48,18 @@ nonisolated extension PlexClient {
         source.supportsTranscoding = true
         source.mediaStreams = streams.map(Self.playbackStream)
         source.defaultAudioStreamIndex = (streams.first { $0.streamType == 2 && $0.default == true } ?? streams.first { $0.streamType == 2 })?.index
-        source.transcodingUrl = transcodeURL(
+        let transcode = transcodeQuery(
             itemId: request.itemId, session: session, startTicks: request.startTicks, maxBitrate: request.maxBitrate,
-            keepsHEVC: !request.allowDirect && !request.mostCompatible, mostCompatible: request.mostCompatible,
+            keepsSurround: !request.allowDirect && !request.mostCompatible, mostCompatible: request.mostCompatible,
             burnIn: burnIn?.index
-        ).absoluteString
+        )
+        // Plex refuses to start a conversion ("session lacking decision")
+        // unless the same session first asked for its decision, with the
+        // same settings, as Plex's own apps do.
+        if willConvert {
+            _ = try? await send(url("/video/:/transcode/universal/decision", query: transcode))
+        }
+        source.transcodingUrl = url("/video/:/transcode/universal/start.m3u8", query: transcode).absoluteString
         source.transcodingContainer = "ts"
         source.transcodingSubProtocol = "hls"
         return PlaybackInfoResponse(mediaSources: [source], playSessionId: session, errorCode: nil)
@@ -152,14 +159,18 @@ nonisolated extension PlexClient {
         _ = try? await URLSession.shared.data(for: request)
     }
 
-    /// The transcoder's HLS stream. It keeps HEVC for AetherEngine's
-    /// converted streams (the system player can't take HEVC in this
-    /// stream's segments, so it gets H.264), converting only what Apple TV
-    /// can't play, such as Opus; `mostCompatible` is a plain H.264 + AAC
-    /// encode. A picture subtitle is burned in, and the address says so
-    /// the way Jellyfin's does, so the players see it.
-    private func transcodeURL(itemId: String, session: String, startTicks: Int64, maxBitrate: Int,
-                              keepsHEVC: Bool, mostCompatible: Bool, burnIn: Int?) -> URL {
+    /// The transcoder's settings, for its decision and its HLS stream.
+    /// Converted video always comes as H.264: Plex sends HLS as MPEG-TS,
+    /// where AVFoundation (which shows AetherEngine's converted streams)
+    /// has no picture for HEVC, and AetherEngine only rewraps HEVC once it
+    /// has read the playlist's first segment, which a conversion starting
+    /// partway in (a resume, or new subtitles) doesn't make. Files Apple TV
+    /// plays as they are, HEVC and HDR included, never come here.
+    /// `keepsSurround` lets audio come as E-AC-3; `mostCompatible` is a
+    /// plain H.264 + AAC encode. A picture subtitle is burned in, and the
+    /// address says so the way Jellyfin's does, so the players see it.
+    private func transcodeQuery(itemId: String, session: String, startTicks: Int64, maxBitrate: Int,
+                                keepsSurround: Bool, mostCompatible: Bool, burnIn: Int?) -> [String: String?] {
         var query: [String: String?] = [
             "path": "/library/metadata/\(itemId)",
             "mediaIndex": "0",
@@ -181,14 +192,14 @@ nonisolated extension PlexClient {
             "X-Plex-Platform": PlexDevice.platform,
             "X-Plex-Token": accessToken,
         ]
-        if keepsHEVC {
-            query["X-Plex-Client-Profile-Extra"] = "append-transcode-target-codec(type=videoProfile&context=streaming&protocol=hls&videoCodec=hevc)+append-transcode-target-codec(type=videoProfile&context=streaming&protocol=hls&audioCodec=eac3)"
+        if keepsSurround {
+            query["X-Plex-Client-Profile-Extra"] = "append-transcode-target-codec(type=videoProfile&context=streaming&protocol=hls&audioCodec=eac3)"
         }
         if let burnIn {
             query["SubtitleMethod"] = "Encode"
             query["SubtitleStreamIndex"] = String(burnIn)
         }
-        return url("/video/:/transcode/universal/start.m3u8", query: query)
+        return query
     }
 
     /// A subtitle file beside the video, in a text format the app reads.

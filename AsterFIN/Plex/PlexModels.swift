@@ -34,13 +34,34 @@ nonisolated struct PlexContainer: Decodable, Sendable {
     }
 }
 
-/// A library section.
+/// A library section. A show's season list also carries one with no type,
+/// its "All episodes" link, so nothing here is required: one entry
+/// missing a field mustn't lose the whole reply.
 nonisolated struct PlexDirectory: Decodable, Sendable {
     var key: String
     var title: String
     /// movie, show, artist, photo
-    var type: String
+    var type: String?
     var agent: String?
+
+    init(key: String, title: String, type: String?, agent: String? = nil) {
+        self.key = key
+        self.title = title
+        self.type = type
+        self.agent = agent
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decodeIfPresent(String.self, forKey: .key) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        agent = try container.decodeIfPresent(String.self, forKey: .agent)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, title, type, agent
+    }
 }
 
 /// A row of titles: Continue Watching, or search results of one kind.

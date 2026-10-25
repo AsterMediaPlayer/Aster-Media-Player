@@ -110,6 +110,22 @@ struct PlexMapperTests {
         #expect(libraries.map(\.kind) == [.collectionFolder, .collectionFolder])
     }
 
+    /// A show's season list (Beastars, three seasons) carries an "All
+    /// episodes" Directory with no type; the seasons still come through.
+    @Test func aSeasonListWithItsAllEpisodesLink() throws {
+        let json = #"""
+        {"MediaContainer":{"size":3,"key":"6357","title2":"Beastars","Directory":[{"leafCount":48,"thumb":"/library/metadata/6357/thumb/1","viewedLeafCount":0,"key":"/library/metadata/6357/allLeaves","title":"All episodes"}],
+         "Metadata":[{"ratingKey":"6358","key":"/library/metadata/6358/children","parentRatingKey":"6357","type":"season","title":"Season 1","parentTitle":"Beastars","index":1,"leafCount":12,"viewedLeafCount":0},
+          {"ratingKey":"11377","key":"/library/metadata/11377/children","parentRatingKey":"6357","type":"season","title":"Season 2","parentTitle":"Beastars","index":2,"leafCount":12,"viewedLeafCount":0},
+          {"ratingKey":"11352","key":"/library/metadata/11352/children","parentRatingKey":"6357","type":"season","title":"Season 3","parentTitle":"Beastars","index":3,"leafCount":24,"viewedLeafCount":0}]}}
+        """#
+        let container = try JSONDecoder().decode(PlexReply.self, from: Data(json.utf8)).mediaContainer
+        #expect(container.directory?.first?.type == nil)
+        let seasons = (container.metadata ?? []).map(PlexMapper.item)
+        #expect(seasons.map(\.id) == ["6358", "11377", "11352"])
+        #expect(seasons.allSatisfy { $0.kind == .season })
+    }
+
     /// The shared picture choice finds the right Plex paths.
     @Test func lockupsFindThePlexPictures() throws {
         let link = PlexLink(accountToken: "a", machineId: "m", connections: [])

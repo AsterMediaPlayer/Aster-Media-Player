@@ -30,7 +30,7 @@ struct SavedServerLabel: View {
             } else if server.asksPasswordToSwitch {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Asks for password")
+                    .accessibilityLabel("Asks for \(server.credentialName)")
             }
         }
     }
@@ -83,11 +83,11 @@ private struct ServerPasswordSheet: View {
         VStack(spacing: Onboarding.controlSpacing) {
             Text(server.session.serverName ?? "Server")
                 .font(.title2.weight(.bold))
-            Text("Enter \(server.session.userName)'s password to switch to this \(server.session.kind.displayName) server.")
+            Text("Enter \(server.session.userName)'s \(server.credentialName) to switch to this \(server.session.kind.displayName) server.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            SecureField("Password", text: $password)
-                .textContentType(.password)
+            SecureField(server.credentialName.capitalized, text: $password)
+                .credentialField(isPin: server.session.kind == .plex)
                 .onboardingField()
                 .frame(maxWidth: Onboarding.credentialsWidth)
                 .focused($focused)
@@ -131,7 +131,7 @@ private struct ServerPasswordSheet: View {
                 dismiss()
                 session.switchServer(to: server, session: fresh)
             } catch {
-                errorMessage = "That password didn't work. \(error.localizedDescription)"
+                errorMessage = "That \(server.credentialName) didn't work. \(error.localizedDescription)"
             }
         }
     }
@@ -159,13 +159,13 @@ struct ServerLockView: View {
                             .foregroundStyle(.secondary)
                         Text(server.session.serverName ?? "Server")
                             .font(.system(size: Onboarding.serverNameSize, weight: .bold))
-                        Text("Enter \(server.session.userName)'s password to carry on.")
+                        Text("Enter \(server.session.userName)'s \(server.credentialName) to carry on.")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                     VStack(spacing: Onboarding.controlSpacing) {
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
+                        SecureField(server.credentialName.capitalized, text: $password)
+                            .credentialField(isPin: server.session.kind == .plex)
                             .onboardingField()
                             .frame(maxWidth: Onboarding.credentialsWidth)
                             .focused($focused)
@@ -210,9 +210,24 @@ struct ServerLockView: View {
             do {
                 session.unlock(with: try await session.signInAgain(to: server, password: password))
             } catch {
-                errorMessage = "That password didn't work. \(error.localizedDescription)"
+                errorMessage = "That \(server.credentialName) didn't work. \(error.localizedDescription)"
             }
         }
     }
 }
 
+extension View {
+    /// A password field, or a Plex PIN's: digits, and nothing to autofill.
+    @ViewBuilder
+    func credentialField(isPin: Bool) -> some View {
+        if isPin {
+            #if os(iOS)
+            keyboardType(.numberPad)
+            #else
+            self
+            #endif
+        } else {
+            textContentType(.password)
+        }
+    }
+}

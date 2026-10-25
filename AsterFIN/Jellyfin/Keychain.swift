@@ -110,6 +110,10 @@ nonisolated struct PlexLink: Codable, Sendable, Equatable {
     var machineId: String
     /// Every connection plex.tv listed, best first.
     var connections: [PlexConnectionInfo]
+    /// The Plex Home user signed in, and whether their profile has a PIN
+    /// (which locking and switching then ask for). Nil without a Home.
+    var homeUserUUID: String?
+    var homeUserHasPin: Bool?
 }
 
 /// One way to reach a Plex server.
@@ -132,6 +136,14 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
 
     /// The lock-after choices offered, in minutes.
     static let lockChoices = [5, 15, 30, 60, 240]
+
+    /// What switching and Lock After ask for: the user's password on the
+    /// server, or a Plex Home profile's PIN.
+    var credentialName: String { session.kind == .plex ? "PIN" : "password" }
+
+    /// Whether there's anything to ask for: a Plex profile without a PIN
+    /// can't be locked.
+    var canBeLocked: Bool { session.kind != .plex || session.plex?.homeUserHasPin == true }
 
     /// One per server and user. A Plex server by its own id: the address
     /// used to reach it can change.

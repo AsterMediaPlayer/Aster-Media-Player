@@ -26,6 +26,8 @@ final class PlexSignInModel {
     /// The account or Home user signing in, and their token.
     private var user: PlexAccountUser?
     private var userToken: String?
+    /// The Home user picked, if the account has a Home.
+    private var homeUser: PlexHomeUser?
     private var linkTask: Task<Void, Never>?
 
     /// Shows a code and waits for it to be entered; a fresh code when one
@@ -93,6 +95,7 @@ final class PlexSignInModel {
         do {
             let switched = try await PlexAccount.switchUser(homeUser, pin: pin, token: accountToken)
             user = switched
+            self.homeUser = homeUser
             userToken = switched.authToken ?? accountToken
             await loadServers()
         } catch PlexError.http(let code) where code == 401 || code == 403 {
@@ -141,7 +144,8 @@ final class PlexSignInModel {
         signedIn = StoredSession(
             serverURL: reached.uri, serverName: server.name, userId: user.uuid, userName: user.displayName,
             accessToken: token, serverKind: .plex,
-            plex: PlexLink(accountToken: userToken, machineId: server.clientIdentifier, connections: connections))
+            plex: PlexLink(accountToken: userToken, machineId: server.clientIdentifier, connections: connections,
+                           homeUserUUID: homeUser?.uuid, homeUserHasPin: homeUser?.protected ?? false))
     }
 }
 

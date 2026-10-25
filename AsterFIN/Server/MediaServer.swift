@@ -79,7 +79,7 @@ nonisolated struct ServerCapabilities: OptionSet, Sendable, Hashable {
 
 // MARK: - Shorter forms
 
-extension MediaServer {
+nonisolated extension MediaServer {
     func data(from url: URL) async throws -> Data {
         try await data(from: url, fresh: false)
     }
@@ -107,7 +107,7 @@ extension MediaServer {
 
 // MARK: - Pictures
 
-extension MediaServer {
+nonisolated extension MediaServer {
     func imageURL(itemId: String, kind: ImageKind, tag: String? = nil, index: Int? = nil,
                   maxWidth: Int? = nil, maxHeight: Int? = nil, quality: Int = 90) -> URL {
         imageURL(ImageRef(itemId: itemId, kind: kind, tag: tag, index: index, maxWidth: maxWidth, maxHeight: maxHeight, quality: quality))

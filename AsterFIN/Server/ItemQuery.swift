@@ -39,7 +39,7 @@ nonisolated struct ItemQuery: Sendable, Hashable {
     var limit: Int?
 }
 
-extension ItemQuery {
+nonisolated extension ItemQuery {
     /// The query as Jellyfin's (and Emby's) `/Items` parameters.
     var jellyfinParameters: [String: String?] {
         var query: [String: String?] = [:]

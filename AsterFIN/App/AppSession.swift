@@ -61,6 +61,13 @@ final class AppSession {
         UserDefaults.standard.set(Array(welcomeSeen), forKey: AppSettings.welcomeSeenKey)
     }
 
+    /// Brings the welcome screen back for the server in use.
+    func showWelcomeAgain() {
+        guard let id = currentServerID else { return }
+        welcomeSeen.remove(id)
+        UserDefaults.standard.set(Array(welcomeSeen), forKey: AppSettings.welcomeSeenKey)
+    }
+
     /// The one audio player, so music keeps going while the viewer browses.
     let music = MusicPlayer()
     /// Audiobooks have their own player (resume, chapters, speed). Only one

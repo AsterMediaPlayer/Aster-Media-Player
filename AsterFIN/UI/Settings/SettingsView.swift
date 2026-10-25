@@ -203,6 +203,11 @@ private struct ServerPluginsSettingsView: View {
                     AskYourAdministratorNote()
                 }
             }
+            Section {
+                Button("Show Welcome Screen") {
+                    session.showWelcomeAgain()
+                }
+            }
         }
         .task { await model.load(session) }
     }

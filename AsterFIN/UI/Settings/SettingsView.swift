@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, channels, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, channels, serverPlugins, tabBar, downloads, account, about
     /// A saved server's page under Account, and its Lock After choices, by
     /// the server's id. Registered here at the root with the others: pages
     /// registered further in froze Apple TV when they opened one more.
@@ -44,6 +44,9 @@ struct SettingsView: View {
                     NavigationLink(value: SettingsDestination.channels) {
                         Label("Channels (Beta)", systemImage: "tv.and.mediabox")
                     }
+                    NavigationLink(value: SettingsDestination.serverPlugins) {
+                        Label("Server Plugins", systemImage: "puzzlepiece.extension")
+                    }
                 }
                 #if os(iOS)
                 NavigationLink(value: SettingsDestination.tabBar) {
@@ -74,6 +77,7 @@ struct SettingsView: View {
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
             case .channels: ChannelSettingsView()
+            case .serverPlugins: ServerPluginsSettingsView()
             case .tabBar:
                 #if os(iOS)
                 TabBarSettingsView()
@@ -117,6 +121,10 @@ struct MacSettingsView: View {
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
             ChannelSettingsView()
                 .tabItem { Label("Channels (Beta)", systemImage: "tv.and.mediabox") }
+            if session.isJellyfin {
+                ServerPluginsSettingsView()
+                    .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
+            }
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
             AboutSettingsView()
@@ -156,6 +164,47 @@ private struct SettingsPage<Content: View>: View {
             content()
         }
         #endif
+    }
+}
+
+/// Aster's companion plugins on the server: the welcome screen's switches,
+/// any time.
+private struct ServerPluginsSettingsView: View {
+    @Environment(AppSession.self) private var session
+    @State private var model = ServerPluginsModel()
+
+    var body: some View {
+        SettingsPage(title: "Server Plugins") {
+            Section {
+                if model.isAdministrator == nil {
+                    ProgressView()
+                } else {
+                    ForEach(AsterPlugin.allCases) { plugin in
+                        ServerPluginRow(plugin: plugin, model: model)
+                    }
+                }
+            } footer: {
+                if model.isAdministrator == true {
+                    SettingsNote("Free plugins for Jellyfin that add more to Aster. Switching one on installs it on your server; off turns it off and keeps its settings. Either takes a server restart.")
+                }
+            }
+            if model.isAdministrator == true, model.needsRestart || model.restart != .idle || model.errorMessage != nil {
+                Section {
+                    ServerRestartControls(model: model)
+                    if let error = model.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            Section {
+                AuroraNote()
+                if model.isAdministrator == false {
+                    AskYourAdministratorNote()
+                }
+            }
+        }
+        .task { await model.load(session) }
     }
 }
 

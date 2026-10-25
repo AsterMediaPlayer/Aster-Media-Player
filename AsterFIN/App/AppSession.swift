@@ -533,6 +533,40 @@ final class AppSession {
         phase = .signedIn
     }
 
+    /// A Plex server's saved address can stop answering (this device on
+    /// another network, the server's address changed): its other
+    /// addresses are tried, then plex.tv's latest list, and the first that
+    /// answers takes over. Checked on opening and on coming back.
+    func refreshPlexConnection() async {
+        guard let plexLink, phase == .signedIn, let stored = StoredSession.load(), stored.kind == .plex else { return }
+        let token = stored.accessToken
+        let saved = PlexConnectionInfo(uri: stored.serverURL, local: true, relay: false)
+        if await PlexConnectionRace.fastest([saved], token: token, timeout: 4) != nil { return }
+
+        var connections = plexLink.connections
+        var serverToken = token
+        var reached = await PlexConnectionRace.fastest(connections, token: token)
+        if reached == nil,
+           let server = try? await PlexAccount.servers(token: plexLink.accountToken).first(where: { $0.clientIdentifier == plexLink.machineId }) {
+            connections = server.rankedConnections
+            serverToken = server.accessToken ?? token
+            reached = await PlexConnectionRace.fastest(connections, token: serverToken)
+        }
+        // Signed out or switched meanwhile: leave it.
+        guard let reached, reached.uri != stored.serverURL, currentServerID == SavedServer(session: stored).id else { return }
+        var updated = stored
+        updated.serverURL = reached.uri
+        updated.accessToken = serverToken
+        updated.plex?.connections = connections
+        updated.save()
+        serverURL = reached.uri
+        self.plexLink = updated.plex
+        UserDefaults.standard.set(reached.uri, forKey: "AsterFIN.serverURL")
+        client = MediaServerFactory.client(for: updated)
+        remember(updated)
+        serverGeneration += 1
+    }
+
     /// Signed in through plex.tv, to the server and Home user picked.
     func signIn(plex stored: StoredSession) {
         stopMedia()

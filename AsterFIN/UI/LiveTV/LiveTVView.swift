@@ -206,7 +206,7 @@ struct LiveTVView: View {
         } : nil)
         .sheet(item: $groupingChannel) { channel in
             LiveChannelGroupSheet(channel: channel, current: model.groups?[channel.id], groups: model.groupNames) { group in
-                guard let client = session.client else { return }
+                guard let client = session.jellyfin else { return }
                 try await model.setGroup(group, channelId: channel.id, client: client)
             }
         }
@@ -244,7 +244,7 @@ struct LiveTVView: View {
             #endif
         }
         .appCover(item: $selectedProgram, onDismiss: {
-            Task { if let client = session.client { await model.refreshRecordings(client: client) } }
+            Task { if let client = session.jellyfin { await model.refreshRecordings(client: client) } }
             if let channel = pendingChannel {
                 pendingChannel = nil
                 play(channelId: channel)
@@ -260,13 +260,13 @@ struct LiveTVView: View {
                 }
             ) { updated in
                 // Reflect a new or cancelled recording in the guide right away.
-                Task { if let client = session.client { await guideModel.apply(updated, client: client) } }
+                Task { if let client = session.jellyfin { await guideModel.apply(updated, client: client) } }
             }
         }
     }
 
     private func reload() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client)
     }
 
@@ -380,7 +380,7 @@ struct LiveTVView: View {
             return
             #endif
         }
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         #if canImport(AetherEngine)
         if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
             // A channel the engine can't play carries on in the system player.
@@ -422,7 +422,7 @@ struct LiveTVView: View {
     }
 
     private func toggleFavorite(channelId: String) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task { await model.toggleFavorite(channelId: channelId, client: client) }
     }
 }
@@ -607,7 +607,7 @@ struct ProgramCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: action) {
                 ZStack(alignment: .bottomLeading) {
-                    RemoteImage(url: session.client?.programImageURL(program), systemImage: "tv")
+                    RemoteImage(url: session.jellyfin?.programImageURL(program), systemImage: "tv")
                         .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
                     LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
                     HStack {
@@ -710,7 +710,7 @@ struct ChannelTile: View {
             Button(action: action) {
                 ZStack {
                     LinearGradient(colors: [Color(white: 0.22), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
-                    if let logo = session.client?.channelLogoURL(channel) {
+                    if let logo = session.jellyfin?.channelLogoURL(channel) {
                         RemoteImage(url: logo, contentMode: .fit) { EmptyView() }
                             .padding(30 * Self.scale)
                     } else {
@@ -805,10 +805,10 @@ struct RecordingsView: View {
         }
         .scrollClipDisabled()
         // Deleting a recording happens on its own page, so refresh on return.
-        .task { if let client = session.client { await model.refreshRecordings(client: client) } }
+        .task { if let client = session.jellyfin { await model.refreshRecordings(client: client) } }
         .appCover(item: $editingRule) { rule in
             SeriesTimerOptionsView(timerId: rule.id) {
-                Task { if let client = session.client { await model.refreshRecordings(client: client) } }
+                Task { if let client = session.jellyfin { await model.refreshRecordings(client: client) } }
             }
         }
     }
@@ -822,7 +822,7 @@ struct SeriesTimerCard: View {
     @Environment(AppSession.self) private var session
 
     private var imageURL: URL? {
-        guard let client = session.client else { return nil }
+        guard let client = session.jellyfin else { return nil }
         if let tag = rule.imageTags?["Primary"], let program = rule.programId {
             return client.imageURL(itemId: program, kind: .primary, tag: tag, maxWidth: 800)
         }
@@ -882,7 +882,7 @@ struct TimerCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: action) {
                 ZStack(alignment: .topTrailing) {
-                    RemoteImage(url: timer.programInfo.flatMap { session.client?.programImageURL($0) }, systemImage: "record.circle")
+                    RemoteImage(url: timer.programInfo.flatMap { session.jellyfin?.programImageURL($0) }, systemImage: "record.circle")
                         .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
                     Image(systemName: timer.status == "InProgress" ? "record.circle.fill" : "clock.badge")
                         .font(.title3)

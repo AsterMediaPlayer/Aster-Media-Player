@@ -147,7 +147,10 @@ final class PlaybackCoordinator {
     private var autoSkipped: Set<String> = []
     private var countdownTask: Task<Void, Never>?
 
-    private let client: JellyfinClient
+    private let client: any MediaServer
+    /// The server as Jellyfin, for what only it has: Live TV's streams,
+    /// openings and endings, and styled subtitles' fonts.
+    private var jellyfin: JellyfinClient? { client as? JellyfinClient }
     private var queue: [PlaybackQueueItem]
     private var index = 0
     /// The Channel playing, if it's playing one.
@@ -194,7 +197,7 @@ final class PlaybackCoordinator {
     private var isDownloaded = false
     private var stopped = false
 
-    init(client: JellyfinClient, request: PlaybackRequest, autoplayNext: Bool = true, autoSkipIntro: Bool = false, preferences: PlaybackPreferences = PlaybackPreferences()) {
+    init(client: any MediaServer, request: PlaybackRequest, autoplayNext: Bool = true, autoSkipIntro: Bool = false, preferences: PlaybackPreferences = PlaybackPreferences()) {
         self.client = client
         self.queue = request.items
         self.autoplayNext = autoplayNext
@@ -258,7 +261,7 @@ final class PlaybackCoordinator {
         }
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
         }
         stopUnreportedTranscode()
         clearSubtitles()
@@ -312,6 +315,8 @@ final class PlaybackCoordinator {
         do {
             let item = try await client.item(entry.itemId)
             currentItem = item
+            // The song cards' details, looked up while the stream starts.
+            let themeLookup = Task { await Self.themeSources(for: item, client: client) }
             // A clip (an OP or ED) plays without subtitles or other audio
             // tracks: pulling ASS tracks out of an MKV can take the server
             // longer than the player waits, and a song doesn't need them.
@@ -444,6 +449,12 @@ final class PlaybackCoordinator {
             player.play()
             // The subtitle fetch runs alongside; cues appear once it lands.
             loadSubtitles()
+            // The episode's OP/ED chapters give the song cards at once (a card
+            // shows only in a theme's first seconds, and an opening can start
+            // the episode); the song's details fill them in when they come.
+            if AppSettings.themeCards, !isClip, item.kind == .episode {
+                themeMoments = Self.themeMoments(for: item, segments: [], pluginThemes: [], knownThemes: [])
+            }
 
             // Markers and the following episode load after playback starts so
             // they never delay it; results are dropped if the item changed.
@@ -466,19 +477,20 @@ final class PlaybackCoordinator {
                     #endif
                 }
             }
+            guard currentItem?.id == item.id else { return }
+            segments = loadedSegments
+            if AppSettings.themeCards, !isClip, item.kind == .episode {
+                let (themes, known) = await themeLookup.value
+                if currentItem?.id == item.id {
+                    themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes ?? [], knownThemes: known)
+                }
+            }
             // A channel goes on to what it's showing, never Up Next.
             let next = item.kind == .episode && !isClip && entry.channelId == nil && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
             guard currentItem?.id == item.id else { return }
-            segments = loadedSegments
             upNext = next
-            if AppSettings.themeCards, !isClip, item.kind == .episode {
-                let themes = await client.opEdThemes(for: item.id) ?? []
-                if currentItem?.id == item.id {
-                    themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes)
-                }
-            }
-            if AppSettings.themeCards, !isClip, item.kind == .musicVideo {
-                let moments = await Self.musicVideoMoments(for: item, client: client)
+            if AppSettings.themeCards, !isClip, item.kind == .musicVideo, let jellyfin {
+                let moments = await Self.musicVideoMoments(for: item, client: jellyfin)
                 if currentItem?.id == item.id { themeMoments = moments }
             }
             #if os(tvOS)
@@ -538,15 +550,17 @@ final class PlaybackCoordinator {
     /// only when the OP/ED plugin says a theme plays in it, so an ordinary
     /// show's intro gets no song card. The plugin names the song when it
     /// knows it.
+    /// Without the plugin, AnimeThemes' `knownThemes` name it instead.
     /// Used by both players.
-    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme]) -> [ThemeMoment] {
+    static func themeMoments(for item: BaseItem, segments: [MediaSegment], pluginThemes: [OpEdTheme], knownThemes: [KnownTheme] = []) -> [ThemeMoment] {
         guard item.kind == .episode else { return [] }
         let series = item.seriesName ?? item.displayTitle
         let playing = pluginThemes.filter { $0.playsInEpisode == true }
+        let known = knownThemes.filter { $0.plays(inEpisode: item.indexNumber) }
         var found: [(opening: Bool, range: ClosedRange<Double>, clip: ThemeClip?)] = OpeningsEndings.find(in: [item]).map { clip in
             (clip.kind == .opening, Double(clip.startTicks) / 10_000_000 ... Double(clip.endTicks) / 10_000_000, clip)
         }
-        if found.isEmpty, !playing.isEmpty {
+        if found.isEmpty, !playing.isEmpty || !known.isEmpty {
             for segment in segments where (segment.type == "Intro" || segment.type == "Outro") && segment.endTicks > segment.startTicks {
                 found.append((segment.type == "Intro", Double(segment.startTicks) / 10_000_000 ... Double(segment.endTicks) / 10_000_000, nil))
             }
@@ -555,6 +569,8 @@ final class PlaybackCoordinator {
             let info: ThemeInfo
             if let theme = playing.first(where: { $0.isOpening == entry.opening }) {
                 info = ThemeInfo(theme: theme, series: series, seasonName: item.seasonName)
+            } else if let theme = known.first(where: { $0.isOpening == entry.opening }) {
+                info = ThemeInfo(known: theme, series: series, seasonName: item.seasonName)
             } else if let clip = entry.clip {
                 info = ThemeInfo(clip: clip, series: series)
             } else {
@@ -562,6 +578,33 @@ final class PlaybackCoordinator {
             }
             return ThemeMoment(range: entry.range, info: info)
         }
+    }
+
+    /// The episode's openings and endings from AnimeThemes, for a server
+    /// without the OP/ED plugin: only for anime (matched by Shoko, or with
+    /// OP/ED chapters). The season's AniDB id finds it exactly where the
+    /// server has one; else the show's name and the year the season began.
+    /// What an episode's song cards say: the plugin's themes, or without
+    /// the plugin, AnimeThemes'. Started as the episode loads, so it's
+    /// known by the time the opening plays.
+    static func themeSources(for item: BaseItem, client: any MediaServer) async -> (plugin: [OpEdTheme]?, known: [KnownTheme]) {
+        guard AppSettings.themeCards, item.kind == .episode else { return (nil, []) }
+        let plugin = await (client as? JellyfinClient)?.opEdThemes(for: item.id)
+        let known = plugin == nil ? await knownThemes(for: item, client: client) : []
+        return (plugin, known)
+    }
+
+    static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
+        guard item.kind == .episode, let seriesName = item.seriesName,
+              item.isAnime || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
+        var season: BaseItem?
+        if let seasonId = item.seasonId { season = try? await client.item(seasonId) }
+        let aniDB = season?.providerIds?["AniDB"]
+        let year = season?.productionYear
+            ?? JellyfinDate.parse(season?.premiereDate).map { Calendar.current.component(.year, from: $0) }
+            ?? JellyfinDate.parse(item.premiereDate).map { Calendar.current.component(.year, from: $0) }
+            ?? item.productionYear
+        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year)
     }
 
     /// A music video is one song from start to finish, so its card covers
@@ -697,7 +740,8 @@ final class PlaybackCoordinator {
             if styled {
                 // Drawn by libass; on failure the same track falls back to text.
                 do {
-                    let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex, attachments: attachments, client: client)
+                    guard let jellyfin = client as? JellyfinClient else { throw PlexError.notBuilt }
+                    let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex, attachments: attachments, client: jellyfin)
                     guard !Task.isCancelled, let self, self.selectedSubtitleIndex == streamIndex else {
                         loaded.unload()
                         return
@@ -841,7 +885,7 @@ final class PlaybackCoordinator {
 
     /// The episode after `episode` in its series, skipping missing ones and,
     /// unless it's a special itself, the specials. Used by both players.
-    static func nextEpisode(after episode: BaseItem, client: JellyfinClient) async -> BaseItem? {
+    static func nextEpisode(after episode: BaseItem, client: any MediaServer) async -> BaseItem? {
         guard let seriesId = episode.seriesId,
               let all = try? await client.episodes(seriesId: seriesId, seasonId: nil),
               let position = all.firstIndex(where: { $0.id == episode.id }) else { return nil }
@@ -855,7 +899,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         showsUpNextAction = false
@@ -914,7 +958,7 @@ final class PlaybackCoordinator {
             reportStoppedIfStarted()
             if let liveStreamId {
                 let id = liveStreamId
-                Task { await client.closeLiveStream(id) }
+                Task { await jellyfin?.closeLiveStream(id) }
                 self.liveStreamId = nil
             }
             queue[index].stallRetries += 1
@@ -936,6 +980,7 @@ final class PlaybackCoordinator {
             print("DEBUG playback: giving up at \(entry.fallback) (\(message)); started \(hasStarted), played before \(entry.hasPlayed), reloads \(entry.stallRetries)")
             #endif
             errorMessage = message
+            explainPlexFailure(message, wasConverting: alreadyTranscoding || entry.fallback != .none)
             return
         }
         #if DEBUG
@@ -945,7 +990,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         queue[index].fallback = next
@@ -954,6 +999,19 @@ final class PlaybackCoordinator {
         queue[index].stallRetries = 0
         queue[index].startTicks = position
         Task { await play(index: index) }
+    }
+
+    /// On Plex, the player's own words for a failure ("the operation
+    /// couldn't be completed") give way to the server's reason, when it
+    /// has one: gone, transcoder busy, or the relay's limit.
+    private func explainPlexFailure(_ message: String, wasConverting: Bool) {
+        guard let plex = client as? PlexClient else { return }
+        let session = playSessionId
+        Task {
+            guard let trouble = await plex.playbackTrouble(wasConverting: wasConverting, playSessionId: session),
+                  errorMessage == message else { return }
+            errorMessage = trouble.localizedDescription
+        }
     }
 
     // MARK: Tuning
@@ -972,7 +1030,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         errorMessage = nil
@@ -1218,7 +1276,7 @@ final class PlaybackCoordinator {
     // MARK: System player metadata
 
     /// `artworkFile`, for a download, is read instead of fetching the artwork.
-    private static func metadata(for item: BaseItem, client: JellyfinClient, artworkFile: URL? = nil) async -> [AVMetadataItem] {
+    private static func metadata(for item: BaseItem, client: any MediaServer, artworkFile: URL? = nil) async -> [AVMetadataItem] {
         var items: [AVMetadataItem] = []
         var title = item.displayTitle
         var overview = item.overview
@@ -1293,7 +1351,7 @@ final class PlaybackCoordinator {
 
     /// Downloads the frames Jellyfin extracted for each chapter, side by side.
     /// Chapters without a frame, or whose download fails, are left out.
-    private static func chapterArtwork(for item: BaseItem, client: JellyfinClient) async -> [Int: Data] {
+    private static func chapterArtwork(for item: BaseItem, client: any MediaServer) async -> [Int: Data] {
         guard let chapters = item.chapters, chapters.count > 1 else { return [:] }
         return await withTaskGroup(of: (Int, Data?).self) { group in
             for (index, chapter) in chapters.enumerated() {

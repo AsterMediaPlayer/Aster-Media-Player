@@ -27,10 +27,10 @@ struct SavedServerLabel: View {
                 Text("In Use")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.tint)
-            } else if server.asksPasswordToSwitch {
+            } else if server.asksPasswordToSwitch, server.canBeLocked {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Asks for password")
+                    .accessibilityLabel("Asks for \(server.credentialName)")
             }
         }
     }
@@ -49,7 +49,8 @@ struct SavedServerSwitcher: ViewModifier {
             .onChange(of: request) { _, server in
                 guard let server else { return }
                 request = nil
-                if server.asksPasswordToSwitch {
+                // A server that can't check a PIN doesn't ask for one.
+                if server.asksPasswordToSwitch, server.canBeLocked {
                     asking = server
                 } else {
                     session.switchServer(to: server)
@@ -83,15 +84,17 @@ private struct ServerPasswordSheet: View {
         VStack(spacing: Onboarding.controlSpacing) {
             Text(server.session.serverName ?? "Server")
                 .font(.title2.weight(.bold))
-            Text("Enter \(server.session.userName)'s password to switch to this \(server.session.kind.displayName) server.")
+            Text("Enter \(server.session.userName)'s \(server.credentialName) to switch to this \(server.session.kind.displayName) server.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            SecureField("Password", text: $password)
-                .textContentType(.password)
+            SecureField(server.credentialName.capitalized, text: $password)
+                .credentialField(isPin: server.session.kind == .plex)
                 .onboardingField()
                 .frame(maxWidth: Onboarding.credentialsWidth)
                 .focused($focused)
-                .onSubmit(check)
+                // tvOS's keyboard can submit before the field has the last
+                // key typed: nothing is checked until there's something to check.
+                .onSubmit { if !password.isEmpty { check() } }
             HStack(spacing: 24) {
                 Button {
                     check()
@@ -102,7 +105,7 @@ private struct ServerPasswordSheet: View {
                     }
                 }
                 .onboardingPrimaryButton()
-                .disabled(isChecking)
+                .disabled(isChecking || password.isEmpty)
                 Button("Cancel", role: .cancel) { dismiss() }
                     .onboardingSecondaryButton()
             }
@@ -131,9 +134,14 @@ private struct ServerPasswordSheet: View {
                 dismiss()
                 session.switchServer(to: server, session: fresh)
             } catch {
-                errorMessage = "That password didn't work. \(error.localizedDescription)"
+                errorMessage = Self.message(for: error, server: server)
             }
         }
+    }
+
+    static func message(for error: any Error, server: SavedServer) -> String {
+        if let plex = error as? PlexError { return plex.localizedDescription }
+        return "That \(server.credentialName) didn't work. \(error.localizedDescription)"
     }
 }
 
@@ -159,17 +167,17 @@ struct ServerLockView: View {
                             .foregroundStyle(.secondary)
                         Text(server.session.serverName ?? "Server")
                             .font(.system(size: Onboarding.serverNameSize, weight: .bold))
-                        Text("Enter \(server.session.userName)'s password to carry on.")
+                        Text("Enter \(server.session.userName)'s \(server.credentialName) to carry on.")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                     VStack(spacing: Onboarding.controlSpacing) {
-                        SecureField("Password", text: $password)
-                            .textContentType(.password)
+                        SecureField(server.credentialName.capitalized, text: $password)
+                            .credentialField(isPin: server.session.kind == .plex)
                             .onboardingField()
                             .frame(maxWidth: Onboarding.credentialsWidth)
                             .focused($focused)
-                            .onSubmit(check)
+                            .onSubmit { if !password.isEmpty { check() } }
                         Button {
                             check()
                         } label: {
@@ -180,7 +188,7 @@ struct ServerLockView: View {
                             .frame(maxWidth: Onboarding.signInButtonWidth)
                         }
                         .onboardingPrimaryButton()
-                        .disabled(isChecking)
+                        .disabled(isChecking || password.isEmpty)
                         Button("Use Another Server") { session.changeServer() }
                             .onboardingSecondaryButton()
                         if let errorMessage {
@@ -210,9 +218,24 @@ struct ServerLockView: View {
             do {
                 session.unlock(with: try await session.signInAgain(to: server, password: password))
             } catch {
-                errorMessage = "That password didn't work. \(error.localizedDescription)"
+                errorMessage = ServerPasswordSheet.message(for: error, server: server)
             }
         }
     }
 }
 
+extension View {
+    /// A password field, or a Plex PIN's: digits, and nothing to autofill.
+    @ViewBuilder
+    func credentialField(isPin: Bool) -> some View {
+        if isPin {
+            #if os(iOS)
+            keyboardType(.numberPad)
+            #else
+            self
+            #endif
+        } else {
+            textContentType(.password)
+        }
+    }
+}

@@ -90,6 +90,9 @@ final class AetherPlayback {
     /// An anime episode's openings and endings, for the song card, when the
     /// card is on (the same as the system player's).
     private(set) var themeMoments: [PlaybackCoordinator.ThemeMoment] = []
+    /// How far up from the screen's foot the controls reach while they're
+    /// shown, zero while hidden: the song card sits above them.
+    var controlsHeight: CGFloat = 0
     /// A Live TV channel: no timeline, no skipping.
     private(set) var isLive = false
     /// Whether playback is paused right now.
@@ -105,7 +108,12 @@ final class AetherPlayback {
     /// for 5 seconds, and after that only with the controls.
     private(set) var skipOfferIsFresh = false
 
-    private let client: JellyfinClient
+    private let client: any MediaServer
+    /// The current episode's song card details, being looked up.
+    private var themeLookup: Task<(plugin: [OpEdTheme]?, known: [KnownTheme]), Never>?
+    /// The server as Jellyfin, for what only it has: Live TV's streams,
+    /// openings and endings, and styled subtitles' fonts.
+    private var jellyfin: JellyfinClient? { client as? JellyfinClient }
     private var entry: PlaybackQueueItem
     /// The Channel this is playing, if it's playing one.
     var channelId: String? { entry.channelId }
@@ -216,7 +224,7 @@ final class AetherPlayback {
         return true
     }
 
-    init?(client: JellyfinClient, request: PlaybackRequest, preferences: PlaybackPreferences) {
+    init?(client: any MediaServer, request: PlaybackRequest, preferences: PlaybackPreferences) {
         guard let engine = Self.sharedEngine, let entry = request.items.first else { return nil }
         self.engine = engine
         self.client = client
@@ -233,6 +241,9 @@ final class AetherPlayback {
             if let ready { item = ready.item } else { item = try await client.item(entry.itemId) }
             self.item = item
             isLive = item.kind == .tvChannel
+            // The song cards' details, looked up while the stream starts.
+            let client = client
+            themeLookup = isLive ? nil : Task { await PlaybackCoordinator.themeSources(for: item, client: client) }
             nowPlaying.prepare()
             if isLive {
                 try await loadLive()
@@ -258,20 +269,30 @@ final class AetherPlayback {
     /// hand or on its own, would leave the schedule behind.
     private func loadExtras(for item: BaseItem) async {
         let onChannel = entry.channelId != nil
+        // The episode's OP/ED chapters give the cards at once, since a card
+        // shows only in a theme's first seconds and an opening can start
+        // the episode; the song's details fill them in when they come.
+        if AppSettings.themeCards, item.kind == .episode {
+            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: [], pluginThemes: [], knownThemes: [])
+        }
         async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
-        // A channel goes on to what it's showing, never Up Next.
-        let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
         let markers = await loadedSegments
         guard self.item?.id == item.id, !stopped else { return }
         segments = markers
-        upNext = next
         if AppSettings.themeCards, item.kind == .episode {
-            let themes = await client.opEdThemes(for: item.id) ?? []
+            let (themes, known) = await themeLookup?.value ?? (nil, [])
             guard self.item?.id == item.id, !stopped else { return }
-            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes)
+            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes ?? [], knownThemes: known)
+            #if DEBUG
+            print("DEBUG theme cards: ready at \(Int(engine.clock.currentTime))s; \(themeMoments.map { "\($0.info.kicker) at \(Int($0.range.lowerBound))s" }.joined(separator: ", "))")
+            #endif
         }
-        if AppSettings.themeCards, item.kind == .musicVideo {
-            let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: client)
+        // A channel goes on to what it's showing, never Up Next.
+        let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
+        guard self.item?.id == item.id, !stopped else { return }
+        upNext = next
+        if AppSettings.themeCards, item.kind == .musicVideo, let jellyfin {
+            let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: jellyfin)
             guard self.item?.id == item.id, !stopped else { return }
             themeMoments = moments
         }
@@ -450,8 +471,8 @@ final class AetherPlayback {
             return OpenedLive(playSessionId: info.playSessionId, mediaSourceId: source.id, liveStreamId: source.liveStreamId, url: direct, playMethod: "DirectPlay")
         }
         if let liveStreamId = source.liveStreamId {
-            let client = client
-            Task { await client.closeLiveStream(liveStreamId) }
+            let client = jellyfin
+            Task { await client?.closeLiveStream(liveStreamId) }
         }
         throw JellyfinError.http(0, "This channel's stream format isn't supported.")
     }
@@ -476,7 +497,7 @@ final class AetherPlayback {
         var playlist = opened.url
         while true {
             try Task.checkCancellation()
-            if let text = try? await client.playlistText(at: playlist) {
+            if let text = try? await (client as? JellyfinClient)?.playlistText(at: playlist) {
                 if text.contains("#EXTINF") { return }
                 let variant = text.split(whereSeparator: \.isNewline)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -536,8 +557,8 @@ final class AetherPlayback {
                 await self.switchLive(to: channel, opened: opened)
             } catch {
                 if let liveStreamId = opened.liveStreamId {
-                    let client = self.client
-                    Task { await client.closeLiveStream(liveStreamId) }
+                    let client = self.jellyfin
+                    Task { await client?.closeLiveStream(liveStreamId) }
                 }
                 guard !(error is CancellationError), !self.stopped else { return }
                 #if DEBUG
@@ -596,7 +617,7 @@ final class AetherPlayback {
         let client = client
         Task { [weak self] in
             let now = Date()
-            let programs = (try? await client.programs(channelId: channelId, from: now, to: now.addingTimeInterval(60))) ?? []
+            let programs = (try? await (client as? JellyfinClient)?.programs(channelId: channelId, from: now, to: now.addingTimeInterval(60))) ?? []
             guard let self, self.liveChannelId == channelId else { return }
             self.liveProgram = programs.first { $0.isAiringNow } ?? programs.first
         }
@@ -881,8 +902,8 @@ final class AetherPlayback {
         liveResetTask = nil
         guard let liveStreamId else { return }
         self.liveStreamId = nil
-        let client = client
-        closingLiveStream = Task { await client.closeLiveStream(liveStreamId) }
+        let client = jellyfin
+        closingLiveStream = Task { await client?.closeLiveStream(liveStreamId) }
     }
 
     /// Asks the server for a converted stream (at `qualityCap`, or the
@@ -944,6 +965,16 @@ final class AetherPlayback {
         }
         guard let onFallback else {
             errorMessage = reason
+            // On Plex, the server's reason when it has one.
+            if let plex = client as? PlexClient {
+                let session = playSessionId
+                let converting = isConverted
+                Task {
+                    guard let trouble = await plex.playbackTrouble(wasConverting: converting, playSessionId: session),
+                          errorMessage == reason else { return }
+                    errorMessage = trouble.localizedDescription
+                }
+            }
             return
         }
         fellBack = true
@@ -1392,7 +1423,8 @@ final class AetherPlayback {
         isLoadingStyledSubtitles = true
         assTask = Task { [weak self] in
             do {
-                let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: id, attachments: attachments, client: client)
+                guard let jellyfin = client as? JellyfinClient else { throw PlexError.notBuilt }
+                let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: id, attachments: attachments, client: jellyfin)
                 guard let self, !Task.isCancelled, self.currentSubtitle == id else {
                     loaded.unload()
                     return

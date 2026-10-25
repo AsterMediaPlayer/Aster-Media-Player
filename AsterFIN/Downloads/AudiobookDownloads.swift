@@ -330,7 +330,7 @@ final class AudiobookDownloads: NSObject {
         guard let parsed = Self.parse(key) else { return }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 200
         guard (200..<300).contains(status) else {
-            if !parsed.fallback, let client = client ?? AppSession.shared.client {
+            if !parsed.fallback, let client = client ?? AppSession.shared.jellyfin {
                 // The download endpoint refused it; try the file stream.
                 startTask(bookId: parsed.bookId, partId: parsed.partId, url: client.audioStreamURL(itemId: parsed.partId), fallback: true)
             } else {

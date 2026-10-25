@@ -30,15 +30,15 @@ final class HomeModel {
     /// Anime libraries are found after Home first loads. Fills the anime
     /// row and swaps the Movies or TV row only if it came from one of them,
     /// leaving Continue Watching and the hero alone so focus stays put.
-    func applyAnimeLibraries(_ anime: [BaseItem], client: JellyfinClient) async {
+    func applyAnimeLibraries(_ anime: [BaseItem], client: any MediaServer) async {
         let animeIds = Set(anime.map(\.id))
         if let id = moviesLibraryId, animeIds.contains(id) {
             moviesLibraryId = libraries.first { $0.collectionType == "movies" && !animeIds.contains($0.id) }?.id
-            latestMovies = (try? await client.latest(parentId: moviesLibraryId, limit: 20, includeTypes: "Movie")) ?? []
+            latestMovies = (try? await client.latest(parentId: moviesLibraryId, limit: 20, kinds: [.movie])) ?? []
         }
         if let id = showsLibraryId, animeIds.contains(id) {
             showsLibraryId = libraries.first { $0.collectionType == "tvshows" && !animeIds.contains($0.id) }?.id
-            latestShows = (try? await client.latest(parentId: showsLibraryId, limit: 20, includeTypes: "Series")) ?? []
+            latestShows = (try? await client.latest(parentId: showsLibraryId, limit: 20, kinds: [.series])) ?? []
         }
         latestAnime = await AnimeModel.recentlyAdded(client: client, libraries: anime)
     }
@@ -46,13 +46,13 @@ final class HomeModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    func load(client: JellyfinClient, animeLibraries: [BaseItem] = []) async {
+    func load(client: any MediaServer, animeLibraries: [BaseItem] = []) async {
         isLoading = featured.isEmpty
         errorMessage = nil
         do {
             async let resume = client.resume(limit: 20)
             async let next = client.nextUp(limit: 20)
-            async let views = client.userViews()
+            async let views = client.libraries()
             let (resumeItems, nextItems, libraries) = try await (resume, next, views)
             continueWatching = resumeItems
             nextUp = nextItems.filter { episode in !resumeItems.contains { $0.id == episode.id } }
@@ -64,8 +64,8 @@ final class HomeModel {
             moviesLibraryId = movieLibraries.first?.id
             showsLibraryId = showLibraries.first?.id
             self.libraries = libraries
-            async let movies = client.latest(parentId: moviesLibraryId, limit: 20, includeTypes: "Movie")
-            async let shows = client.latest(parentId: showsLibraryId, limit: 20, includeTypes: "Series")
+            async let movies = client.latest(parentId: moviesLibraryId, limit: 20, kinds: [.movie])
+            async let shows = client.latest(parentId: showsLibraryId, limit: 20, kinds: [.series])
             async let anime = AnimeModel.recentlyAdded(client: client, libraries: animeLibraries)
             latestMovies = (try? await movies) ?? []
             latestShows = (try? await shows) ?? []
@@ -830,7 +830,7 @@ struct HeroCard: View {
     /// `screenPixels` is the banner's size in pixels; the picture is asked
     /// for at just the size that fills it without being enlarged: on tvOS
     /// 3840 wide on a 4K TV and 1920 on a 1080p one.
-    static func imageURL(for item: BaseItem, portrait: Bool, screenPixels: CGSize = .zero, client: JellyfinClient?) -> URL? {
+    static func imageURL(for item: BaseItem, portrait: Bool, screenPixels: CGSize = .zero, client: (any MediaServer)?) -> URL? {
         #if os(tvOS)
         return client?.backdropURL(for: item, width: screenPixels.width > 0 ? Int(screenPixels.width) : Lockup.fullScreenImageWidth(displayScale: 1))
         #else
@@ -863,7 +863,7 @@ struct HeroCard: View {
     }
 
     /// `JellyfinClient.posterURL` limits by width; the hero needs a height.
-    private static func posterURL(for item: BaseItem, maxHeight: Int, client: JellyfinClient) -> URL? {
+    private static func posterURL(for item: BaseItem, maxHeight: Int, client: any MediaServer) -> URL? {
         if let tag = item.imageTags?["Primary"] {
             return client.imageURL(itemId: item.id, kind: .primary, tag: tag, maxHeight: maxHeight)
         }

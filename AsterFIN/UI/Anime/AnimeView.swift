@@ -28,16 +28,19 @@ final class AnimeModel {
         var id: String { library.id }
     }
 
-    func load(client: JellyfinClient, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
+    func load(client: any MediaServer, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
         isLoading = featured.isEmpty && !libraries.isEmpty
         let ids = libraries.map(\.id)
         let showIds = libraries.filter { $0.collectionType == "tvshows" }.map(\.id)
 
         async let resume = Self.merged(ids) { try await client.resume(limit: 20, parentId: $0) }
-        async let next = Self.merged(showIds) { try await client.nextUp(limit: 20, parentId: $0) }
+        async let next = Self.merged(showIds) { try await client.nextUp(limit: 20, seriesId: nil, parentId: $0) }
         async let latest = Self.recentlyAdded(client: client, libraries: libraries)
+        // Music videos (the OP/ED plugin's, and AMV libraries) are Jellyfin's.
+        let jellyfin = client as? JellyfinClient
         async let musicVideos = withTaskGroup(of: (Int, MusicVideoShelf).self) { group in
             for (position, library) in musicVideoLibraries.enumerated() {
+                guard let client = jellyfin else { break }
                 group.addTask { (position, MusicVideoShelf(library: library, items: await client.latestMusicVideos(inLibrary: library.id))) }
             }
             var shelves: [(Int, MusicVideoShelf)] = []
@@ -63,7 +66,7 @@ final class AnimeModel {
 
     /// The newest series and films across the anime libraries. Home's
     /// Recently Added Anime shelf uses this too.
-    static func recentlyAdded(client: JellyfinClient, libraries: [BaseItem], limit: Int = 20) async -> [BaseItem] {
+    static func recentlyAdded(client: any MediaServer, libraries: [BaseItem], limit: Int = 20) async -> [BaseItem] {
         let all = await merged(libraries.map(\.id)) { try await client.latest(parentId: $0, limit: limit) }
         let newest = all.sorted { ($0.dateCreated ?? "") > ($1.dateCreated ?? "") }
 
@@ -71,7 +74,7 @@ final class AnimeModel {
         // series instead, as the library rows below do, and each show once.
         let seriesIds = Set(newest.filter { $0.kind == .season }.compactMap(\.seriesId))
         var series: [String: BaseItem] = [:]
-        if !seriesIds.isEmpty, let found = try? await client.items(["ids": seriesIds.joined(separator: ",")]) {
+        if !seriesIds.isEmpty, let found = try? await client.items(ItemQuery(ids: Array(seriesIds))) {
             series = Dictionary(found.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
         var shown: [BaseItem] = []

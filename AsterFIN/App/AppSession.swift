@@ -18,7 +18,12 @@ final class AppSession {
     }
 
     private(set) var phase: Phase = .loading
-    private(set) var client: JellyfinClient?
+    /// The server signed in to: browsing, Home, title pages, search and
+    /// playback go through this, whichever server it is.
+    private(set) var client: (any MediaServer)?
+    /// The same server as Jellyfin (or Emby), for what only they have
+    /// (music, audiobooks, Live TV, channels, Aster's plugins); nil on Plex.
+    var jellyfin: JellyfinClient? { client as? JellyfinClient }
     private(set) var serverURL: URL?
     private(set) var serverName: String?
     /// Jellyfin or Emby. Jellyfin's plugins and extras (Quick Connect, OP/ED,
@@ -39,10 +44,37 @@ final class AppSession {
     /// The saved server in use.
     var currentServerID: String? {
         guard let serverURL, let userId else { return nil }
+        if let plexLink { return SavedServer.plexID(plexLink.machineId, userId) }
         return SavedServer.id(serverURL, userId)
     }
+    /// A Plex sign-in's plex.tv side; nil on Jellyfin and Emby.
+    private(set) var plexLink: PlexLink?
     private(set) var userName: String?
     private(set) var userId: String?
+
+    /// The saved servers whose welcome screen (what Aster and its plugins
+    /// do) has been seen.
+    private var welcomeSeen = Set(UserDefaults.standard.stringArray(forKey: AppSettings.welcomeSeenKey) ?? [])
+
+    /// The welcome screen is due: once for each Jellyfin server signed in
+    /// to (the plugins are Jellyfin's), people signed in before it included.
+    var needsWelcome: Bool {
+        guard isJellyfin, let id = currentServerID else { return false }
+        return !welcomeSeen.contains(id)
+    }
+
+    func markWelcomeSeen() {
+        guard let id = currentServerID else { return }
+        welcomeSeen.insert(id)
+        UserDefaults.standard.set(Array(welcomeSeen), forKey: AppSettings.welcomeSeenKey)
+    }
+
+    /// Brings the welcome screen back for the server in use.
+    func showWelcomeAgain() {
+        guard let id = currentServerID else { return }
+        welcomeSeen.remove(id)
+        UserDefaults.standard.set(Array(welcomeSeen), forKey: AppSettings.welcomeSeenKey)
+    }
 
     /// The one audio player, so music keeps going while the viewer browses.
     let music = MusicPlayer()
@@ -128,7 +160,7 @@ final class AppSession {
     var playOnOpen: String?
 
     func refreshUpcoming() async {
-        guard let client else { return }
+        guard let client = jellyfin else { return }
         if let soonest = try? await client.upcoming(limit: 1) {
             hasUpcoming = !soonest.isEmpty
         }
@@ -172,7 +204,7 @@ final class AppSession {
 
     func detectAnimeMusic(among views: [BaseItem]) async {
         musicVideoLibraries = views.filter { $0.collectionType == "musicvideos" }
-        opEdVideosLibraryId = await client?.opEdLibraries()?.videosLibraryId
+        opEdVideosLibraryId = await jellyfin?.opEdLibraries()?.videosLibraryId
         updateAnimeMusicVideoLibraries()
     }
 
@@ -268,12 +300,12 @@ final class AppSession {
     func refreshChannels() async {
         // Channels are playlist tags in Jellyfin's shape; Emby's differ.
         guard isJellyfin else { hasChannels = false; return }
-        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        guard let client = jellyfin, let playlists = try? await client.playlists(mediaType: "Video") else { return }
         hasChannels = ChannelsModel.taggedChannels(in: playlists).contains { $0.tags.isShown(to: userName) }
     }
 
     func refreshUserConfiguration() async {
-        guard let client, let me = try? await client.me() else { return }
+        guard let client = jellyfin, let me = try? await client.me() else { return }
         canDownload = me.policy?.enableContentDownloading ?? false
         canEditChannels = me.policy?.isAdministrator ?? false
         if let config = me.configuration {
@@ -287,7 +319,7 @@ final class AppSession {
     /// the first time an administrator signs in after the change (or if
     /// someone types an old one in Jellyfin); old tags are read meanwhile.
     private func convertOldChannelTags() async {
-        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        guard let client = jellyfin, let playlists = try? await client.playlists(mediaType: "Video") else { return }
         var converted = false
         for playlist in playlists {
             guard let tags = ChannelTags.converted(playlist.tags) else { continue }
@@ -299,7 +331,7 @@ final class AppSession {
     /// Changes one or more settings and saves them to the server, keeping the
     /// local copy if the save fails so the UI does not lie.
     func updateUserConfiguration(_ mutate: (inout UserConfiguration) -> Void) async {
-        guard let client else { return }
+        guard let client = jellyfin else { return }
         let previous = userConfiguration
         var config = userConfiguration ?? UserConfiguration()
         mutate(&config)
@@ -329,7 +361,8 @@ final class AppSession {
             serverKind = stored.kind
             userName = stored.userName
             userId = stored.userId
-            client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
+            plexLink = stored.plex
+            client = MediaServerFactory.client(for: stored)
             phase = .signedIn
         } else if let saved = UserDefaults.standard.url(forKey: "AsterFIN.serverURL") {
             serverURL = saved
@@ -360,6 +393,7 @@ final class AppSession {
         client = nil
         userId = nil
         userName = nil
+        plexLink = nil
         phase = .needsServer
     }
 
@@ -378,7 +412,8 @@ final class AppSession {
         UserDefaults.standard.set(stored.serverURL, forKey: "AsterFIN.serverURL")
         UserDefaults.standard.set(stored.serverName, forKey: "AsterFIN.serverName")
         UserDefaults.standard.set(stored.kind.rawValue, forKey: Self.serverKindKey)
-        client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
+        plexLink = stored.plex
+        client = MediaServerFactory.client(for: stored)
         remember(stored)
         isLocked = false
         serverGeneration += 1
@@ -392,6 +427,24 @@ final class AppSession {
     /// asks for it before switching; the fresh sign-in to switch with.
     func signInAgain(to saved: SavedServer, password: String) async throws -> StoredSession {
         let session = saved.session
+        // Plex: the Home profile's PIN, checked by plex.tv by switching to it.
+        if session.kind == .plex {
+            guard var link = session.plex, let uuid = link.homeUserUUID, let homeToken = link.homeToken else { throw PlexError.notBuilt }
+            // plex.tv lets a profile switch to itself with no PIN at all, so
+            // an empty one must never be sent.
+            guard !password.isEmpty else { throw PlexError.pinNeeded }
+            let profile = PlexHomeUser(id: 0, uuid: uuid, title: session.userName)
+            let switched: PlexAccountUser
+            do {
+                switched = try await PlexAccount.switchUser(profile, pin: password, token: homeToken)
+            } catch PlexError.http(let code) where code == 401 || code == 403 {
+                throw PlexError.wrongPin
+            }
+            if let token = switched.authToken { link.accountToken = token }
+            var fresh = session
+            fresh.plex = link
+            return fresh
+        }
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
         let result = try await client.authenticate(username: session.userName, password: password)
         return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)
@@ -414,7 +467,9 @@ final class AppSession {
         defer { UserDefaults.standard.removeObject(forKey: Self.leftAtKey) }
         guard phase == .signedIn, !isLocked,
               let id = currentServerID,
-              let minutes = savedServers.first(where: { $0.id == id })?.lockAfterMinutes,
+              // Only a server that can check its password or PIN is locked.
+              let server = savedServers.first(where: { $0.id == id }), server.canBeLocked,
+              let minutes = server.lockAfterMinutes,
               let leftAt = UserDefaults.standard.object(forKey: Self.leftAtKey) as? Date,
               Date().timeIntervalSince(leftAt) >= TimeInterval(minutes * 60) else { return }
         stopMedia()
@@ -424,7 +479,7 @@ final class AppSession {
     /// The password was right: carry on, with the fresh sign-in.
     func unlock(with fresh: StoredSession) {
         fresh.save()
-        client = JellyfinClient(baseURL: fresh.serverURL, accessToken: fresh.accessToken, userId: fresh.userId, kind: fresh.kind)
+        client = MediaServerFactory.client(for: fresh)
         remember(fresh)
         isLocked = false
     }
@@ -446,12 +501,12 @@ final class AppSession {
         savedServers.removeAll { $0.id == id }
         SavedServers.save(savedServers)
         let session = saved.session
-        Task { await JellyfinClient(baseURL: session.serverURL, accessToken: session.accessToken, userId: session.userId, kind: session.kind).logout() }
+        Task { await MediaServerFactory.client(for: session).logout() }
     }
 
     /// Adds or updates a server in the saved list, keeping its password setting.
     private func remember(_ stored: StoredSession) {
-        let id = SavedServer.id(stored.serverURL, stored.userId)
+        let id = SavedServer(session: stored).id
         if let index = savedServers.firstIndex(where: { $0.id == id }) {
             savedServers[index].session = stored
         } else {
@@ -488,9 +543,65 @@ final class AppSession {
         stored.save()
         userId = result.user.id
         userName = result.user.name
+        plexLink = nil
         client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id, kind: serverKind)
         remember(stored)
         resetServerState()
+        serverGeneration += 1
+        phase = .signedIn
+    }
+
+    /// A Plex server's saved address can stop answering (this device on
+    /// another network, the server's address changed): its other
+    /// addresses are tried, then plex.tv's latest list, and the first that
+    /// answers takes over. Checked on opening and on coming back.
+    func refreshPlexConnection() async {
+        guard let plexLink, phase == .signedIn, let stored = StoredSession.load(), stored.kind == .plex else { return }
+        let token = stored.accessToken
+        let saved = PlexConnectionInfo(uri: stored.serverURL, local: true, relay: false)
+        if await PlexConnectionRace.fastest([saved], token: token, timeout: 4) != nil { return }
+
+        var connections = plexLink.connections
+        var serverToken = token
+        var reached = await PlexConnectionRace.fastest(connections, token: token)
+        if reached == nil,
+           let server = try? await PlexAccount.servers(token: plexLink.accountToken).first(where: { $0.clientIdentifier == plexLink.machineId }) {
+            connections = server.rankedConnections
+            serverToken = server.accessToken ?? token
+            reached = await PlexConnectionRace.fastest(connections, token: serverToken)
+        }
+        // Signed out or switched meanwhile: leave it.
+        guard let reached, reached.uri != stored.serverURL, currentServerID == SavedServer(session: stored).id else { return }
+        var updated = stored
+        updated.serverURL = reached.uri
+        updated.accessToken = serverToken
+        updated.plex?.connections = connections
+        updated.save()
+        serverURL = reached.uri
+        self.plexLink = updated.plex
+        UserDefaults.standard.set(reached.uri, forKey: "AsterFIN.serverURL")
+        client = MediaServerFactory.client(for: updated)
+        remember(updated)
+        serverGeneration += 1
+    }
+
+    /// Signed in through plex.tv, to the server and Home user picked.
+    func signIn(plex stored: StoredSession) {
+        stopMedia()
+        stored.save()
+        serverURL = stored.serverURL
+        serverName = stored.serverName
+        serverKind = .plex
+        userId = stored.userId
+        userName = stored.userName
+        plexLink = stored.plex
+        UserDefaults.standard.set(stored.serverURL, forKey: "AsterFIN.serverURL")
+        UserDefaults.standard.set(stored.serverName, forKey: "AsterFIN.serverName")
+        UserDefaults.standard.set(ServerKind.plex.rawValue, forKey: Self.serverKindKey)
+        client = MediaServerFactory.client(for: stored)
+        remember(stored)
+        resetServerState()
+        isLocked = false
         serverGeneration += 1
         phase = .signedIn
     }
@@ -509,13 +620,18 @@ final class AppSession {
         client = nil
         userId = nil
         userName = nil
-        phase = .needsUser
+        // Plex signs in through plex.tv, from the first screen.
+        let wasPlex = plexLink != nil
+        plexLink = nil
+        phase = wasPlex ? .needsServer : .needsUser
     }
 }
 
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// The saved servers (`SavedServer.id`) whose welcome screen was seen.
+    static let welcomeSeenKey = "AsterFIN.welcomeSeen"
     /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
     /// line; the OP/ED plugin's own library is always shown.
     static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"

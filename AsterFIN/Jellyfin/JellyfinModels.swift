@@ -33,16 +33,18 @@ nonisolated struct PublicSystemInfo: Codable, Sendable, Equatable {
     }
 }
 
-/// The two servers Aster signs in to. Jellyfin began as a fork of Emby, so
+/// The servers Aster signs in to. Jellyfin began as a fork of Emby, so
 /// they share almost everything; where they differ (a few routes, and what
-/// each has that the other doesn't) the client and the app ask this.
+/// each has that the other doesn't) the client and the app ask this. Plex
+/// shares nothing with them and has its own client.
 nonisolated enum ServerKind: String, Codable, Sendable {
-    case jellyfin, emby
+    case jellyfin, emby, plex
 
     var displayName: String {
         switch self {
         case .jellyfin: "Jellyfin"
         case .emby: "Emby"
+        case .plex: "Plex"
         }
     }
 }
@@ -168,6 +170,15 @@ nonisolated struct PersonInfo: Codable, Sendable, Hashable, Identifiable {
         role = try container.decodeIfPresent(String.self, forKey: .role)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         primaryImageTag = try container.decodeIfPresent(String.self, forKey: .primaryImageTag)
+    }
+
+    /// A person from another server's credits (Plex's).
+    init(id: String, name: String?, role: String?, type: String?, primaryImageTag: String?) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.type = type
+        self.primaryImageTag = primaryImageTag
     }
 }
 
@@ -1425,5 +1436,67 @@ nonisolated struct OpEdTheme: Decodable, Sendable, Hashable, Identifiable {
     var songLine: String? {
         guard let songTitle else { return artists.isEmpty ? nil : artists.joined(separator: ", ") }
         return artists.isEmpty ? songTitle : "\(songTitle) — \(artists.joined(separator: ", "))"
+    }
+}
+
+// MARK: - Server plugins
+
+/// A plugin installed on the server, from `/Plugins` (administrators only).
+nonisolated struct InstalledPlugin: Codable, Sendable, Equatable {
+    /// The plugin's GUID, which Jellyfin writes without dashes.
+    var id: String
+    var name: String
+    var version: String
+    /// "Active", "Restart", "Disabled", "NotSupported", "Malfunctioned",
+    /// "Superceded" or "Deleted".
+    var status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case version = "Version"
+        case status = "Status"
+    }
+}
+
+/// A plugin repository in the server's settings. Saving the list replaces
+/// it whole, so it's read, added to and written back as it was.
+nonisolated struct PluginRepository: Codable, Sendable, Equatable {
+    var name: String?
+    var url: String?
+    var enabled: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case url = "Url"
+        case enabled = "Enabled"
+    }
+}
+
+/// A plugin in the catalogue of the server's repositories, from `/Packages`.
+nonisolated struct PluginPackage: Codable, Sendable, Equatable {
+    var name: String
+    var guid: String
+    var versions: [Version]
+
+    nonisolated struct Version: Codable, Sendable, Equatable {
+        var version: String
+        /// The oldest server it runs on, as "12.1.0.0".
+        var targetAbi: String?
+        var repositoryUrl: String?
+    }
+}
+
+/// The parts of the signed-in `/System/Info` the plugin settings use.
+nonisolated struct ServerSystemInfo: Codable, Sendable, Equatable {
+    var version: String?
+    var hasPendingRestart: Bool?
+    /// False where something else (Docker, a service manager) must restart it.
+    var canSelfRestart: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case version = "Version"
+        case hasPendingRestart = "HasPendingRestart"
+        case canSelfRestart = "CanSelfRestart"
     }
 }

@@ -52,6 +52,9 @@ enum Lockup {
     /// A library's tile on the Library and Anime pages.
     static let libraryTileWidth: CGFloat = 440
     static let libraryTileHeight: CGFloat = 248
+    /// Under a grid card's artwork: the gap, the title and the year line,
+    /// for the collection grid's fixed cell height.
+    static let gridTitleHeight: CGFloat = 80
     #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
@@ -106,7 +109,7 @@ extension Lockup {
     /// A poster card's picture. At quality 80 it's about 40% smaller than at
     /// 90, with no difference you can see at card size. Cards and the grid's
     /// look-ahead both use this, so they ask for the same URL and share the cache.
-    static func posterImageURL(for item: BaseItem, client: JellyfinClient?) -> URL? {
+    static func posterImageURL(for item: BaseItem, client: (any MediaServer)?) -> URL? {
         client?.posterURL(for: item, width: posterImageWidth, quality: 80)
     }
 }
@@ -218,6 +221,44 @@ extension View {
 
 // MARK: - Lockups
 
+extension EnvironmentValues {
+    /// Set by the Apple TV's UIKit-hosted grid's header and footer: a lockup
+    /// opens its title through `openItem`, as a NavigationLink can't find
+    /// the stack from a hosted root.
+    @Entry var opensItemsWithAction = false
+    /// Set in the Apple TV grid's cells: the cell itself takes focus, opens
+    /// the title and shows the menu, so the lockup draws its artwork plain,
+    /// lifted when `hostedCellFocused` says the cell has focus.
+    @Entry var lockupsAreStatic = false
+    @Entry var hostedCellFocused = false
+}
+
+/// A lockup's link to its title: a NavigationLink, or a Button through
+/// `openItem` where a NavigationLink can't reach the stack, or just the
+/// artwork where the cell around it does the work.
+struct ItemLink<Label: View>: View {
+    let item: BaseItem
+    @ViewBuilder var label: () -> Label
+
+    @Environment(\.opensItemsWithAction) private var opensWithAction
+    @Environment(\.lockupsAreStatic) private var isStatic
+    @Environment(\.hostedCellFocused) private var cellFocused
+    @Environment(\.openItem) private var openItem
+
+    var body: some View {
+        if isStatic {
+            label()
+                .scaleEffect(cellFocused ? 1.1 : 1)
+                .shadow(color: .black.opacity(cellFocused ? 0.5 : 0), radius: 16, y: 10)
+                .animation(.easeOut(duration: 0.18), value: cellFocused)
+        } else if opensWithAction, let openItem {
+            Button(action: { openItem(item) }, label: label)
+        } else {
+            NavigationLink(value: item, label: label)
+        }
+    }
+}
+
 /// 16:9 artwork with a title underneath, the Apple TV app's standard lockup.
 struct LandscapeLockup: View {
     let item: BaseItem
@@ -238,7 +279,7 @@ struct LandscapeLockup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NavigationLink(value: item) {
+            ItemLink(item: item) {
                 ZStack(alignment: .bottom) {
                     RemoteImage(url: session.client?.landscapeURL(for: item, width: 800), systemImage: item.kind == .episode ? "tv" : "film")
                         .frame(width: width, height: height)
@@ -328,7 +369,7 @@ struct PosterLockup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NavigationLink(value: item) {
+            ItemLink(item: item) {
                 ZStack(alignment: .bottom) {
                     RemoteImage(url: Lockup.posterImageURL(for: item, client: session.client), systemImage: item.kind == .series ? "tv" : "film")
                         .frame(width: width, height: width * 1.5)
@@ -450,10 +491,13 @@ struct ItemActionsMenu: View {
         } label: {
             Label(played ? "Mark as Unwatched" : "Mark as Watched", systemImage: played ? "eye.slash" : "checkmark.circle")
         }
-        Button {
-            setFavorite(!favorite)
-        } label: {
-            Label(favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: favorite ? "heart.slash" : "heart")
+        // Plex keeps no favourites.
+        if session.client?.capabilities.contains(.favorites) == true {
+            Button {
+                setFavorite(!favorite)
+            } label: {
+                Label(favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: favorite ? "heart.slash" : "heart")
+            }
         }
     }
 
@@ -479,7 +523,7 @@ struct ItemActionsMenu: View {
     }
 
     /// Shows the change right away and puts it back if the server refuses.
-    private func update(to data: UserItemData, _ send: @escaping (JellyfinClient) async throws -> Void) {
+    private func update(to data: UserItemData, _ send: @escaping (any MediaServer) async throws -> Void) {
         guard let client = session.client else { return }
         let previous = userData
         userData = data

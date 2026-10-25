@@ -14,10 +14,10 @@ struct WelcomeView: View {
     @Environment(AppSession.self) private var session
     @State private var model = ServerPluginsModel()
 
-    /// The things on the page that can be picked: only the plugins' switches
-    /// and the buttons. The other cards are there to read.
+    /// Where the remote starts: the first card, at the top. Every card
+    /// takes focus, so the remote walks the whole page.
     private enum Target: Hashable {
-        case plugin(AsterPlugin), start
+        case firstFeature
     }
     @FocusState private var focus: Target?
 
@@ -32,10 +32,14 @@ struct WelcomeView: View {
                         WelcomeGrid {
                             WelcomeCard(systemImage: "play.rectangle.fill", title: "Plays it all, as it was meant to be",
                                         text: "Dolby Vision, HDR, and TrueHD and DTS:X sound, straight from your files. Even fancy anime subtitles look exactly as their makers styled them.")
+                                .welcomeFocusable()
+                                .focused($focus, equals: .firstFeature)
                             WelcomeCard(systemImage: "tv", title: "Your own TV channels",
                                         text: "Turn any playlist into a channel that's always on, then flip through them like cable, with a guide that shows what's on now and next.")
+                                .welcomeFocusable()
                             WelcomeCard(systemImage: "music.note.list", title: "Music and audiobooks",
                                         text: "Albums keep playing while you browse, and every audiobook picks up right where you left off, chapter and all.")
+                                .welcomeFocusable()
                         }
                     }
 
@@ -50,7 +54,6 @@ struct WelcomeView: View {
                             WelcomeGrid {
                                 ForEach(AsterPlugin.allCases) { plugin in
                                     PluginCard(plugin: plugin, model: model)
-                                        .focused($focus, equals: .plugin(plugin))
                                 }
                             }
                         }
@@ -64,11 +67,13 @@ struct WelcomeView: View {
                             WelcomeCard(systemImage: "sparkles.tv", eyebrow: "Aster Aurora · for the web",
                                         title: "Love the look? Take it to your browser",
                                         text: "Aurora brings as much of Aster as it can to Jellyfin on the web: big hero banners, trailers playing behind titles, and more. Once Aster's repository is on your server, you'll find it in the plugin catalogue in Jellyfin's dashboard.")
+                                .welcomeFocusable()
                             if model.isAdministrator == false {
                                 WelcomeCard(systemImage: "person.badge.key", title: "Want these? Ask whoever runs your server",
                                             text: "They can switch them on from Aster in a few seconds, or add this repository under Plugins ▸ Repositories in Jellyfin's dashboard:") {
                                     RepositoryAddress()
                                 }
+                                .welcomeFocusable()
                             }
                         }
                     }
@@ -80,7 +85,6 @@ struct WelcomeView: View {
                             .frame(maxWidth: Onboarding.buttonWidth)
                     }
                     .onboardingPrimaryButton()
-                    .focused($focus, equals: .start)
                     // Not while the server restarts: the app needs it back.
                     .disabled(model.restart == .restarting)
                 }
@@ -89,15 +93,9 @@ struct WelcomeView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollClipDisabled()
+            .defaultFocus($focus, .firstFeature)
         }
-        .task {
-            await model.load(session)
-            // The first switch for an administrator (the page scrolls down
-            // to it); else the one button. Set once the cards have appeared:
-            // a focus request before then is dropped.
-            try? await Task.sleep(for: .milliseconds(350))
-            focus = model.isAdministrator == true ? .plugin(AsterPlugin.allCases[0]) : .start
-        }
+        .task { await model.load(session) }
     }
 
     private var header: some View {
@@ -309,6 +307,7 @@ private struct PluginCard: View {
             #endif
         } else {
             card(state) { EmptyView() }
+                .welcomeFocusable()
         }
     }
 
@@ -497,5 +496,19 @@ struct ServerRestartControls: View {
                 }
             }
         }
+    }
+}
+
+extension View {
+    /// On Apple TV a card that only informs still takes focus, so the
+    /// remote can walk down the page through every card; the card draws
+    /// its own focus.
+    @ViewBuilder
+    func welcomeFocusable() -> some View {
+        #if os(tvOS)
+        focusable()
+        #else
+        self
+        #endif
     }
 }

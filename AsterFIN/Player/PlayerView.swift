@@ -42,6 +42,9 @@ struct PlayerView: View {
     /// Mac, when the pointer last moved over the video.
     @State private var controlsShownAt: Date?
     @State private var trackMenuOpen = false
+    /// How far up the system player's transport bar reaches while it shows
+    /// (Apple TV); the song card sits above it.
+    @State private var transportBarHeight: CGFloat = 0
     #if canImport(AetherEngine)
     /// Playback through AetherEngine, the main player, when it can take the
     /// request; the system player otherwise, or once it hands over.
@@ -144,14 +147,14 @@ struct PlayerView: View {
                 .overlay {
                     // An opening or ending clip gets its music video card.
                     if let info = coordinator.themeInfo, coordinator.hasStarted {
-                        ThemeInfoOverlay(player: coordinator.player, range: coordinator.clipRange, info: info)
+                        ThemeInfoOverlay(player: coordinator.player, range: coordinator.clipRange, info: info, bottomInset: transportBarHeight)
                     }
                 }
                 .overlay {
                     // So does an episode's own opening and ending, as it plays.
                     if coordinator.hasStarted, !coordinator.endCardVisible {
                         ForEach(coordinator.themeMoments) { moment in
-                            ThemeInfoOverlay(player: coordinator.player, range: moment.range, info: moment.info)
+                            ThemeInfoOverlay(player: coordinator.player, range: moment.range, info: moment.info, bottomInset: transportBarHeight)
                         }
                     }
                 }
@@ -337,7 +340,8 @@ struct PlayerView: View {
                 coordinator.audioTracks.count > 1 ? audioTab : nil,
                 coordinator.subtitleTracks.isEmpty ? nil : subtitlesTab,
             ].compactMap { $0 },
-            onTap: { controlsShownAt = Date() }
+            onTap: { controlsShownAt = Date() },
+            onTransportBar: { height in transportBarHeight = height }
         )
         #endif
     }
@@ -866,9 +870,24 @@ struct SystemPlayer: UIViewControllerRepresentable {
     var infoTabs: [UIViewController] = []
     /// A tap on the video, which shows or hides the system controls (iOS).
     var onTap: (() -> Void)?
+    /// How far up the transport bar reaches as it shows, zero as it hides
+    /// (Apple TV), so the song card can sit above it.
+    var onTransportBar: ((CGFloat) -> Void)?
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate, AVPlayerViewControllerDelegate {
         var onTap: (() -> Void)?
+        var onTransportBar: ((CGFloat) -> Void)?
+
+        #if os(tvOS)
+        /// The bar's height is what the unobscured guide leaves below it;
+        /// 300 points (its height with the title) if the guide doesn't say.
+        func playerViewController(_ playerViewController: AVPlayerViewController, willTransitionToVisibilityOfTransportBar visible: Bool, with coordinator: any AVPlayerViewControllerAnimationCoordinator) {
+            let bounds = playerViewController.view.bounds
+            let guide = playerViewController.unobscuredContentGuide.layoutFrame
+            let covered = guide.maxY > 0 && guide.maxY < bounds.maxY ? bounds.maxY - guide.maxY : 300
+            onTransportBar?(visible ? covered : 0)
+        }
+        #endif
 
         #if os(iOS)
         /// The player is embedded, not presented: it stays where it is under
@@ -913,6 +932,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
         #endif
         #if os(tvOS)
         controller.appliesPreferredDisplayCriteriaAutomatically = true
+        controller.delegate = context.coordinator
         #else
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
         tap.cancelsTouchesInView = false
@@ -945,6 +965,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
         }
         // Skip buttons and the extra info tabs are tvOS player features; on
         // iOS they're ignored for now and need an overlay of their own.
+        context.coordinator.onTransportBar = onTransportBar
         #if os(tvOS)
         if controller.contextualActions.map(\.title) != contextualActions.map(\.title) {
             controller.contextualActions = contextualActions

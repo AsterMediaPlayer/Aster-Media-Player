@@ -90,6 +90,9 @@ final class AetherPlayback {
     /// An anime episode's openings and endings, for the song card, when the
     /// card is on (the same as the system player's).
     private(set) var themeMoments: [PlaybackCoordinator.ThemeMoment] = []
+    /// How far up from the screen's foot the controls reach while they're
+    /// shown, zero while hidden: the song card sits above them.
+    var controlsHeight: CGFloat = 0
     /// A Live TV channel: no timeline, no skipping.
     private(set) var isLive = false
     /// Whether playback is paused right now.

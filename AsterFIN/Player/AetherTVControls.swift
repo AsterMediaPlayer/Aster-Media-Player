@@ -85,6 +85,10 @@ struct AetherTVControls: View {
     @State private var activity = 0
     /// The channel row, while it's open (or last open).
     @State private var flick: ChannelFlickModel?
+    /// Where the controls at the foot of the screen begin, from the top.
+    @State private var controlsTop: CGFloat?
+    @State private var flickTop: CGFloat?
+    @State private var panelTop: CGFloat?
     @FocusState private var focus: Focus?
 
     private var tabs: [Tab] {
@@ -105,6 +109,7 @@ struct AetherTVControls: View {
                 .opacity(mode == .hidden || mode == .channels ? 0 : 1)
             if mode == .channels, let flick {
                 ChannelFlickBar(model: flick)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { flickTop = $0 }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .allowsHitTesting(false)
             }
@@ -123,6 +128,8 @@ struct AetherTVControls: View {
         .animation(.easeInOut(duration: 0.25), value: mode)
         .defaultFocus($focus, .surface)
         .onAppear { focus = .surface }
+        .onChange(of: coveredHeight, initial: true) { _, height in playback.controlsHeight = height }
+        .onDisappear { playback.controlsHeight = 0 }
         .task(id: FadeKey(mode: mode, activity: activity, scrubbing: scrubTarget != nil, playing: engine.state == .playing)) {
             await fadeWhenIdle()
         }
@@ -408,6 +415,21 @@ struct AetherTVControls: View {
 
     // MARK: Layout
 
+    /// How much of the screen's foot the controls take while shown (the
+    /// song card goes above): the timeline and its title, or the panel, or
+    /// the channel row.
+    private var coveredHeight: CGFloat {
+        let top: CGFloat? = switch mode {
+        case .hidden: nil
+        case .transport: controlsTop
+        // The panel's tabs and choices take the place of the timeline.
+        case .panel: panelTop
+        case .channels: flickTop
+        }
+        guard let top else { return 0 }
+        return max(0, Self.screen.height - top)
+    }
+
     /// Paused, the picture gets the title's logo and its details, as a
     /// streaming service's player does; the panel takes the room when open.
     private var showsPauseInfo: Bool {
@@ -425,14 +447,17 @@ struct AetherTVControls: View {
                 // As in the system player: the tabs above their choices, the
                 // timeline away while they're up.
                 tabRow
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { panelTop = $0 }
                 panelCard
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 if showsPauseInfo {
                     pauseInfo
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { controlsTop = $0 }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     titleBlock
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { controlsTop = $0 }
                 }
                 if playback.isLive {
                     LiveBadge()

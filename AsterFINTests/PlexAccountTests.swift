@@ -41,10 +41,12 @@ struct PlexAccountTests {
 
     @Test func addressesRankHomeThenInternetThenRelay() throws {
         let friend = try JSONDecoder().decode([PlexResource].self, from: Data(resources.utf8))[1]
-        #expect(friend.rankedConnections.map(\.uri.host) == [
-            "192-168-40-240.f.plex.direct",
-            "203-0-113-20.f.plex.direct",
-            "203-0-113-30.f.plex.direct",
+        #expect(friend.rankedConnections.map(\.uri.absoluteString) == [
+            "https://192-168-40-240.f.plex.direct:32400",
+            // The same home address, plainly, in case the secure name's lookup fails.
+            "http://192.168.40.240:32400",
+            "https://203-0-113-20.f.plex.direct:13041",
+            "https://203-0-113-30.f.plex.direct:8443",
         ])
     }
 

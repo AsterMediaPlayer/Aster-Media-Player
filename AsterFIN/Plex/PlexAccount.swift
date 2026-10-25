@@ -50,18 +50,32 @@ nonisolated struct PlexResource: Codable, Sendable, Equatable, Identifiable {
 
     nonisolated struct Connection: Codable, Sendable, Equatable {
         var uri: String
+        var address: String?
+        var port: Int?
         var local: Bool?
         var relay: Bool?
     }
 
     /// Its connections, best first: on the home network, then over the
-    /// internet, then through Plex's relay.
+    /// internet, then through Plex's relay. Each home-network address is
+    /// also tried as plain HTTP by its number, as Plex's own apps do: the
+    /// secure `plex.direct` name needs a lookup that a home router can be
+    /// slow with, or refuse.
     var rankedConnections: [PlexConnectionInfo] {
-        connections
-            .compactMap { connection in
-                URL(string: connection.uri).map { PlexConnectionInfo(uri: $0, local: connection.local ?? false, relay: connection.relay ?? false) }
+        var all: [PlexConnectionInfo] = []
+        for connection in connections {
+            guard let uri = URL(string: connection.uri) else { continue }
+            let local = connection.local ?? false
+            all.append(PlexConnectionInfo(uri: uri, local: local, relay: connection.relay ?? false))
+            if local, uri.scheme == "https", let address = connection.address, let port = connection.port,
+               let plain = URL(string: "http://\(address):\(port)") {
+                all.append(PlexConnectionInfo(uri: plain, local: true, relay: false))
             }
-            .sorted { PlexConnectionRace.rank($0) < PlexConnectionRace.rank($1) }
+        }
+        // Stable: within a rank, plex.tv's order (secure first) is kept.
+        return all.enumerated()
+            .sorted { (PlexConnectionRace.rank($0.element), $0.offset) < (PlexConnectionRace.rank($1.element), $1.offset) }
+            .map(\.element)
     }
 }
 
@@ -151,7 +165,7 @@ nonisolated enum PlexConnectionRace {
     /// The best address that answers, or nil if none does. A home-network
     /// one is taken as soon as it answers; otherwise every address gets
     /// its chance, and the best of those that answered wins.
-    static func fastest(_ connections: [PlexConnectionInfo], token: String, timeout: TimeInterval = 4) async -> PlexConnectionInfo? {
+    static func fastest(_ connections: [PlexConnectionInfo], token: String, timeout: TimeInterval = 10) async -> PlexConnectionInfo? {
         await withTaskGroup(of: PlexConnectionInfo?.self) { group in
             for connection in connections {
                 group.addTask { await answers(connection.uri, token: token, timeout: timeout) ? connection : nil }

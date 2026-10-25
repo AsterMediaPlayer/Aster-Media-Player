@@ -1668,6 +1668,7 @@ private struct SavedServerPage: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var switchRequest: SavedServer?
+    @State private var signingInToPlex = false
 
     var body: some View {
         if let server = session.savedServers.first(where: { $0.id == serverID }) {
@@ -1708,7 +1709,14 @@ private struct SavedServerPage: View {
                         ? "Switching to this server asks for \(server.session.userName)'s Plex Home PIN first, checked by plex.tv, so others on this device can't switch to it."
                         : "Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
                 } else {
-                    SettingsNote("\(server.session.userName)'s Plex profile has no PIN, so there's nothing to lock it with. Add one in Plex under Settings ▸ Plex Home, then sign in with Plex again to lock it here.")
+                    SettingsNote("Locking asks for \(server.session.userName)'s Plex Home PIN. Sign in with Plex again to lock this server (a profile without a PIN needs one added in Plex under Settings ▸ Plex Home first).")
+                }
+            }
+            // A sign-in from before PINs could be checked: sign in afresh.
+            // (Also the page's one control then, so the remote can leave it.)
+            if server.session.kind == .plex, !server.canBeLocked {
+                Section {
+                    Button("Sign In with Plex Again") { signingInToPlex = true }
                 }
             }
             if server.canBeLocked {
@@ -1742,6 +1750,16 @@ private struct SavedServerPage: View {
             }
         }
         .savedServerSwitcher(request: $switchRequest)
+        #if os(macOS)
+        .sheet(isPresented: $signingInToPlex) {
+            PlexSignInView()
+                .frame(minWidth: 520, minHeight: 560)
+        }
+        #else
+        .fullScreenCover(isPresented: $signingInToPlex) {
+            PlexSignInView()
+        }
+        #endif
     }
 }
 

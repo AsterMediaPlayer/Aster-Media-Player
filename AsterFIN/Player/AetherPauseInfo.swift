@@ -73,9 +73,12 @@ struct AetherPauseLogo: View {
     }
 
     private var url: URL? {
-        guard let client = session.jellyfin else { return nil }
-        if let channel = channelInBreak(item, channelId: channelId) { return channel.logoURL(client: client, maxWidth: 900) }
-        return item.kind == .tvChannel ? client.channelLogoURL(item, width: 900) : client.logoURL(for: item, width: 900)
+        // Channels and Live TV are Jellyfin's; a title's logo, any server's.
+        if let jellyfin = session.jellyfin {
+            if let channel = channelInBreak(item, channelId: channelId) { return channel.logoURL(client: jellyfin, maxWidth: 900) }
+            if item.kind == .tvChannel { return jellyfin.channelLogoURL(item, width: 900) }
+        }
+        return session.client?.logoURL(for: item, width: 900)
     }
 
     var body: some View {

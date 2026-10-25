@@ -44,6 +44,23 @@ final class AppSession {
     private(set) var userName: String?
     private(set) var userId: String?
 
+    /// The saved servers whose welcome screen (what Aster and its plugins
+    /// do) has been seen.
+    private var welcomeSeen = Set(UserDefaults.standard.stringArray(forKey: AppSettings.welcomeSeenKey) ?? [])
+
+    /// The welcome screen is due: once for each Jellyfin server signed in
+    /// to (the plugins are Jellyfin's), people signed in before it included.
+    var needsWelcome: Bool {
+        guard isJellyfin, let id = currentServerID else { return false }
+        return !welcomeSeen.contains(id)
+    }
+
+    func markWelcomeSeen() {
+        guard let id = currentServerID else { return }
+        welcomeSeen.insert(id)
+        UserDefaults.standard.set(Array(welcomeSeen), forKey: AppSettings.welcomeSeenKey)
+    }
+
     /// The one audio player, so music keeps going while the viewer browses.
     let music = MusicPlayer()
     /// Audiobooks have their own player (resume, chapters, speed). Only one
@@ -516,6 +533,8 @@ final class AppSession {
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// The saved servers (`SavedServer.id`) whose welcome screen was seen.
+    static let welcomeSeenKey = "AsterFIN.welcomeSeen"
     /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
     /// line; the OP/ED plugin's own library is always shown.
     static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"

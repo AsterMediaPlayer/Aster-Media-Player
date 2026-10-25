@@ -559,6 +559,57 @@ nonisolated final class JellyfinClient: Sendable {
         return try? await get(OpEdLibraries.self, "/OpEd/Library")
     }
 
+    // MARK: Server plugins
+
+    /// The server's installed plugins (administrators only).
+    func installedPlugins() async throws -> [InstalledPlugin] {
+        try await get([InstalledPlugin].self, "/Plugins")
+    }
+
+    /// The plugin repositories in the server's settings (administrators only).
+    func pluginRepositories() async throws -> [PluginRepository] {
+        try await get([PluginRepository].self, "/Repositories")
+    }
+
+    /// Replaces the server's whole list of plugin repositories.
+    func setPluginRepositories(_ repositories: [PluginRepository]) async throws {
+        try await post("/Repositories", body: repositories)
+    }
+
+    /// Every plugin the server's repositories offer, fetched by the server.
+    func pluginPackages() async throws -> [PluginPackage] {
+        try await get([PluginPackage].self, "/Packages")
+    }
+
+    /// Downloads a plugin onto the server: the newest version that runs on
+    /// it. It loads at the next restart.
+    func installPackage(name: String, guid: String, repositoryURL: String) async throws {
+        try await post("/Packages/Installed/\(name)", query: ["assemblyGuid": guid, "repositoryUrl": repositoryURL])
+    }
+
+    /// Turns an installed plugin on or off; either takes a restart.
+    func setPlugin(id: String, version: String, enabled: Bool) async throws {
+        try await post("/Plugins/\(id)/\(version)/\(enabled ? "Enable" : "Disable")")
+    }
+
+    func serverSystemInfo() async throws -> ServerSystemInfo {
+        try await get(ServerSystemInfo.self, "/System/Info")
+    }
+
+    func restartServer() async throws {
+        try await post("/System/Restart")
+    }
+
+    /// Whether the server answers `path` at all: true for a reply, false
+    /// for 404 (a plugin that isn't there), nil when it can't tell.
+    func serverHas(_ path: String) async -> Bool? {
+        guard kind == .jellyfin,
+              let (_, response) = try? await session.data(for: authorizedRequest(url(path))),
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 404 { return false }
+        return (200..<300).contains(http.statusCode) ? true : nil
+    }
+
     /// A library's newest music videos, for a shelf.
     func latestMusicVideos(inLibrary libraryId: String, limit: Int = 20) async -> [BaseItem] {
         (try? await items([

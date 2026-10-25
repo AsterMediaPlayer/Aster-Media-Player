@@ -44,8 +44,11 @@ final class AppSession {
     /// The saved server in use.
     var currentServerID: String? {
         guard let serverURL, let userId else { return nil }
+        if let plexLink { return SavedServer.plexID(plexLink.machineId, userId) }
         return SavedServer.id(serverURL, userId)
     }
+    /// A Plex sign-in's plex.tv side; nil on Jellyfin and Emby.
+    private(set) var plexLink: PlexLink?
     private(set) var userName: String?
     private(set) var userId: String?
 
@@ -358,7 +361,8 @@ final class AppSession {
             serverKind = stored.kind
             userName = stored.userName
             userId = stored.userId
-            client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
+            plexLink = stored.plex
+            client = MediaServerFactory.client(for: stored)
             phase = .signedIn
         } else if let saved = UserDefaults.standard.url(forKey: "AsterFIN.serverURL") {
             serverURL = saved
@@ -389,6 +393,7 @@ final class AppSession {
         client = nil
         userId = nil
         userName = nil
+        plexLink = nil
         phase = .needsServer
     }
 
@@ -407,7 +412,8 @@ final class AppSession {
         UserDefaults.standard.set(stored.serverURL, forKey: "AsterFIN.serverURL")
         UserDefaults.standard.set(stored.serverName, forKey: "AsterFIN.serverName")
         UserDefaults.standard.set(stored.kind.rawValue, forKey: Self.serverKindKey)
-        client = JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
+        plexLink = stored.plex
+        client = MediaServerFactory.client(for: stored)
         remember(stored)
         isLocked = false
         serverGeneration += 1
@@ -421,6 +427,8 @@ final class AppSession {
     /// asks for it before switching; the fresh sign-in to switch with.
     func signInAgain(to saved: SavedServer, password: String) async throws -> StoredSession {
         let session = saved.session
+        // A Plex sign-in has no password on the server to check.
+        guard session.kind != .plex else { throw PlexError.notBuilt }
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
         let result = try await client.authenticate(username: session.userName, password: password)
         return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)
@@ -453,7 +461,7 @@ final class AppSession {
     /// The password was right: carry on, with the fresh sign-in.
     func unlock(with fresh: StoredSession) {
         fresh.save()
-        client = JellyfinClient(baseURL: fresh.serverURL, accessToken: fresh.accessToken, userId: fresh.userId, kind: fresh.kind)
+        client = MediaServerFactory.client(for: fresh)
         remember(fresh)
         isLocked = false
     }
@@ -475,12 +483,12 @@ final class AppSession {
         savedServers.removeAll { $0.id == id }
         SavedServers.save(savedServers)
         let session = saved.session
-        Task { await JellyfinClient(baseURL: session.serverURL, accessToken: session.accessToken, userId: session.userId, kind: session.kind).logout() }
+        Task { await MediaServerFactory.client(for: session).logout() }
     }
 
     /// Adds or updates a server in the saved list, keeping its password setting.
     private func remember(_ stored: StoredSession) {
-        let id = SavedServer.id(stored.serverURL, stored.userId)
+        let id = SavedServer(session: stored).id
         if let index = savedServers.firstIndex(where: { $0.id == id }) {
             savedServers[index].session = stored
         } else {
@@ -517,9 +525,31 @@ final class AppSession {
         stored.save()
         userId = result.user.id
         userName = result.user.name
+        plexLink = nil
         client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id, kind: serverKind)
         remember(stored)
         resetServerState()
+        serverGeneration += 1
+        phase = .signedIn
+    }
+
+    /// Signed in through plex.tv, to the server and Home user picked.
+    func signIn(plex stored: StoredSession) {
+        stopMedia()
+        stored.save()
+        serverURL = stored.serverURL
+        serverName = stored.serverName
+        serverKind = .plex
+        userId = stored.userId
+        userName = stored.userName
+        plexLink = stored.plex
+        UserDefaults.standard.set(stored.serverURL, forKey: "AsterFIN.serverURL")
+        UserDefaults.standard.set(stored.serverName, forKey: "AsterFIN.serverName")
+        UserDefaults.standard.set(ServerKind.plex.rawValue, forKey: Self.serverKindKey)
+        client = MediaServerFactory.client(for: stored)
+        remember(stored)
+        resetServerState()
+        isLocked = false
         serverGeneration += 1
         phase = .signedIn
     }
@@ -538,7 +568,10 @@ final class AppSession {
         client = nil
         userId = nil
         userName = nil
-        phase = .needsUser
+        // Plex signs in through plex.tv, from the first screen.
+        let wasPlex = plexLink != nil
+        plexLink = nil
+        phase = wasPlex ? .needsServer : .needsUser
     }
 }
 

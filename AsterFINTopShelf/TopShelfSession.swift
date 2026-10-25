@@ -14,7 +14,7 @@ nonisolated struct TopShelfSession: Decodable, Sendable {
     var serverURL: URL
     var userId: String
     var accessToken: String
-    /// "jellyfin" or "emby"; nil in sessions saved before Emby, which are Jellyfin.
+    /// "jellyfin", "emby" or "plex"; nil in sessions saved before Emby, which are Jellyfin.
     var serverKind: String?
 
     /// Continue Watching's route: Jellyfin 10.9+'s, or Emby's per-user one.
@@ -37,7 +37,9 @@ nonisolated struct TopShelfSession: Decodable, Sendable {
         ]
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(TopShelfSession.self, from: data)
+        // A Plex sign-in: these Jellyfin requests don't apply, so show nothing yet.
+        guard let session = try? JSONDecoder().decode(TopShelfSession.self, from: data), session.serverKind != "plex" else { return nil }
+        return session
     }
 
     /// The app's device id, so the server sees one Apple TV rather than two.

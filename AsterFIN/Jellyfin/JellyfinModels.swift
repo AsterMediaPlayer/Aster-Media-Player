@@ -33,16 +33,18 @@ nonisolated struct PublicSystemInfo: Codable, Sendable, Equatable {
     }
 }
 
-/// The two servers Aster signs in to. Jellyfin began as a fork of Emby, so
+/// The servers Aster signs in to. Jellyfin began as a fork of Emby, so
 /// they share almost everything; where they differ (a few routes, and what
-/// each has that the other doesn't) the client and the app ask this.
+/// each has that the other doesn't) the client and the app ask this. Plex
+/// shares nothing with them and has its own client.
 nonisolated enum ServerKind: String, Codable, Sendable {
-    case jellyfin, emby
+    case jellyfin, emby, plex
 
     var displayName: String {
         switch self {
         case .jellyfin: "Jellyfin"
         case .emby: "Emby"
+        case .plex: "Plex"
         }
     }
 }

@@ -246,7 +246,7 @@ nonisolated final class PlexClient: MediaServer {
                 default: nil
                 }
             })
-            wanted = sections.filter { types.isEmpty || types.contains($0.type) }
+            wanted = sections.filter { types.isEmpty || $0.type.map(types.contains) == true }
         }
         var start = query.startIndex ?? 0
         var remaining = query.limit ?? Int.max

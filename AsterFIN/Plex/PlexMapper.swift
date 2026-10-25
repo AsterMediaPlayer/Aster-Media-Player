@@ -24,7 +24,7 @@ nonisolated enum PlexMapper {
         case "show": "tvshows"
         case "artist": "music"
         case "photo": "photos"
-        default: directory.type
+        default: directory.type ?? ""
         }
         return item
     }

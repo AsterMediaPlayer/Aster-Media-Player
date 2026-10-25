@@ -449,6 +449,12 @@ final class PlaybackCoordinator {
             player.play()
             // The subtitle fetch runs alongside; cues appear once it lands.
             loadSubtitles()
+            // The episode's OP/ED chapters give the song cards at once (a card
+            // shows only in a theme's first seconds, and an opening can start
+            // the episode); the song's details fill them in when they come.
+            if AppSettings.themeCards, !isClip, item.kind == .episode {
+                themeMoments = Self.themeMoments(for: item, segments: [], pluginThemes: [], knownThemes: [])
+            }
 
             // Markers and the following episode load after playback starts so
             // they never delay it; results are dropped if the item changed.
@@ -471,17 +477,18 @@ final class PlaybackCoordinator {
                     #endif
                 }
             }
-            // A channel goes on to what it's showing, never Up Next.
-            let next = item.kind == .episode && !isClip && entry.channelId == nil && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
             guard currentItem?.id == item.id else { return }
             segments = loadedSegments
-            upNext = next
             if AppSettings.themeCards, !isClip, item.kind == .episode {
                 let (themes, known) = await themeLookup.value
                 if currentItem?.id == item.id {
                     themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes ?? [], knownThemes: known)
                 }
             }
+            // A channel goes on to what it's showing, never Up Next.
+            let next = item.kind == .episode && !isClip && entry.channelId == nil && index + 1 >= queue.count ? await resolveNextEpisode(after: item) : nil
+            guard currentItem?.id == item.id else { return }
+            upNext = next
             if AppSettings.themeCards, !isClip, item.kind == .musicVideo, let jellyfin {
                 let moments = await Self.musicVideoMoments(for: item, client: jellyfin)
                 if currentItem?.id == item.id { themeMoments = moments }

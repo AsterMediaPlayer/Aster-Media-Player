@@ -266,13 +266,16 @@ final class AetherPlayback {
     /// hand or on its own, would leave the schedule behind.
     private func loadExtras(for item: BaseItem) async {
         let onChannel = entry.channelId != nil
+        // The episode's OP/ED chapters give the cards at once, since a card
+        // shows only in a theme's first seconds and an opening can start
+        // the episode; the song's details fill them in when they come.
+        if AppSettings.themeCards, item.kind == .episode {
+            themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: [], pluginThemes: [], knownThemes: [])
+        }
         async let loadedSegments = onChannel ? [] : (try? await client.mediaSegments(itemId: item.id)) ?? []
-        // A channel goes on to what it's showing, never Up Next.
-        let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
         let markers = await loadedSegments
         guard self.item?.id == item.id, !stopped else { return }
         segments = markers
-        upNext = next
         if AppSettings.themeCards, item.kind == .episode {
             let (themes, known) = await themeLookup?.value ?? (nil, [])
             guard self.item?.id == item.id, !stopped else { return }
@@ -281,6 +284,10 @@ final class AetherPlayback {
             print("DEBUG theme cards: ready at \(Int(engine.clock.currentTime))s; \(themeMoments.map { "\($0.info.kicker) at \(Int($0.range.lowerBound))s" }.joined(separator: ", "))")
             #endif
         }
+        // A channel goes on to what it's showing, never Up Next.
+        let next = item.kind == .episode && entry.channelId == nil ? await PlaybackCoordinator.nextEpisode(after: item, client: client) : nil
+        guard self.item?.id == item.id, !stopped else { return }
+        upNext = next
         if AppSettings.themeCards, item.kind == .musicVideo, let jellyfin {
             let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: jellyfin)
             guard self.item?.id == item.id, !stopped else { return }

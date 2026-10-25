@@ -430,8 +430,16 @@ final class AppSession {
         // Plex: the Home profile's PIN, checked by plex.tv by switching to it.
         if session.kind == .plex {
             guard var link = session.plex, let uuid = link.homeUserUUID else { throw PlexError.notBuilt }
+            // plex.tv lets a profile switch to itself with no PIN at all, so
+            // an empty one must never be sent.
+            guard !password.isEmpty else { throw PlexError.pinNeeded }
             let profile = PlexHomeUser(id: 0, uuid: uuid, title: session.userName)
-            let switched = try await PlexAccount.switchUser(profile, pin: password, token: link.accountToken)
+            let switched: PlexAccountUser
+            do {
+                switched = try await PlexAccount.switchUser(profile, pin: password, token: link.accountToken)
+            } catch PlexError.http(let code) where code == 401 || code == 403 {
+                throw PlexError.wrongPin
+            }
             if let token = switched.authToken { link.accountToken = token }
             var fresh = session
             fresh.plex = link

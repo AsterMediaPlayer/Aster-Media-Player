@@ -18,16 +18,30 @@ nonisolated enum PlexError: LocalizedError, Sendable {
     case wrongPin
     case noServers
     case unreachable(String)
+    /// Playback failed while the server was already converting others.
+    case transcoderBusy(String)
+    /// Playback failed on a connection through Plex's relay.
+    case relayLimited(String)
 
     var errorDescription: String? {
         switch self {
         case .notBuilt: "This isn't available on Plex yet."
         case .pinNeeded: "Enter the PIN."
         case .wrongPin: "That PIN isn't right."
+        case .http(401), .http(403): "Plex no longer accepts this sign-in. Sign in with Plex again from the server's page in Settings."
+        case .http(404): "That's no longer on the Plex server."
+        case .http(503): "The Plex server is busy or still starting up. Try again in a moment."
         case .http(let code): "The Plex server answered with an error (\(code))."
         case .noServers: "This Plex account has no servers."
-        case .unreachable(let name): "\(name) isn't answering. If you're away from home, turn on Remote Access in the server's settings."
+        case .unreachable(let name): "\(name) isn't answering. Check that it's on; away from home, it also needs Remote Access turned on (in Plex's settings for the server, under Remote Access)."
+        case .transcoderBusy(let name): "\(name) is already converting another video, and it converts a limited number at once. Stop the other one, or raise the limit in the server's Transcoder settings."
+        case .relayLimited(let name): "\(name) is reached through Plex's relay, which allows only low-quality streams. Turn on Remote Access in the server's settings, or lower Maximum Streaming Quality in Aster's settings."
         }
+    }
+
+    /// Errors that mean nothing answered at the server's address.
+    static func meansUnreachable(_ error: URLError) -> Bool {
+        [.timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost, .dnsLookupFailed].contains(error.code)
     }
 }
 
@@ -69,13 +83,16 @@ nonisolated final class PlexClient: MediaServer {
     let userId: String?
     let link: PlexLink
     let kind: ServerKind = .plex
-    private let session: URLSession
+    /// The server's name, for messages.
+    let serverName: String
+    let session: URLSession
 
-    init(baseURL: URL, accessToken: String, userId: String?, link: PlexLink) {
+    init(baseURL: URL, accessToken: String, userId: String?, link: PlexLink, serverName: String? = nil) {
         self.baseURL = baseURL
         self.accessToken = accessToken
         self.userId = userId
         self.link = link
+        self.serverName = serverName.flatMap { $0.isEmpty ? nil : $0 } ?? "The Plex server"
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         session = URLSession(configuration: configuration)
@@ -103,14 +120,47 @@ nonisolated final class PlexClient: MediaServer {
         return request
     }
 
-    func data(from url: URL, fresh: Bool) async throws -> Data {
-        var request = request(url)
-        if fresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
-        let (data, response) = try await session.data(for: request)
+    /// Sends `request`: an error status becomes `PlexError.http`, and
+    /// nothing answering becomes `PlexError.unreachable`, whose message
+    /// says why that usually happens.
+    @discardableResult
+    func perform(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where PlexError.meansUnreachable(error) {
+            throw PlexError.unreachable(serverName)
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw PlexError.http(http.statusCode)
         }
         return data
+    }
+
+    func data(from url: URL, fresh: Bool) async throws -> Data {
+        var request = request(url)
+        if fresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
+        return try await perform(request)
+    }
+
+    /// Whether this session reaches the server through Plex's relay.
+    var isRelayed: Bool {
+        link.connections.contains { $0.relay && $0.uri.host() == baseURL.host() && $0.uri.port == baseURL.port }
+    }
+
+    /// Why playback that gave up probably failed, when Plex can say: the
+    /// server gone, its transcoder already busy with others, or the relay's
+    /// low limit. Nil when none of those. The transcoder only matters
+    /// when `wasConverting`.
+    func playbackTrouble(wasConverting: Bool, playSessionId: String?) async -> PlexError? {
+        do {
+            let sessions = try await container("/transcode/sessions").transcodeSession ?? []
+            if wasConverting, sessions.contains(where: { $0.key != playSessionId }) { return .transcoderBusy(serverName) }
+        } catch let error as PlexError {
+            if case .unreachable = error { return error }
+        } catch {}
+        return isRelayed ? .relayLimited(serverName) : nil
     }
 
     // MARK: Pictures
@@ -140,13 +190,14 @@ nonisolated final class PlexClient: MediaServer {
         var request = request(url(path, query: query))
         if let start { request.setValue(String(start), forHTTPHeaderField: "X-Plex-Container-Start") }
         if let size { request.setValue(String(size), forHTTPHeaderField: "X-Plex-Container-Size") }
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
+        let data: Data
+        do {
+            data = try await perform(request)
+        } catch {
             #if DEBUG
-            print("DEBUG plex: \(path) -> \(status)")
+            print("DEBUG plex: \(path) -> \(error)")
             #endif
-            throw PlexError.http(status)
+            throw error
         }
         do {
             let container = try JSONDecoder().decode(PlexReply.self, from: data).mediaContainer
@@ -345,10 +396,7 @@ nonisolated final class PlexClient: MediaServer {
 
     func setPlayed(_ id: String, _ played: Bool) async throws {
         let url = url(played ? "/:/scrobble" : "/:/unscrobble", query: ["key": id, "identifier": "com.plexapp.plugins.library"])
-        let (_, response) = try await session.data(for: request(url))
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw PlexError.http(http.statusCode)
-        }
+        try await perform(request(url))
     }
 
     /// Plex has no per-device sign-in to end on the server.
@@ -390,7 +438,7 @@ nonisolated final class PlexClient: MediaServer {
 nonisolated enum MediaServerFactory {
     static func client(for stored: StoredSession) -> any MediaServer {
         if stored.kind == .plex, let link = stored.plex {
-            return PlexClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, link: link)
+            return PlexClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, link: link, serverName: stored.serverName)
         }
         return JellyfinClient(baseURL: stored.serverURL, accessToken: stored.accessToken, userId: stored.userId, kind: stored.kind)
     }

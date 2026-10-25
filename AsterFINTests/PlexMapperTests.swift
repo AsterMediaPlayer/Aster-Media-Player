@@ -126,6 +126,30 @@ struct PlexMapperTests {
         #expect(seasons.allSatisfy { $0.kind == .season })
     }
 
+    /// Failures say what usually causes them, naming the server.
+    @Test func errorsSayWhy() throws {
+        #expect(PlexError.unreachable("Test Server").localizedDescription.contains("Remote Access"))
+        #expect(PlexError.http(401).localizedDescription.contains("Sign in with Plex again"))
+        #expect(PlexError.http(500).localizedDescription.contains("500"))
+        #expect(PlexError.meansUnreachable(URLError(.timedOut)))
+        #expect(!PlexError.meansUnreachable(URLError(.cancelled)))
+
+        let json = #"{"MediaContainer":{"size":1,"TranscodeSession":[{"key":"ffr9g73a1ms6tt7us6c3ni7a","throttled":true,"progress":24.1,"videoDecision":"copy"}]}}"#
+        let sessions = try JSONDecoder().decode(PlexReply.self, from: Data(json.utf8)).mediaContainer.transcodeSession
+        #expect(sessions?.map(\.key) == ["ffr9g73a1ms6tt7us6c3ni7a"])
+    }
+
+    /// A relay connection is told apart from the server's own addresses.
+    @Test func aRelayedSessionIsKnown() {
+        let relay = URL(string: "https://1-2-3-4.abc.plex.direct:8443")!
+        let link = PlexLink(accountToken: "a", machineId: "m", connections: [
+            PlexConnectionInfo(uri: URL(string: "https://192-168-1-240.abc.plex.direct:32400")!, local: true, relay: false),
+            PlexConnectionInfo(uri: relay, local: false, relay: true),
+        ])
+        #expect(PlexClient(baseURL: relay, accessToken: "t", userId: "u", link: link).isRelayed)
+        #expect(!PlexClient(baseURL: URL(string: "https://192-168-1-240.abc.plex.direct:32400")!, accessToken: "t", userId: "u", link: link).isRelayed)
+    }
+
     /// The shared picture choice finds the right Plex paths.
     @Test func lockupsFindThePlexPictures() throws {
         let link = PlexLink(accountToken: "a", machineId: "m", connections: [])

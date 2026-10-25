@@ -222,23 +222,36 @@ extension View {
 // MARK: - Lockups
 
 extension EnvironmentValues {
-    /// Set by the Apple TV's UIKit-hosted grid: a lockup opens its title
-    /// through `openItem`, as a NavigationLink can't find the stack from a
-    /// hosted cell.
+    /// Set by the Apple TV's UIKit-hosted grid's header and footer: a lockup
+    /// opens its title through `openItem`, as a NavigationLink can't find
+    /// the stack from a hosted root.
     @Entry var opensItemsWithAction = false
+    /// Set in the Apple TV grid's cells: the cell itself takes focus, opens
+    /// the title and shows the menu, so the lockup draws its artwork plain,
+    /// lifted when `hostedCellFocused` says the cell has focus.
+    @Entry var lockupsAreStatic = false
+    @Entry var hostedCellFocused = false
 }
 
 /// A lockup's link to its title: a NavigationLink, or a Button through
-/// `openItem` where a NavigationLink can't reach the stack.
+/// `openItem` where a NavigationLink can't reach the stack, or just the
+/// artwork where the cell around it does the work.
 struct ItemLink<Label: View>: View {
     let item: BaseItem
     @ViewBuilder var label: () -> Label
 
     @Environment(\.opensItemsWithAction) private var opensWithAction
+    @Environment(\.lockupsAreStatic) private var isStatic
+    @Environment(\.hostedCellFocused) private var cellFocused
     @Environment(\.openItem) private var openItem
 
     var body: some View {
-        if opensWithAction, let openItem {
+        if isStatic {
+            label()
+                .scaleEffect(cellFocused ? 1.1 : 1)
+                .shadow(color: .black.opacity(cellFocused ? 0.5 : 0), radius: 16, y: 10)
+                .animation(.easeOut(duration: 0.18), value: cellFocused)
+        } else if opensWithAction, let openItem {
             Button(action: { openItem(item) }, label: label)
         } else {
             NavigationLink(value: item, label: label)

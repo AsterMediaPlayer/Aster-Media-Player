@@ -41,6 +41,12 @@ nonisolated protocol MediaServer: AnyObject, Sendable {
     /// Ends this device's sign-in on the server, where it has one.
     func logout() async
 
+    /// The libraries among these that hold anime, for the Anime tab.
+    func animeLibraries(among libraries: [BaseItem]) async -> [BaseItem]
+    /// Every title of these types ("Series,Movie") in these libraries: anime,
+    /// kept out of the TV Shows and Movies grids.
+    func itemIds(inLibraries libraryIds: [String], types: String) async -> Set<String>
+
     // Playing, in the shapes the players were written for: Jellyfin's
     // playback info and reports. Other servers answer in the same shapes.
 

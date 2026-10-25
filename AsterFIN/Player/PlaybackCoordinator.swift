@@ -315,6 +315,8 @@ final class PlaybackCoordinator {
         do {
             let item = try await client.item(entry.itemId)
             currentItem = item
+            // The song cards' details, looked up while the stream starts.
+            let themeLookup = Task { await Self.themeSources(for: item, client: client) }
             // A clip (an OP or ED) plays without subtitles or other audio
             // tracks: pulling ASS tracks out of an MKV can take the server
             // longer than the player waits, and a song doesn't need them.
@@ -475,9 +477,7 @@ final class PlaybackCoordinator {
             segments = loadedSegments
             upNext = next
             if AppSettings.themeCards, !isClip, item.kind == .episode {
-                // The plugin's themes; without the plugin, AnimeThemes'.
-                let themes = await jellyfin?.opEdThemes(for: item.id)
-                let known = themes == nil ? await Self.knownThemes(for: item, client: client) : []
+                let (themes, known) = await themeLookup.value
                 if currentItem?.id == item.id {
                     themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes ?? [], knownThemes: known)
                 }
@@ -577,6 +577,16 @@ final class PlaybackCoordinator {
     /// without the OP/ED plugin: only for anime (matched by Shoko, or with
     /// OP/ED chapters). The season's AniDB id finds it exactly where the
     /// server has one; else the show's name and the year the season began.
+    /// What an episode's song cards say: the plugin's themes, or without
+    /// the plugin, AnimeThemes'. Started as the episode loads, so it's
+    /// known by the time the opening plays.
+    static func themeSources(for item: BaseItem, client: any MediaServer) async -> (plugin: [OpEdTheme]?, known: [KnownTheme]) {
+        guard AppSettings.themeCards, item.kind == .episode else { return (nil, []) }
+        let plugin = await (client as? JellyfinClient)?.opEdThemes(for: item.id)
+        let known = plugin == nil ? await knownThemes(for: item, client: client) : []
+        return (plugin, known)
+    }
+
     static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
         guard item.kind == .episode, let seriesName = item.seriesName,
               item.isAnime || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }

@@ -106,6 +106,8 @@ final class AetherPlayback {
     private(set) var skipOfferIsFresh = false
 
     private let client: any MediaServer
+    /// The current episode's song card details, being looked up.
+    private var themeLookup: Task<(plugin: [OpEdTheme]?, known: [KnownTheme]), Never>?
     /// The server as Jellyfin, for what only it has: Live TV's streams,
     /// openings and endings, and styled subtitles' fonts.
     private var jellyfin: JellyfinClient? { client as? JellyfinClient }
@@ -236,6 +238,9 @@ final class AetherPlayback {
             if let ready { item = ready.item } else { item = try await client.item(entry.itemId) }
             self.item = item
             isLive = item.kind == .tvChannel
+            // The song cards' details, looked up while the stream starts.
+            let client = client
+            themeLookup = isLive ? nil : Task { await PlaybackCoordinator.themeSources(for: item, client: client) }
             nowPlaying.prepare()
             if isLive {
                 try await loadLive()
@@ -269,11 +274,12 @@ final class AetherPlayback {
         segments = markers
         upNext = next
         if AppSettings.themeCards, item.kind == .episode {
-            // The plugin's themes; without the plugin, AnimeThemes'.
-            let themes = await jellyfin?.opEdThemes(for: item.id)
-            let known = themes == nil ? await PlaybackCoordinator.knownThemes(for: item, client: client) : []
+            let (themes, known) = await themeLookup?.value ?? (nil, [])
             guard self.item?.id == item.id, !stopped else { return }
             themeMoments = PlaybackCoordinator.themeMoments(for: item, segments: markers, pluginThemes: themes ?? [], knownThemes: known)
+            #if DEBUG
+            print("DEBUG theme cards: ready at \(Int(engine.clock.currentTime))s; \(themeMoments.map { "\($0.info.kicker) at \(Int($0.range.lowerBound))s" }.joined(separator: ", "))")
+            #endif
         }
         if AppSettings.themeCards, item.kind == .musicVideo, let jellyfin {
             let moments = await PlaybackCoordinator.musicVideoMoments(for: item, client: jellyfin)

@@ -68,4 +68,16 @@ struct SubtitleTests {
         #expect(!LanguageTag.sameLanguage("eng", "jpn"))
         #expect(!LanguageTag.sameLanguage(nil, "en"))
     }
+
+    /// AetherEngine's cues have their tags taken out already (Plex), so a
+    /// sign's box arrives as bare shape commands, and is left out.
+    @Test func leavesOutDrawingLinesWithoutTheirTags() {
+        let box = "m 278 -116 l 278 201 276 203 -276 203 -278 201 -278 -116 b -278 -118 -276 -120 -274 -120"
+        #expect(SubtitleCue.withoutDrawingLines(box) == nil)
+        #expect(SubtitleCue.withoutDrawingLines("m 0 0 l 100 0 100 50 0 50") == nil)
+        #expect(SubtitleCue.withoutDrawingLines("\(box)\nBucket List") == "Bucket List")
+        #expect(SubtitleCue.withoutDrawingLines("I'm 20 years old") == "I'm 20 years old")
+        #expect(SubtitleCue.withoutDrawingLines("m 5 is my room") == "m 5 is my room")
+        #expect(SubtitleCue.withoutDrawingLines("Let's go!\nNow.") == "Let's go!\nNow.")
+    }
 }

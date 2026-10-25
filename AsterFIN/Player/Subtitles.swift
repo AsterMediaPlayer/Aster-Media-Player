@@ -111,6 +111,22 @@ nonisolated struct SubtitleCue: Codable, Sendable, Equatable {
         if !drawing { result += rest }
         return result
     }
+
+    /// Text whose `{…}` tags were already taken out (AetherEngine's own
+    /// cues, as on Plex) can't be told from its `\p1` any more, so a line
+    /// that is nothing but shape commands ("m 278 -116 l 278 201 …": a
+    /// move, then numbers and the drawing letters) is left out instead.
+    /// Nil when nothing readable remains.
+    static func withoutDrawingLines(_ text: String) -> String? {
+        let drawing = /^m\s+-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?(?:\s+(?:[mnlbspc]|-?\d+(?:\.\d+)?))*$/
+        let kept = text
+            .components(separatedBy: "\n")
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return !trimmed.isEmpty && trimmed.wholeMatch(of: drawing) == nil
+            }
+        return kept.isEmpty ? nil : kept.joined(separator: "\n")
+    }
 }
 
 /// Draws the current cue near the bottom of the picture, in the viewer's

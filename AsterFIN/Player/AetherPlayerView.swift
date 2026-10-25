@@ -740,7 +740,9 @@ private struct AetherSubtitleLayer: View {
         // Cues are timed on the source's clock, which is what sourceTime reads.
         let now = clock.sourceTime
         let showing = engine.subtitleCues.filter { $0.startTime <= now && now < $0.endTime }
-        let text = showing.compactMap(\.text).joined(separator: "\n")
+        // The boxes behind signs come as drawings, which as text read as
+        // coordinates.
+        let text = showing.compactMap { $0.text.flatMap(SubtitleCue.withoutDrawingLines) }.joined(separator: "\n")
         ZStack {
             GeometryReader { proxy in
                 let frame = videoFrame(in: proxy.size)

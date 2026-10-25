@@ -242,26 +242,10 @@ struct LibraryIndexBar: View {
     var body: some View {
         #if os(tvOS)
         // A row of letters above the grid: down from it goes into the titles.
-        ScrollView(.horizontal) {
-            HStack(spacing: 12) {
-                ForEach(keys, id: \.self) { key in
-                    Button {
-                        jump(key)
-                    } label: {
-                        Text(key)
-                            .font(.callout.weight(.semibold))
-                            .frame(minWidth: 36)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .accessibilityLabel("Jump to \(key)")
-                }
-            }
-            .padding(.horizontal, Lockup.screenPadding)
-            .padding(.vertical, 12)
-        }
-        .scrollClipDisabled()
-        .focusSection()
+        // UIKit buttons, as SwiftUI ones in a scroll view inside the grid's
+        // hosted header never reach the focus engine.
+        TVLetterRow(keys: keys, jump: jump)
+            .frame(height: 90)
         #else
         // The usual strip down the right edge: tap a letter, or drag along it.
         VStack(spacing: 0) {
@@ -297,3 +281,83 @@ struct LibraryIndexBar: View {
     @State private var lastDragged: String?
     #endif
 }
+
+#if os(tvOS)
+/// The Apple TV's letters: a scrolling row of UIKit buttons.
+private struct TVLetterRow: UIViewRepresentable {
+    let keys: [String]
+    var jump: (String) -> Void
+
+    func makeUIView(context: Context) -> TVLetterRowView {
+        TVLetterRowView()
+    }
+
+    func updateUIView(_ view: TVLetterRowView, context: Context) {
+        view.jump = jump
+        view.show(keys)
+    }
+}
+
+final class TVLetterRowView: UIView {
+    var jump: ((String) -> Void)?
+
+    private let scrollView = UIScrollView()
+    private let stack = UIStackView()
+    private var keys: [String] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // A focused letter lifts past the row.
+        clipsToBounds = false
+        scrollView.clipsToBounds = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        stack.axis = .horizontal
+        stack.spacing = 12
+        stack.alignment = .center
+        addSubview(scrollView)
+        scrollView.addSubview(stack)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let content = scrollView.contentLayoutGuide
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Lockup.screenPadding),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Lockup.screenPadding),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Rebuilds the buttons when the letters change.
+    func show(_ keys: [String]) {
+        guard keys != self.keys else { return }
+        self.keys = keys
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for key in keys {
+            var configuration = UIButton.Configuration.bordered()
+            configuration.cornerStyle = .capsule
+            configuration.title = key
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var attributes = attributes
+                attributes.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .callout).pointSize, weight: .semibold)
+                return attributes
+            }
+            let button = UIButton(configuration: configuration, primaryAction: UIAction { [weak self] _ in
+                self?.jump?(key)
+            })
+            button.accessibilityLabel = "Jump to \(key)"
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+            stack.addArrangedSubview(button)
+        }
+    }
+}
+#endif

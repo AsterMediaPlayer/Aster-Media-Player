@@ -924,8 +924,11 @@ struct ItemDetailView: View {
                     showDiscMenu = true
                 }
             }
-            IconButton(systemImage: detail.userData?.isFavorite == true ? "heart.fill" : "heart", accessibilityLabel: "Favorite", focus: $focusedAction, focusID: "favorite") {
-                Task { if let client = session.client { await model.toggleFavorite(client: client) } }
+            // Plex keeps no favourites.
+            if session.client?.capabilities.contains(.favorites) == true {
+                IconButton(systemImage: detail.userData?.isFavorite == true ? "heart.fill" : "heart", accessibilityLabel: "Favorite", focus: $focusedAction, focusID: "favorite") {
+                    Task { if let client = session.client { await model.toggleFavorite(client: client) } }
+                }
             }
             if showsWatchedButton {
                 IconButton(systemImage: detail.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle", accessibilityLabel: "Watched", focus: $focusedAction, focusID: "watched") {

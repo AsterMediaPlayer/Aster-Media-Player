@@ -171,6 +171,15 @@ nonisolated struct PersonInfo: Codable, Sendable, Hashable, Identifiable {
         type = try container.decodeIfPresent(String.self, forKey: .type)
         primaryImageTag = try container.decodeIfPresent(String.self, forKey: .primaryImageTag)
     }
+
+    /// A person from another server's credits (Plex's).
+    init(id: String, name: String?, role: String?, type: String?, primaryImageTag: String?) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.type = type
+        self.primaryImageTag = primaryImageTag
+    }
 }
 
 nonisolated struct NameGuidPair: Codable, Sendable, Hashable {

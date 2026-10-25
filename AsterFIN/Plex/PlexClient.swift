@@ -14,12 +14,16 @@ import Synchronization
 nonisolated enum PlexError: LocalizedError, Sendable {
     case notBuilt
     case http(Int)
+    case pinNeeded
+    case wrongPin
     case noServers
     case unreachable(String)
 
     var errorDescription: String? {
         switch self {
         case .notBuilt: "This isn't available on Plex yet."
+        case .pinNeeded: "Enter the PIN."
+        case .wrongPin: "That PIN isn't right."
         case .http(let code): "The Plex server answered with an error (\(code))."
         case .noServers: "This Plex account has no servers."
         case .unreachable(let name): "\(name) isn't answering. If you're away from home, turn on Remote Access in the server's settings."

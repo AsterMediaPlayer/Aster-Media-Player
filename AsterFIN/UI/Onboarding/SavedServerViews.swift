@@ -91,7 +91,9 @@ private struct ServerPasswordSheet: View {
                 .onboardingField()
                 .frame(maxWidth: Onboarding.credentialsWidth)
                 .focused($focused)
-                .onSubmit(check)
+                // tvOS's keyboard can submit before the field has the last
+                // key typed: nothing is checked until there's something to check.
+                .onSubmit { if !password.isEmpty { check() } }
             HStack(spacing: 24) {
                 Button {
                     check()
@@ -102,7 +104,7 @@ private struct ServerPasswordSheet: View {
                     }
                 }
                 .onboardingPrimaryButton()
-                .disabled(isChecking)
+                .disabled(isChecking || password.isEmpty)
                 Button("Cancel", role: .cancel) { dismiss() }
                     .onboardingSecondaryButton()
             }
@@ -131,9 +133,14 @@ private struct ServerPasswordSheet: View {
                 dismiss()
                 session.switchServer(to: server, session: fresh)
             } catch {
-                errorMessage = "That \(server.credentialName) didn't work. \(error.localizedDescription)"
+                errorMessage = Self.message(for: error, server: server)
             }
         }
+    }
+
+    static func message(for error: any Error, server: SavedServer) -> String {
+        if let plex = error as? PlexError { return plex.localizedDescription }
+        return "That \(server.credentialName) didn't work. \(error.localizedDescription)"
     }
 }
 
@@ -169,7 +176,7 @@ struct ServerLockView: View {
                             .onboardingField()
                             .frame(maxWidth: Onboarding.credentialsWidth)
                             .focused($focused)
-                            .onSubmit(check)
+                            .onSubmit { if !password.isEmpty { check() } }
                         Button {
                             check()
                         } label: {
@@ -180,7 +187,7 @@ struct ServerLockView: View {
                             .frame(maxWidth: Onboarding.signInButtonWidth)
                         }
                         .onboardingPrimaryButton()
-                        .disabled(isChecking)
+                        .disabled(isChecking || password.isEmpty)
                         Button("Use Another Server") { session.changeServer() }
                             .onboardingSecondaryButton()
                         if let errorMessage {
@@ -210,7 +217,7 @@ struct ServerLockView: View {
             do {
                 session.unlock(with: try await session.signInAgain(to: server, password: password))
             } catch {
-                errorMessage = "That \(server.credentialName) didn't work. \(error.localizedDescription)"
+                errorMessage = ServerPasswordSheet.message(for: error, server: server)
             }
         }
     }

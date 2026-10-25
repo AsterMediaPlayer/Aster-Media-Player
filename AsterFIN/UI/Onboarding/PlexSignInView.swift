@@ -243,7 +243,7 @@ struct PlexSignInView: View {
                     #endif
                     .onboardingField()
                     .frame(maxWidth: Onboarding.credentialsWidth)
-                    .onSubmit { submitPin(for: user) }
+                    .onSubmit { if !pin.isEmpty { submitPin(for: user) } }
                 if let error = model.pinError {
                     Text(error)
                         .foregroundStyle(.red)

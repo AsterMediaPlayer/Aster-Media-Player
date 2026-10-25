@@ -147,7 +147,10 @@ final class PlaybackCoordinator {
     private var autoSkipped: Set<String> = []
     private var countdownTask: Task<Void, Never>?
 
-    private let client: JellyfinClient
+    private let client: any MediaServer
+    /// The server as Jellyfin, for what only it has: Live TV's streams,
+    /// openings and endings, and styled subtitles' fonts.
+    private var jellyfin: JellyfinClient? { client as? JellyfinClient }
     private var queue: [PlaybackQueueItem]
     private var index = 0
     /// The Channel playing, if it's playing one.
@@ -194,7 +197,7 @@ final class PlaybackCoordinator {
     private var isDownloaded = false
     private var stopped = false
 
-    init(client: JellyfinClient, request: PlaybackRequest, autoplayNext: Bool = true, autoSkipIntro: Bool = false, preferences: PlaybackPreferences = PlaybackPreferences()) {
+    init(client: any MediaServer, request: PlaybackRequest, autoplayNext: Bool = true, autoSkipIntro: Bool = false, preferences: PlaybackPreferences = PlaybackPreferences()) {
         self.client = client
         self.queue = request.items
         self.autoplayNext = autoplayNext
@@ -258,7 +261,7 @@ final class PlaybackCoordinator {
         }
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
         }
         stopUnreportedTranscode()
         clearSubtitles()
@@ -472,13 +475,13 @@ final class PlaybackCoordinator {
             segments = loadedSegments
             upNext = next
             if AppSettings.themeCards, !isClip, item.kind == .episode {
-                let themes = await client.opEdThemes(for: item.id) ?? []
+                let themes = await jellyfin?.opEdThemes(for: item.id) ?? []
                 if currentItem?.id == item.id {
                     themeMoments = Self.themeMoments(for: item, segments: loadedSegments, pluginThemes: themes)
                 }
             }
-            if AppSettings.themeCards, !isClip, item.kind == .musicVideo {
-                let moments = await Self.musicVideoMoments(for: item, client: client)
+            if AppSettings.themeCards, !isClip, item.kind == .musicVideo, let jellyfin {
+                let moments = await Self.musicVideoMoments(for: item, client: jellyfin)
                 if currentItem?.id == item.id { themeMoments = moments }
             }
             #if os(tvOS)
@@ -697,7 +700,8 @@ final class PlaybackCoordinator {
             if styled {
                 // Drawn by libass; on failure the same track falls back to text.
                 do {
-                    let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex, attachments: attachments, client: client)
+                    guard let jellyfin = client as? JellyfinClient else { throw PlexError.notBuilt }
+                    let loaded = try await AssSubtitleTrack.load(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex, attachments: attachments, client: jellyfin)
                     guard !Task.isCancelled, let self, self.selectedSubtitleIndex == streamIndex else {
                         loaded.unload()
                         return
@@ -841,7 +845,7 @@ final class PlaybackCoordinator {
 
     /// The episode after `episode` in its series, skipping missing ones and,
     /// unless it's a special itself, the specials. Used by both players.
-    static func nextEpisode(after episode: BaseItem, client: JellyfinClient) async -> BaseItem? {
+    static func nextEpisode(after episode: BaseItem, client: any MediaServer) async -> BaseItem? {
         guard let seriesId = episode.seriesId,
               let all = try? await client.episodes(seriesId: seriesId, seasonId: nil),
               let position = all.firstIndex(where: { $0.id == episode.id }) else { return nil }
@@ -855,7 +859,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         showsUpNextAction = false
@@ -914,7 +918,7 @@ final class PlaybackCoordinator {
             reportStoppedIfStarted()
             if let liveStreamId {
                 let id = liveStreamId
-                Task { await client.closeLiveStream(id) }
+                Task { await jellyfin?.closeLiveStream(id) }
                 self.liveStreamId = nil
             }
             queue[index].stallRetries += 1
@@ -945,7 +949,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         queue[index].fallback = next
@@ -972,7 +976,7 @@ final class PlaybackCoordinator {
         reportStoppedIfStarted()
         if let liveStreamId {
             let id = liveStreamId
-            Task { await client.closeLiveStream(id) }
+            Task { await jellyfin?.closeLiveStream(id) }
             self.liveStreamId = nil
         }
         errorMessage = nil
@@ -1218,7 +1222,7 @@ final class PlaybackCoordinator {
     // MARK: System player metadata
 
     /// `artworkFile`, for a download, is read instead of fetching the artwork.
-    private static func metadata(for item: BaseItem, client: JellyfinClient, artworkFile: URL? = nil) async -> [AVMetadataItem] {
+    private static func metadata(for item: BaseItem, client: any MediaServer, artworkFile: URL? = nil) async -> [AVMetadataItem] {
         var items: [AVMetadataItem] = []
         var title = item.displayTitle
         var overview = item.overview
@@ -1293,7 +1297,7 @@ final class PlaybackCoordinator {
 
     /// Downloads the frames Jellyfin extracted for each chapter, side by side.
     /// Chapters without a frame, or whose download fails, are left out.
-    private static func chapterArtwork(for item: BaseItem, client: JellyfinClient) async -> [Int: Data] {
+    private static func chapterArtwork(for item: BaseItem, client: any MediaServer) async -> [Int: Data] {
         guard let chapters = item.chapters, chapters.count > 1 else { return [:] }
         return await withTaskGroup(of: (Int, Data?).self) { group in
             for (index, chapter) in chapters.enumerated() {

@@ -35,7 +35,7 @@ final class AetherNowPlaying {
     var seekable = true
 
     private let engine: AetherEngine
-    private let client: JellyfinClient
+    private let client: any MediaServer
     /// The title, series and artwork for the item playing.
     private var info: [String: Any] = [:]
     /// The item shown, so artwork arriving late for another is dropped.
@@ -49,7 +49,7 @@ final class AetherNowPlaying {
     private var commandSession: ObjectIdentifier?
     #endif
 
-    init(engine: AetherEngine, client: JellyfinClient) {
+    init(engine: AetherEngine, client: any MediaServer) {
         self.engine = engine
         self.client = client
     }

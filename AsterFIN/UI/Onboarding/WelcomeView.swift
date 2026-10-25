@@ -14,6 +14,13 @@ struct WelcomeView: View {
     @Environment(AppSession.self) private var session
     @State private var model = ServerPluginsModel()
 
+    /// The things on the page that can be picked: only the plugins' switches
+    /// and the buttons. The other cards are there to read.
+    private enum Target: Hashable {
+        case plugin(AsterPlugin), start
+    }
+    @FocusState private var focus: Target?
+
     var body: some View {
         ZStack {
             OnboardingBackdrop()
@@ -25,13 +32,10 @@ struct WelcomeView: View {
                         WelcomeGrid {
                             WelcomeCard(systemImage: "play.rectangle.fill", title: "Plays it all, as it was meant to be",
                                         text: "Dolby Vision, HDR, and TrueHD and DTS:X sound, straight from your files. Even fancy anime subtitles look exactly as their makers styled them.")
-                                .welcomeFocusable()
                             WelcomeCard(systemImage: "tv", title: "Your own TV channels",
                                         text: "Turn any playlist into a channel that's always on, then flip through them like cable, with a guide that shows what's on now and next.")
-                                .welcomeFocusable()
                             WelcomeCard(systemImage: "music.note.list", title: "Music and audiobooks",
                                         text: "Albums keep playing while you browse, and every audiobook picks up right where you left off, chapter and all.")
-                                .welcomeFocusable()
                         }
                     }
 
@@ -46,6 +50,7 @@ struct WelcomeView: View {
                             WelcomeGrid {
                                 ForEach(AsterPlugin.allCases) { plugin in
                                     PluginCard(plugin: plugin, model: model)
+                                        .focused($focus, equals: .plugin(plugin))
                                 }
                             }
                         }
@@ -59,13 +64,11 @@ struct WelcomeView: View {
                             WelcomeCard(systemImage: "sparkles.tv", eyebrow: "Aster Aurora · for the web",
                                         title: "Love the look? Take it to your browser",
                                         text: "Aurora brings as much of Aster as it can to Jellyfin on the web: big hero banners, trailers playing behind titles, and more. Once Aster's repository is on your server, you'll find it in the plugin catalogue in Jellyfin's dashboard.")
-                                .welcomeFocusable()
                             if model.isAdministrator == false {
                                 WelcomeCard(systemImage: "person.badge.key", title: "Want these? Ask whoever runs your server",
                                             text: "They can switch them on from Aster in a few seconds, or add this repository under Plugins ▸ Repositories in Jellyfin's dashboard:") {
                                     RepositoryAddress()
                                 }
-                                .welcomeFocusable()
                             }
                         }
                     }
@@ -77,6 +80,7 @@ struct WelcomeView: View {
                             .frame(maxWidth: Onboarding.buttonWidth)
                     }
                     .onboardingPrimaryButton()
+                    .focused($focus, equals: .start)
                     // Not while the server restarts: the app needs it back.
                     .disabled(model.restart == .restarting)
                 }
@@ -86,7 +90,14 @@ struct WelcomeView: View {
             }
             .scrollClipDisabled()
         }
-        .task { await model.load(session) }
+        .task {
+            await model.load(session)
+            // The first switch for an administrator (the page scrolls down
+            // to it); else the one button. Set once the cards have appeared:
+            // a focus request before then is dropped.
+            try? await Task.sleep(for: .milliseconds(350))
+            focus = model.isAdministrator == true ? .plugin(AsterPlugin.allCases[0]) : .start
+        }
     }
 
     private var header: some View {
@@ -154,16 +165,30 @@ private struct WelcomeSection<Content: View>: View {
 }
 
 /// Cards side by side across the whole width, as many as fit, all the
-/// same height in a row; one above the other on a phone.
+/// same height in a row; one above the other on a phone. Not lazy: every
+/// card exists from the start, so Apple TV's remote can always move down to
+/// the next one, however far off the screen it is.
 private struct WelcomeGrid<Content: View>: View {
     var minimumWidth: CGFloat = Welcome.cardMinWidth
     @ViewBuilder var content: Content
 
+    @State private var width: CGFloat = 0
+
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: minimumWidth), spacing: Welcome.gridSpacing, alignment: .top)],
-                  alignment: .leading, spacing: Welcome.gridSpacing) {
-            content
+        Group(subviews: content) { cards in
+            let columns = max(1, Int((width + Welcome.gridSpacing) / (minimumWidth + Welcome.gridSpacing)))
+            Grid(alignment: .topLeading, horizontalSpacing: Welcome.gridSpacing, verticalSpacing: Welcome.gridSpacing) {
+                ForEach(Array(stride(from: 0, to: cards.count, by: columns)), id: \.self) { start in
+                    GridRow {
+                        ForEach(cards[start..<min(start + columns, cards.count)]) { card in
+                            card
+                        }
+                    }
+                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
@@ -284,7 +309,6 @@ private struct PluginCard: View {
             #endif
         } else {
             card(state) { EmptyView() }
-                .welcomeFocusable()
         }
     }
 
@@ -473,18 +497,5 @@ struct ServerRestartControls: View {
                 }
             }
         }
-    }
-}
-
-extension View {
-    /// On Apple TV a card that only informs still takes focus, so the
-    /// remote can scroll the page to it; the card draws the focus itself.
-    @ViewBuilder
-    func welcomeFocusable() -> some View {
-        #if os(tvOS)
-        focusable()
-        #else
-        self
-        #endif
     }
 }

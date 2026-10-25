@@ -13,7 +13,7 @@ import Foundation
 import Observation
 
 /// A companion plugin with features in the app.
-enum AsterPlugin: String, CaseIterable, Identifiable {
+nonisolated enum AsterPlugin: String, CaseIterable, Identifiable, Sendable {
     case channels, disc, opEd
 
     var id: String { rawValue }
@@ -76,7 +76,7 @@ enum AsterPlugin: String, CaseIterable, Identifiable {
 }
 
 /// Where a plugin stands on the server.
-enum PluginState: Equatable {
+nonisolated enum PluginState: Equatable, Sendable {
     /// Not known yet, or the server didn't say.
     case unknown
     case notInstalled

@@ -427,8 +427,16 @@ final class AppSession {
     /// asks for it before switching; the fresh sign-in to switch with.
     func signInAgain(to saved: SavedServer, password: String) async throws -> StoredSession {
         let session = saved.session
-        // A Plex sign-in has no password on the server to check.
-        guard session.kind != .plex else { throw PlexError.notBuilt }
+        // Plex: the Home profile's PIN, checked by plex.tv by switching to it.
+        if session.kind == .plex {
+            guard var link = session.plex, let uuid = link.homeUserUUID else { throw PlexError.notBuilt }
+            let profile = PlexHomeUser(id: 0, uuid: uuid, title: session.userName)
+            let switched = try await PlexAccount.switchUser(profile, pin: password, token: link.accountToken)
+            if let token = switched.authToken { link.accountToken = token }
+            var fresh = session
+            fresh.plex = link
+            return fresh
+        }
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
         let result = try await client.authenticate(username: session.userName, password: password)
         return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)

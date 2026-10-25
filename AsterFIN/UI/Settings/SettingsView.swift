@@ -1696,31 +1696,41 @@ private struct SavedServerPage: View {
                 } else {
                     Button("Switch to This Server") { switchRequest = server }
                 }
-                Toggle("Ask for Password to Switch", isOn: Binding(
-                    get: { server.asksPasswordToSwitch },
-                    set: { session.setAsksPasswordToSwitch($0, for: serverID) }
-                ))
-            } footer: {
-                SettingsNote("Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
-            }
-            Section {
-                #if os(macOS)
-                SettingsChoiceRow(
-                    title: "Lock After",
-                    options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
-                    selection: Binding(
-                        get: { server.lockAfterMinutes ?? 0 },
-                        set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
-                    )
-                )
-                #else
-                // Its page goes on the path by value, like this one.
-                NavigationLink(value: SettingsDestination.lockAfter(serverID)) {
-                    LabeledContent("Lock After", value: Self.lockTitle(server.lockAfterMinutes ?? 0))
+                if server.canBeLocked {
+                    Toggle("Ask for \(server.credentialName.capitalized) to Switch", isOn: Binding(
+                        get: { server.asksPasswordToSwitch },
+                        set: { session.setAsksPasswordToSwitch($0, for: serverID) }
+                    ))
                 }
-                #endif
             } footer: {
-                SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s password.")
+                if server.canBeLocked {
+                    SettingsNote(server.session.kind == .plex
+                        ? "Switching to this server asks for \(server.session.userName)'s Plex Home PIN first, checked by plex.tv, so others on this device can't switch to it."
+                        : "Switching to this server asks for \(server.session.userName)'s password first, checked by the server, so others on this device can't switch to it.")
+                } else {
+                    SettingsNote("\(server.session.userName)'s Plex profile has no PIN, so there's nothing to lock it with. Add one in Plex under Settings ▸ Plex Home, then sign in with Plex again to lock it here.")
+                }
+            }
+            if server.canBeLocked {
+                Section {
+                    #if os(macOS)
+                    SettingsChoiceRow(
+                        title: "Lock After",
+                        options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
+                        selection: Binding(
+                            get: { server.lockAfterMinutes ?? 0 },
+                            set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
+                        )
+                    )
+                    #else
+                    // Its page goes on the path by value, like this one.
+                    NavigationLink(value: SettingsDestination.lockAfter(serverID)) {
+                        LabeledContent("Lock After", value: Self.lockTitle(server.lockAfterMinutes ?? 0))
+                    }
+                    #endif
+                } footer: {
+                    SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s \(server.credentialName).")
+                }
             }
             if !isInUse {
                 Section {

@@ -42,7 +42,7 @@ nonisolated enum JellyfinDevice {
     }
 }
 
-nonisolated final class JellyfinClient: Sendable {
+nonisolated final class JellyfinClient: MediaServer {
     let baseURL: URL
     let accessToken: String?
     let userId: String?
@@ -248,6 +248,17 @@ nonisolated final class JellyfinClient: Sendable {
         kind == .emby ? emby() : jellyfin
     }
 
+    /// Everything Aster does, less Quick Connect and Aster's plugins on Emby.
+    var capabilities: ServerCapabilities {
+        let all: ServerCapabilities = [.quickConnect, .plugins, .liveTV, .music, .audiobooks, .channels, .downloads,
+                                       .upcoming, .playlists, .favorites, .trickplay, .settingsSync, .lyrics]
+        return kind == .emby ? all.subtracting([.quickConnect, .plugins]) : all
+    }
+
+    func libraries() async throws -> [BaseItem] {
+        try await userViews()
+    }
+
     func userViews() async throws -> [BaseItem] {
         let user = try requireUser()
         return try await get(ItemsResult.self, route("/UserViews", emby: "/Users/\(user)/Views"), query: ["userId": user]).items
@@ -415,6 +426,10 @@ nonisolated final class JellyfinClient: Sendable {
             "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
             "imageTypeLimit": "1",
         ])
+    }
+
+    func latest(parentId: String?, limit: Int, kinds: [ItemKind]) async throws -> [BaseItem] {
+        try await latest(parentId: parentId, limit: limit, includeTypes: kinds.isEmpty ? nil : kinds.map(\.rawValue).joined(separator: ","))
     }
 
     func resume(limit: Int = 20, parentId: String? = nil) async throws -> [BaseItem] {
@@ -807,88 +822,21 @@ nonisolated final class JellyfinClient: Sendable {
 
     // MARK: Images
 
-    /// `quality` is the server's JPEG/WebP quality, 0 to 100.
-    func imageURL(itemId: String, kind: ImageKind, tag: String? = nil, index: Int? = nil, maxWidth: Int? = nil, maxHeight: Int? = nil, quality: Int = 90) -> URL {
-        var path = "/Items/\(itemId)/Images/\(kind.rawValue)"
-        if let index { path += "/\(index)" }
+    /// Which picture to show is chosen in `MediaServer`'s extension, shared
+    /// with Plex; this is just Jellyfin's address for one.
+    func imageURL(_ ref: ImageRef) -> URL {
+        var path = "/Items/\(ref.itemId)/Images/\(ref.kind.rawValue)"
+        if let index = ref.index { path += "/\(index)" }
         return url(path, query: [
-            "tag": tag,
-            "maxWidth": maxWidth.map(String.init),
-            "maxHeight": maxHeight.map(String.init),
-            "quality": String(quality),
+            "tag": ref.tag,
+            "maxWidth": ref.maxWidth.map(String.init),
+            "maxHeight": ref.maxHeight.map(String.init),
+            "quality": String(ref.quality),
         ])
     }
 
     func userImageURL(userId: String, tag: String?) -> URL {
         url("/UserImage", query: ["userId": userId, "tag": tag, "maxWidth": "300"])
-    }
-
-    /// Best landscape picture for a lockup: the item's own backdrop or thumb,
-    /// then its parent's, then the primary image for episodes.
-    func landscapeURL(for item: BaseItem, width: Int = 800) -> URL? {
-        if item.kind == .episode, let tag = item.imageTags?["Primary"] {
-            return imageURL(itemId: item.id, kind: .primary, tag: tag, maxWidth: width)
-        }
-        if let tag = item.imageTags?["Thumb"] {
-            return imageURL(itemId: item.id, kind: .thumb, tag: tag, maxWidth: width)
-        }
-        if let tag = item.backdropImageTags?.first {
-            return imageURL(itemId: item.id, kind: .backdrop, tag: tag, index: 0, maxWidth: width)
-        }
-        if let parent = item.parentThumbItemId, let tag = item.parentThumbImageTag {
-            return imageURL(itemId: parent, kind: .thumb, tag: tag, maxWidth: width)
-        }
-        if let parent = item.parentBackdropItemId, let tag = item.parentBackdropImageTags?.first {
-            return imageURL(itemId: parent, kind: .backdrop, tag: tag, index: 0, maxWidth: width)
-        }
-        if let series = item.seriesId, let tag = item.seriesThumbImageTag {
-            return imageURL(itemId: series, kind: .thumb, tag: tag, maxWidth: width)
-        }
-        if let tag = item.imageTags?["Primary"] {
-            return imageURL(itemId: item.id, kind: .primary, tag: tag, maxWidth: width)
-        }
-        return nil
-    }
-
-    func posterURL(for item: BaseItem, width: Int = 500, quality: Int = 90) -> URL? {
-        if let tag = item.imageTags?["Primary"] {
-            return imageURL(itemId: item.id, kind: .primary, tag: tag, maxWidth: width, quality: quality)
-        }
-        if let album = item.albumId, let tag = item.albumPrimaryImageTag {
-            return imageURL(itemId: album, kind: .primary, tag: tag, maxWidth: width, quality: quality)
-        }
-        if let series = item.seriesId, let tag = item.seriesPrimaryImageTag {
-            return imageURL(itemId: series, kind: .primary, tag: tag, maxWidth: width, quality: quality)
-        }
-        if let parent = item.parentPrimaryImageItemId, let tag = item.parentPrimaryImageTag {
-            return imageURL(itemId: parent, kind: .primary, tag: tag, maxWidth: width, quality: quality)
-        }
-        return nil
-    }
-
-    func backdropURL(for item: BaseItem, width: Int = 1920) -> URL? {
-        if let tag = item.backdropImageTags?.first {
-            return imageURL(itemId: item.id, kind: .backdrop, tag: tag, index: 0, maxWidth: width)
-        }
-        if let parent = item.parentBackdropItemId, let tag = item.parentBackdropImageTags?.first {
-            return imageURL(itemId: parent, kind: .backdrop, tag: tag, index: 0, maxWidth: width)
-        }
-        return landscapeURL(for: item, width: width)
-    }
-
-    func logoURL(for item: BaseItem, width: Int = 800) -> URL? {
-        if let tag = item.imageTags?["Logo"] {
-            return imageURL(itemId: item.id, kind: .logo, tag: tag, maxWidth: width)
-        }
-        if let parent = item.parentLogoItemId, let tag = item.parentLogoImageTag {
-            return imageURL(itemId: parent, kind: .logo, tag: tag, maxWidth: width)
-        }
-        return nil
-    }
-
-    func personImageURL(_ person: PersonInfo, width: Int = 300) -> URL? {
-        guard let tag = person.primaryImageTag else { return nil }
-        return imageURL(itemId: person.id, kind: .primary, tag: tag, maxWidth: width)
     }
 
     // MARK: Streams

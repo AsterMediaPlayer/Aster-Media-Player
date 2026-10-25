@@ -128,7 +128,13 @@ final class PlexSignInModel {
         step = .connecting("Connecting to \(server.name)…")
         let token = server.accessToken ?? userToken
         let connections = server.rankedConnections
-        guard let reached = await PlexConnectionRace.fastest(connections, token: token) else {
+        // A first connection can be slow (name lookups, secure set-up for
+        // every address at once): one more go before giving up.
+        var reached = await PlexConnectionRace.fastest(connections, token: token)
+        if reached == nil {
+            reached = await PlexConnectionRace.fastest(connections, token: token)
+        }
+        guard let reached else {
             step = .failed(PlexError.unreachable(server.name).localizedDescription)
             return
         }

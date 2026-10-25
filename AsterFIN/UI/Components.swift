@@ -52,6 +52,9 @@ enum Lockup {
     /// A library's tile on the Library and Anime pages.
     static let libraryTileWidth: CGFloat = 440
     static let libraryTileHeight: CGFloat = 248
+    /// Under a grid card's artwork: the gap, the title and the year line,
+    /// for the collection grid's fixed cell height.
+    static let gridTitleHeight: CGFloat = 80
     #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
@@ -218,6 +221,31 @@ extension View {
 
 // MARK: - Lockups
 
+extension EnvironmentValues {
+    /// Set by the Apple TV's UIKit-hosted grid: a lockup opens its title
+    /// through `openItem`, as a NavigationLink can't find the stack from a
+    /// hosted cell.
+    @Entry var opensItemsWithAction = false
+}
+
+/// A lockup's link to its title: a NavigationLink, or a Button through
+/// `openItem` where a NavigationLink can't reach the stack.
+struct ItemLink<Label: View>: View {
+    let item: BaseItem
+    @ViewBuilder var label: () -> Label
+
+    @Environment(\.opensItemsWithAction) private var opensWithAction
+    @Environment(\.openItem) private var openItem
+
+    var body: some View {
+        if opensWithAction, let openItem {
+            Button(action: { openItem(item) }, label: label)
+        } else {
+            NavigationLink(value: item, label: label)
+        }
+    }
+}
+
 /// 16:9 artwork with a title underneath, the Apple TV app's standard lockup.
 struct LandscapeLockup: View {
     let item: BaseItem
@@ -238,7 +266,7 @@ struct LandscapeLockup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NavigationLink(value: item) {
+            ItemLink(item: item) {
                 ZStack(alignment: .bottom) {
                     RemoteImage(url: session.client?.landscapeURL(for: item, width: 800), systemImage: item.kind == .episode ? "tv" : "film")
                         .frame(width: width, height: height)
@@ -328,7 +356,7 @@ struct PosterLockup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NavigationLink(value: item) {
+            ItemLink(item: item) {
                 ZStack(alignment: .bottom) {
                     RemoteImage(url: Lockup.posterImageURL(for: item, client: session.client), systemImage: item.kind == .series ? "tv" : "film")
                         .frame(width: width, height: width * 1.5)

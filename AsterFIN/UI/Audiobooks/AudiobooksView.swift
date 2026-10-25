@@ -63,7 +63,7 @@ struct AudiobooksView: View {
                         })
                     }, onSelect: { item in
                         // Listen straight away, as Play on a title does.
-                        guard let book = featured.first(where: { $0.id == item.id }), let client = session.client else { return }
+                        guard let book = featured.first(where: { $0.id == item.id }), let client = session.jellyfin else { return }
                         session.audiobooks.play(book, client: client)
                     })
                 }
@@ -169,7 +169,7 @@ struct AudiobooksView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, libraries: libraries)
     }
 }
@@ -230,7 +230,7 @@ struct AudiobookHeroCard: View {
     #endif
 
     private var backgroundURL: URL? {
-        session.client?.posterURL(for: book.cover, width: 600)
+        session.jellyfin?.posterURL(for: book.cover, width: 600)
     }
 
     /// "4 hr 12 min left", or the whole length before it's started.
@@ -377,7 +377,7 @@ struct AudiobookCover: View {
         // A downloaded book's cover shows offline too.
         if let saved = AudiobookDownloads.shared.coverURL(for: book.id) { return saved }
         #endif
-        return session.client?.posterURL(for: book.cover, width: width)
+        return session.jellyfin?.posterURL(for: book.cover, width: width)
     }
 
     var body: some View {
@@ -517,7 +517,7 @@ struct AudiobookView: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: session.client?.posterURL(for: book.cover, width: 400)) { Color(white: 0.08) }
+            RemoteImage(url: session.jellyfin?.posterURL(for: book.cover, width: 400)) { Color(white: 0.08) }
                 .blur(radius: 80)
                 .overlay(Color.black.opacity(0.72))
                 .ignoresSafeArea()
@@ -632,13 +632,13 @@ struct AudiobookView: View {
     }
 
     private func play(from chapter: AudiobookChapter?) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         player.play(book, from: chapter, client: client)
     }
 
     /// The parts' listening state, fresh from the server.
     private func refresh() async {
-        guard let client = session.client,
+        guard let client = session.jellyfin,
               let fresh = try? await client.items([
                   "ids": book.parts.map(\.id).joined(separator: ","),
                   "fields": AudiobookLibrary.fields,
@@ -734,7 +734,7 @@ struct AudiobookDownloadButton: View {
     }
 
     private func start() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 try await downloads.start(book, client: client, canDownload: session.canDownload)
@@ -850,7 +850,7 @@ struct AudiobookNowPlayingView: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: player.book.flatMap { session.client?.posterURL(for: $0.cover, width: 400) }) { Color(white: 0.06) }
+            RemoteImage(url: player.book.flatMap { session.jellyfin?.posterURL(for: $0.cover, width: 400) }) { Color(white: 0.06) }
                 .blur(radius: 100, opaque: true)
                 .overlay(Color.black.opacity(0.7))
                 .ignoresSafeArea()

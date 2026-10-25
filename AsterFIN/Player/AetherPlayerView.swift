@@ -79,7 +79,7 @@ struct AetherPlayerView: View {
     /// Keeps one set of channels across channel changes; none once what
     /// plays isn't a channel (Go to Episode).
     private func updateFlick() {
-        guard let channelId = playingChannel, let client = session.client else {
+        guard let channelId = playingChannel, let client = session.jellyfin else {
             flick = nil
             return
         }

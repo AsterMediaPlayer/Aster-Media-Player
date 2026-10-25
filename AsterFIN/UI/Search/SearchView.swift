@@ -96,7 +96,7 @@ struct SearchView: View {
                 }
                 Shelf(title: "Songs", items: songs) { song in
                     SquareLockup(item: song) {
-                        guard let client = session.client else { return }
+                        guard let client = session.jellyfin else { return }
                         let songs = songs
                         let start = songs.firstIndex(where: { $0.id == song.id }) ?? 0
                         session.music.play(songs, startingAt: start, client: client)

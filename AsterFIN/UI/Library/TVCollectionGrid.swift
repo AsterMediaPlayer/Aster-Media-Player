@@ -607,7 +607,7 @@ extension TVCollectionGrid {
 
         /// Shows the change on the card right away and puts it back if the
         /// server refuses.
-        private func update(_ item: BaseItem, to data: UserItemData, _ send: @escaping (JellyfinClient) async throws -> Void) {
+        private func update(_ item: BaseItem, to data: UserItemData, _ send: @escaping (any MediaServer) async throws -> Void) {
             guard let hosting, let client = hosting.session.client else { return }
             let previous = editedUserData[item.id]
             editedUserData[item.id] = data

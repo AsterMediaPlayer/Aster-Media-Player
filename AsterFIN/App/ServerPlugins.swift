@@ -211,7 +211,7 @@ final class ServerPluginsModel {
     }
 
     func load(_ session: AppSession) async {
-        guard session.isJellyfin, let client = session.client else { return }
+        guard session.isJellyfin, let client = session.jellyfin else { return }
         let admin = (try? await client.me())?.policy?.isAdministrator ?? false
         isAdministrator = admin
         if admin {
@@ -234,7 +234,7 @@ final class ServerPluginsModel {
 
     /// An administrator's switch: installs, turns on or turns off.
     func set(_ plugin: AsterPlugin, on: Bool, session: AppSession) async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         let state = state(of: plugin)
         errorMessage = nil
         do {
@@ -266,7 +266,7 @@ final class ServerPluginsModel {
 
     /// Restarts the server and waits for it to come back, then looks again.
     func restartServer(_ session: AppSession) async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         restart = .restarting
         do {
             try await client.restartServer()

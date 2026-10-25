@@ -64,11 +64,11 @@ struct LibraryView: View {
     private func load() async {
         guard let client = session.client else { return }
         do {
-            libraries = try await client.userViews().filter { $0.collectionType != "playlists" }
+            libraries = try await client.libraries().filter { $0.collectionType != "playlists" }
             favorites = try await client.items(ItemQuery(
                 kinds: [.movie, .series, .episode], recursive: true, sort: .name, filters: [.favorite], limit: 40
             )).items
-            videoPlaylists = (try? await client.playlists(mediaType: "Video")) ?? []
+            videoPlaylists = (try? await session.jellyfin?.playlists(mediaType: "Video")) ?? []
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -121,7 +121,7 @@ final class GridModel {
 
     /// Loads the next page of `query`. Items whose ids are in `excluding`
     /// are skipped, e.g. anime, which has its own tab.
-    func load(client: JellyfinClient, query: ItemQuery, excluding: Set<String> = [], reset: Bool = false) async {
+    func load(client: any MediaServer, query: ItemQuery, excluding: Set<String> = [], reset: Bool = false) async {
         await load(key: [AnyHashable(query), AnyHashable(excluding.count)], excluding: excluding, reset: reset) { start, size in
             try await client.items(query.page(from: start, size: size))
         }
@@ -596,7 +596,7 @@ struct TypeGridView: View {
         guard let client = session.client else { return }
         let anime = session.animeItemIds
         // Ask for extra, as anime ones are taken out.
-        async let latest = client.latest(parentId: nil, limit: 40, includeTypes: kind.rawValue)
+        async let latest = client.latest(parentId: nil, limit: 40, kinds: [kind])
         async let resumed = client.resume(limit: 30)
         let isShows = kind == .series
         async let next: [BaseItem] = isShows ? ((try? await client.nextUp(limit: 20)) ?? []) : []

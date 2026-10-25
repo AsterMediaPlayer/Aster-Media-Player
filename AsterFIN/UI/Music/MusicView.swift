@@ -183,7 +183,7 @@ struct MusicView: View {
     }
 
     private func loadShelves() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         async let recent = client.latest(parentId: library?.id, limit: 20, includeTypes: "MusicAlbum")
         async let played = client.items([
             "parentId": library?.id,
@@ -208,7 +208,7 @@ struct MusicView: View {
     }
 
     private func playSongs(_ songs: [BaseItem], from song: BaseItem) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         let start = songs.firstIndex(where: { $0.id == song.id }) ?? 0
         session.music.play(songs, startingAt: start, client: client)
     }
@@ -269,7 +269,7 @@ struct AlbumsGrid: View {
     }
 
     private func load(reset: Bool = false) async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, query: query, reset: reset)
     }
 }
@@ -339,7 +339,7 @@ struct ArtistsGrid: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, parentId: parentId)
     }
 }
@@ -387,7 +387,7 @@ struct PlaylistsGrid: View {
     }
 
     private func load(reset: Bool = false) async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, query: query, reset: reset)
     }
 }
@@ -437,7 +437,7 @@ struct SongsList: View {
                             },
                         ]
                     ) {
-                        guard let client = session.client else { return }
+                        guard let client = session.jellyfin else { return }
                         session.music.play(model.items, startingAt: position, client: client)
                     }
                 }
@@ -468,7 +468,7 @@ struct SongsList: View {
     }
 
     private func load(reset: Bool = false) async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, query: query, reset: reset)
     }
 }
@@ -522,7 +522,7 @@ struct SquareLockup: View {
     }
 
     private var artwork: some View {
-        RemoteImage(url: session.client?.posterURL(for: item, width: 500), systemImage: item.kind == .playlist ? "music.note.list" : "music.note")
+        RemoteImage(url: session.jellyfin?.posterURL(for: item, width: 500), systemImage: item.kind == .playlist ? "music.note.list" : "music.note")
             .frame(width: size, height: size)
     }
 }
@@ -537,7 +537,7 @@ struct ArtistLockup: View {
     var body: some View {
         VStack(spacing: 12) {
             ItemLink(item: artist) {
-                RemoteImage(url: session.client?.posterURL(for: artist, width: 500), systemImage: "music.mic")
+                RemoteImage(url: session.jellyfin?.posterURL(for: artist, width: 500), systemImage: "music.mic")
                     .frame(width: size, height: size)
                     .clipShape(Circle())
             }
@@ -626,7 +626,7 @@ struct TrackRow: View {
         Button(action: action) {
             HStack(spacing: Self.spacing) {
                 if showArtwork {
-                    RemoteImage(url: session.client?.posterURL(for: track, width: 200), systemImage: "music.note")
+                    RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 200), systemImage: "music.note")
                         .frame(width: Self.artworkSize, height: Self.artworkSize)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
@@ -710,7 +710,7 @@ struct AlbumView: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: session.client?.posterURL(for: current, width: 400)) { Color(white: 0.08) }
+            RemoteImage(url: session.jellyfin?.posterURL(for: current, width: 400)) { Color(white: 0.08) }
                 .blur(radius: 80)
                 .overlay(Color.black.opacity(0.72))
                 .ignoresSafeArea()
@@ -755,7 +755,7 @@ struct AlbumView: View {
 
     private var header: some View {
         MusicPageHeader {
-            RemoteImage(url: session.client?.posterURL(for: current, width: 800), systemImage: isPlaylist ? "music.note.list" : "music.note")
+            RemoteImage(url: session.jellyfin?.posterURL(for: current, width: 800), systemImage: isPlaylist ? "music.note.list" : "music.note")
                 .frame(width: MusicMetrics.pageArtwork, height: MusicMetrics.pageArtwork)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
@@ -870,7 +870,7 @@ struct AlbumView: View {
     }
 
     private func remove(_ song: BaseItem) {
-        guard let client = session.client, let entry = song.playlistItemId else { return }
+        guard let client = session.jellyfin, let entry = song.playlistItemId else { return }
         let previous = tracks
         tracks.removeAll { $0.playlistRowID == song.playlistRowID }
         Task {
@@ -884,7 +884,7 @@ struct AlbumView: View {
     }
 
     private func move(_ song: BaseItem, to newIndex: Int) {
-        guard let client = session.client, let entry = song.playlistItemId,
+        guard let client = session.jellyfin, let entry = song.playlistItemId,
               let from = tracks.firstIndex(where: { $0.playlistRowID == song.playlistRowID }) else { return }
         let previous = tracks
         let moved = tracks.remove(at: from)
@@ -900,7 +900,7 @@ struct AlbumView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         isLoading = true
         errorMessage = nil
         async let full = client.item(item.id)
@@ -914,12 +914,12 @@ struct AlbumView: View {
     }
 
     private func play(from position: Int, shuffled: Bool) {
-        guard let client = session.client, !tracks.isEmpty else { return }
+        guard let client = session.jellyfin, !tracks.isEmpty else { return }
         session.music.play(tracks, startingAt: position, shuffled: shuffled, client: client)
     }
 
     private func instantMix() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             let mix = (try? await client.instantMix(for: item.id)) ?? tracks
             session.music.play(mix, client: client)
@@ -927,7 +927,7 @@ struct AlbumView: View {
     }
 
     private func toggleFavorite() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         var updated = current
         let newValue = !(updated.userData?.isFavorite ?? false)
         updated.userData?.isFavorite = newValue
@@ -950,7 +950,7 @@ struct ArtistView: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: session.client?.backdropURL(for: current, width: 1920) ?? session.client?.posterURL(for: current, width: 800)) { Color(white: 0.08) }
+            RemoteImage(url: session.jellyfin?.backdropURL(for: current, width: 1920) ?? session.jellyfin?.posterURL(for: current, width: 800)) { Color(white: 0.08) }
                 .blur(radius: 60)
                 .overlay(Color.black.opacity(0.75))
                 .ignoresSafeArea()
@@ -958,7 +958,7 @@ struct ArtistView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 30) {
                     MusicPageHeader(alignment: .center) {
-                        RemoteImage(url: session.client?.posterURL(for: current, width: 600), systemImage: "music.mic")
+                        RemoteImage(url: session.jellyfin?.posterURL(for: current, width: 600), systemImage: "music.mic")
                             .frame(width: MusicMetrics.artistPhoto, height: MusicMetrics.artistPhoto)
                             .clipShape(Circle())
                             .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
@@ -1018,7 +1018,7 @@ struct ArtistView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         isLoading = true
         async let full = client.item(artist.id)
         albums = (try? await client.artistAlbums(artistId: artist.id)) ?? []
@@ -1027,7 +1027,7 @@ struct ArtistView: View {
     }
 
     private func playAll(shuffled: Bool) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             let songs = (try? await client.artistTracks(artistId: artist.id)) ?? []
             session.music.play(songs, startingAt: shuffled ? Int.random(in: 0..<max(songs.count, 1)) : 0, shuffled: shuffled, client: client)
@@ -1035,7 +1035,7 @@ struct ArtistView: View {
     }
 
     private func instantMix() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             let mix = (try? await client.instantMix(for: artist.id)) ?? []
             session.music.play(mix, client: client)
@@ -1043,7 +1043,7 @@ struct ArtistView: View {
     }
 
     private func toggleFavorite() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         var updated = current
         let newValue = !(updated.userData?.isFavorite ?? false)
         updated.userData?.isFavorite = newValue
@@ -1074,7 +1074,7 @@ struct NowPlayingBar: View {
                 session.music.isNowPlayingPresented = true
             } label: {
                 HStack(spacing: Self.spacing) {
-                    RemoteImage(url: session.client?.posterURL(for: track, width: 200), systemImage: "music.note")
+                    RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 200), systemImage: "music.note")
                         .frame(width: Self.artworkSize, height: Self.artworkSize)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 4) {
@@ -1120,7 +1120,7 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            RemoteImage(url: player.current.flatMap { session.client?.posterURL(for: $0, width: 400) }) { Color(white: 0.06) }
+            RemoteImage(url: player.current.flatMap { session.jellyfin?.posterURL(for: $0, width: 400) }) { Color(white: 0.06) }
                 // Opaque so the blur doesn't fade the edges to clear and let
                 // the screen under this full-screen cover show through.
                 .blur(radius: 100, opaque: true)
@@ -1198,7 +1198,7 @@ struct NowPlayingView: View {
     // MARK: Pieces shared by the TV and phone layouts
 
     private func artwork(_ track: BaseItem, size: CGFloat) -> some View {
-        RemoteImage(url: session.client?.posterURL(for: track, width: 800), systemImage: "music.note")
+        RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 800), systemImage: "music.note")
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: size > 300 ? 20 : 14))
             .shadow(color: .black.opacity(0.6), radius: size > 300 ? 40 : 20, y: size > 300 ? 16 : 8)

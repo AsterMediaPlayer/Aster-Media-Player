@@ -157,7 +157,7 @@ struct ThemeClipLockup: View {
     @Environment(AppSession.self) private var session
 
     private var imageURL: URL? {
-        guard let client = session.client else { return nil }
+        guard let client = session.jellyfin else { return nil }
         if let tag = clip.chapterImageTag {
             return client.chapterImageURL(itemId: clip.episode.id, index: clip.chapterIndex, tag: tag)
         }

@@ -275,7 +275,7 @@ struct PlayerView: View {
                 return
             }
             #endif
-            guard let request, let client = session.client else { return }
+            guard let request, let client = session.jellyfin else { return }
             #if canImport(AetherEngine)
             guard aether == nil else { return }
             if AetherPlayback.canPlay(request), let playback = AetherPlayback(client: client, request: request, preferences: session.playbackPreferences) {
@@ -642,7 +642,7 @@ struct PlaybackLoadingView: View {
 
             if let item {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let logo = session.client?.logoURL(for: item) {
+                    if let logo = session.jellyfin?.logoURL(for: item) {
                         RemoteImage(url: logo, contentMode: .fit) { Text(item.seriesName ?? item.displayTitle).font(.title.bold()) }
                             .frame(maxWidth: 500, maxHeight: 160, alignment: .bottomLeading)
                     } else {
@@ -668,7 +668,7 @@ struct PlaybackLoadingView: View {
         .accessibilityHidden(true)
         .animation(.easeIn(duration: 0.4), value: artwork)
         .task(id: item?.id) {
-            guard let item, let client = session.client else { return }
+            guard let item, let client = session.jellyfin else { return }
             artwork = await Self.artwork(for: item, client: client, width: Lockup.fullScreenImageWidth(displayScale: displayScale))
         }
     }
@@ -728,7 +728,7 @@ struct URLPlayerView: View {
                 player.play()
                 #if !os(macOS)
                 // The artwork arrives a moment later; the player picks it up.
-                if let artwork = playback.artwork, let client = session.client {
+                if let artwork = playback.artwork, let client = session.jellyfin {
                     Task {
                         guard let data = try? await client.data(from: artwork) else { return }
                         let image = AVMutableMetadataItem()
@@ -1072,7 +1072,7 @@ struct UpNextCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: session.client?.landscapeURL(for: episode, width: 1920)) { Color.black }
+            RemoteImage(url: session.jellyfin?.landscapeURL(for: episode, width: 1920)) { Color.black }
                 .ignoresSafeArea()
             LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.75), .black.opacity(0.95)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()

@@ -46,7 +46,7 @@ struct ChannelRemoteList: View {
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.9), trigger: tunes)
         .task {
             // What's on changes as programmes end.
-            guard let client = session.client else { return }
+            guard let client = session.jellyfin else { return }
             while !Task.isCancelled {
                 await model.refresh(client: client)
                 try? await Task.sleep(for: .seconds(60))

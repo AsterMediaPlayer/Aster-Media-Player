@@ -67,7 +67,7 @@ struct AudioAccessory: View {
     /// What to show: title, the line under it, the cover, and its fallback.
     private var summary: (title: String, detail: String?, artwork: URL?, symbol: String)? {
         if let book = session.audiobooks.book {
-            var artwork = session.client?.posterURL(for: book.cover, width: 200)
+            var artwork = session.jellyfin?.posterURL(for: book.cover, width: 200)
             #if os(iOS)
             if let saved = AudiobookDownloads.shared.coverURL(for: book.id) { artwork = saved }
             #endif
@@ -75,7 +75,7 @@ struct AudioAccessory: View {
             return (book.title, detail, artwork, "book.closed.fill")
         }
         if let track = session.music.current {
-            return (track.displayTitle, track.artistText ?? track.album, session.client?.posterURL(for: track, width: 200), "music.note")
+            return (track.displayTitle, track.artistText ?? track.album, session.jellyfin?.posterURL(for: track, width: 200), "music.note")
         }
         return nil
     }

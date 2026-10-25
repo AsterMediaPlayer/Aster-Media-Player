@@ -356,7 +356,7 @@ struct AetherTVControls: View {
     }
 
     private func openChannels() {
-        guard let client = session.client,
+        guard let client = session.jellyfin,
               let model = ChannelFlickModel(currentLiveChannel: playback.liveChannelId, currentChannel: playback.channelId, client: client) else {
             show()
             return
@@ -607,7 +607,7 @@ struct AetherTVControls: View {
 
     private func chapterImage(_ chapter: ChapterInfo, index: Int) -> URL? {
         guard let item = playback.item, let tag = chapter.imageTag else { return nil }
-        return session.client?.chapterImageURL(itemId: item.id, index: index, tag: tag)
+        return session.jellyfin?.chapterImageURL(itemId: item.id, index: index, tag: tag)
     }
 
     private func play(_ chapter: ChapterInfo) {

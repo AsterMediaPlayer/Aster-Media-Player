@@ -29,7 +29,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // MARK: Tabs
 
     private func rootTemplate() -> CPTemplate {
-        guard session.client != nil else {
+        guard session.jellyfin != nil else {
             let template = CPListTemplate(title: "Aster", sections: [])
             template.emptyViewTitleVariants = ["Sign in on your iPhone"]
             template.emptyViewSubtitleVariants = ["Open Aster on your iPhone and sign in to your Jellyfin server."]
@@ -61,7 +61,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private var limit: Int { CPListTemplate.maximumItemCount }
 
     private func recentSections() async -> [CPListSection] {
-        guard let client = session.client else { return [] }
+        guard let client = session.jellyfin else { return [] }
         async let played = client.items([
             "includeItemTypes": "Audio",
             "recursive": "true",
@@ -84,7 +84,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func albumSections() async -> [CPListSection] {
-        guard let client = session.client else { return [] }
+        guard let client = session.jellyfin else { return [] }
         let albums = (try? await client.items([
             "includeItemTypes": "MusicAlbum",
             "recursive": "true",
@@ -95,13 +95,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func artistSections() async -> [CPListSection] {
-        guard let client = session.client else { return [] }
+        guard let client = session.jellyfin else { return [] }
         let artists = (try? await client.albumArtists(limit: limit).items) ?? []
         return [CPListSection(items: artists.map(artistItem))]
     }
 
     private func playlistSections() async -> [CPListSection] {
-        guard let client = session.client else { return [] }
+        guard let client = session.jellyfin else { return [] }
         let playlists = (try? await client.playlists(mediaType: "Audio")) ?? []
         return [CPListSection(items: playlists.map(albumItem))]
     }
@@ -157,7 +157,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func loadArtwork(for item: BaseItem, into row: CPListItem) {
-        guard let client = session.client, let url = client.posterURL(for: item, width: 200) else { return }
+        guard let client = session.jellyfin, let url = client.posterURL(for: item, width: 200) else { return }
         Task {
             if let image = await ImageStore.shared.image(for: url, client: client) {
                 row.setImage(image)
@@ -168,7 +168,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // MARK: Screens
 
     private func openTracks(of album: BaseItem) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         let template = CPListTemplate(title: album.displayTitle, sections: [])
         template.emptyViewTitleVariants = ["Loading…"]
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
@@ -185,7 +185,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func openArtist(_ artist: BaseItem) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         let template = CPListTemplate(title: artist.displayTitle, sections: [])
         template.emptyViewTitleVariants = ["Loading…"]
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
@@ -211,7 +211,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// Plays on the phone's music player and shows CarPlay's Now Playing.
     private func play(_ tracks: [BaseItem], startingAt index: Int, shuffled: Bool = false) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         session.music.play(tracks, startingAt: index, shuffled: shuffled, client: client)
         guard let controller = interfaceController, controller.topTemplate !== CPNowPlayingTemplate.shared else { return }
         controller.pushTemplate(CPNowPlayingTemplate.shared, animated: true, completion: nil)

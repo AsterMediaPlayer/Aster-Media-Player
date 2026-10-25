@@ -37,6 +37,9 @@ nonisolated protocol MediaServer: AnyObject, Sendable {
     func search(_ term: String, limit: Int) async throws -> [BaseItem]
     func setFavorite(_ id: String, _ favorite: Bool) async throws
     func setPlayed(_ id: String, _ played: Bool) async throws
+
+    /// Ends this device's sign-in on the server, where it has one.
+    func logout() async
 }
 
 /// One picture of a title, for `MediaServer.imageURL`.
@@ -72,6 +75,34 @@ nonisolated struct ServerCapabilities: OptionSet, Sendable, Hashable {
     /// Settings kept on the server, to follow the user between devices.
     static let settingsSync = ServerCapabilities(rawValue: 1 << 11)
     static let lyrics = ServerCapabilities(rawValue: 1 << 12)
+}
+
+// MARK: - Shorter forms
+
+extension MediaServer {
+    func data(from url: URL) async throws -> Data {
+        try await data(from: url, fresh: false)
+    }
+
+    func latest(parentId: String?, limit: Int = 20) async throws -> [BaseItem] {
+        try await latest(parentId: parentId, limit: limit, kinds: [])
+    }
+
+    func resume(limit: Int = 20) async throws -> [BaseItem] {
+        try await resume(limit: limit, parentId: nil)
+    }
+
+    func nextUp(limit: Int = 20, seriesId: String? = nil) async throws -> [BaseItem] {
+        try await nextUp(limit: limit, seriesId: seriesId, parentId: nil)
+    }
+
+    func similar(to id: String) async throws -> [BaseItem] {
+        try await similar(to: id, limit: 20)
+    }
+
+    func search(_ term: String) async throws -> [BaseItem] {
+        try await search(term, limit: 60)
+    }
 }
 
 // MARK: - Pictures

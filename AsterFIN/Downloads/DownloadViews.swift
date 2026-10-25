@@ -392,7 +392,7 @@ struct DownloadsView: View {
     }
 
     private func retry(_ record: AudiobookDownload) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 try await books.retry(record.id, client: client, canDownload: session.canDownload)
@@ -459,7 +459,7 @@ struct DownloadsView: View {
     }
 
     private func retry(_ record: DownloadRecord) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 try await store.retry(record.id, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)

@@ -145,7 +145,8 @@ final class PlexSignInModel {
             serverURL: reached.uri, serverName: server.name, userId: user.uuid, userName: user.displayName,
             accessToken: token, serverKind: .plex,
             plex: PlexLink(accountToken: userToken, machineId: server.clientIdentifier, connections: connections,
-                           homeUserUUID: homeUser?.uuid, homeUserHasPin: homeUser?.protected ?? false))
+                           homeUserUUID: homeUser?.uuid, homeUserHasPin: homeUser?.protected ?? false,
+                           homeToken: accountToken))
     }
 }
 

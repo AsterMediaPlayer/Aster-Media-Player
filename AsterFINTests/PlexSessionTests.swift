@@ -39,6 +39,7 @@ struct PlexSessionTests {
         var withPin = link
         withPin.homeUserUUID = "a1"
         withPin.homeUserHasPin = true
+        withPin.homeToken = "home"
         let locked = SavedServer(session: StoredSession(serverURL: URL(string: "https://s.plex.direct:32400")!, serverName: "Test Server",
                                                         userId: "a1", userName: "peppy", accessToken: "t", serverKind: .plex, plex: withPin))
         #expect(locked.canBeLocked)
@@ -50,6 +51,13 @@ struct PlexSessionTests {
         let unlocked = SavedServer(session: StoredSession(serverURL: URL(string: "https://s.plex.direct:32400")!, serverName: "Test Server",
                                                           userId: "u", userName: "peppy", accessToken: "t", serverKind: .plex, plex: older))
         #expect(!unlocked.canBeLocked)
+
+        // Signed in before the Home's token was kept: nothing that checks a PIN.
+        var noHomeToken = withPin
+        noHomeToken.homeToken = nil
+        let unchecked = SavedServer(session: StoredSession(serverURL: URL(string: "https://s.plex.direct:32400")!, serverName: "Test Server",
+                                                           userId: "a1", userName: "peppy", accessToken: "t", serverKind: .plex, plex: noHomeToken))
+        #expect(!unchecked.canBeLocked)
 
         let jellyfin = SavedServer(session: StoredSession(serverURL: URL(string: "http://192.168.1.240:8096")!, serverName: "Server",
                                                           userId: "u", userName: "peppy", accessToken: "t", serverKind: .jellyfin))

@@ -94,6 +94,14 @@ struct PlayerView: View {
                     #endif
                     coordinator?.saveProgressNow()
                 }
+            // Plex's player comes in a later step.
+            if request != nil, session.jellyfin == nil {
+                VStack(spacing: 30) {
+                    MessageView(systemImage: "play.slash", title: "Playing from Plex is coming soon",
+                                detail: "Browsing your Plex libraries works now; playing them is the next thing being built.")
+                    Button("Close", action: onFinished)
+                }
+            }
             #if canImport(AetherEngine)
             if let aether {
                 if let standby = aether.standbyEngine {

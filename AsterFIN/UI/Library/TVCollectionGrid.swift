@@ -595,13 +595,16 @@ extension TVCollectionGrid {
                     self?.update(item, to: edited) { try await $0.setPlayed(item.id, !played) }
                 }
             })
-            actions.append(UIAction(title: favorite ? "Remove from Favorites" : "Add to Favorites", image: UIImage(systemName: favorite ? "heart.slash" : "heart")) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    var edited = data ?? UserItemData()
-                    edited.isFavorite = !favorite
-                    self?.update(item, to: edited) { try await $0.setFavorite(item.id, !favorite) }
-                }
-            })
+            // Plex keeps no favourites.
+            if session.client?.capabilities.contains(.favorites) == true {
+                actions.append(UIAction(title: favorite ? "Remove from Favorites" : "Add to Favorites", image: UIImage(systemName: favorite ? "heart.slash" : "heart")) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        var edited = data ?? UserItemData()
+                        edited.isFavorite = !favorite
+                        self?.update(item, to: edited) { try await $0.setFavorite(item.id, !favorite) }
+                    }
+                })
+            }
             return UIMenu(children: actions)
         }
 

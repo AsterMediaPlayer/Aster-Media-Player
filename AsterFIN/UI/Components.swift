@@ -491,10 +491,13 @@ struct ItemActionsMenu: View {
         } label: {
             Label(played ? "Mark as Unwatched" : "Mark as Watched", systemImage: played ? "eye.slash" : "checkmark.circle")
         }
-        Button {
-            setFavorite(!favorite)
-        } label: {
-            Label(favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: favorite ? "heart.slash" : "heart")
+        // Plex keeps no favourites.
+        if session.client?.capabilities.contains(.favorites) == true {
+            Button {
+                setFavorite(!favorite)
+            } label: {
+                Label(favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: favorite ? "heart.slash" : "heart")
+            }
         }
     }
 

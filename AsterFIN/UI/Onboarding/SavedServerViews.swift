@@ -27,7 +27,7 @@ struct SavedServerLabel: View {
                 Text("In Use")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.tint)
-            } else if server.asksPasswordToSwitch {
+            } else if server.asksPasswordToSwitch, server.canBeLocked {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("Asks for \(server.credentialName)")
@@ -49,7 +49,8 @@ struct SavedServerSwitcher: ViewModifier {
             .onChange(of: request) { _, server in
                 guard let server else { return }
                 request = nil
-                if server.asksPasswordToSwitch {
+                // A server that can't check a PIN doesn't ask for one.
+                if server.asksPasswordToSwitch, server.canBeLocked {
                     asking = server
                 } else {
                     session.switchServer(to: server)

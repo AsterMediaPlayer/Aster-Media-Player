@@ -467,7 +467,9 @@ final class AppSession {
         defer { UserDefaults.standard.removeObject(forKey: Self.leftAtKey) }
         guard phase == .signedIn, !isLocked,
               let id = currentServerID,
-              let minutes = savedServers.first(where: { $0.id == id })?.lockAfterMinutes,
+              // Only a server that can check its password or PIN is locked.
+              let server = savedServers.first(where: { $0.id == id }), server.canBeLocked,
+              let minutes = server.lockAfterMinutes,
               let leftAt = UserDefaults.standard.object(forKey: Self.leftAtKey) as? Date,
               Date().timeIntervalSince(leftAt) >= TimeInterval(minutes * 60) else { return }
         stopMedia()

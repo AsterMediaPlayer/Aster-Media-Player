@@ -65,13 +65,9 @@ struct LibraryView: View {
         guard let client = session.client else { return }
         do {
             libraries = try await client.userViews().filter { $0.collectionType != "playlists" }
-            favorites = try await client.items([
-                "recursive": "true",
-                "filters": "IsFavorite",
-                "includeItemTypes": "Movie,Series,Episode",
-                "sortBy": "SortName",
-                "limit": "40",
-            ]).items
+            favorites = try await client.items(ItemQuery(
+                kinds: [.movie, .series, .episode], recursive: true, sort: .name, filters: [.favorite], limit: 40
+            )).items
             videoPlaylists = (try? await client.playlists(mediaType: "Video")) ?? []
         } catch {
             errorMessage = error.localizedDescription
@@ -89,13 +85,23 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var query: (sortBy: String, order: String) {
+    var itemSort: ItemSort {
         switch self {
-        case .name: return ("SortName", "Ascending")
-        case .dateAdded: return ("DateCreated,SortName", "Descending")
-        case .releaseDate: return ("PremiereDate,SortName", "Descending")
-        case .rating: return ("CommunityRating,SortName", "Descending")
+        case .name: .name
+        case .dateAdded: .dateAdded
+        case .releaseDate: .releaseDate
+        case .rating: .rating
         }
+    }
+
+    /// A–Z goes up; the rest, newest or best first.
+    var descending: Bool { self != .name }
+
+    /// Jellyfin's own sort parameters, for music's grids, which still ask
+    /// in Jellyfin's terms.
+    var query: (sortBy: String, order: String) {
+        let parameters = ItemQuery(sort: itemSort, descending: descending).jellyfinParameters
+        return ((parameters["sortBy"] ?? nil) ?? "", (parameters["sortOrder"] ?? nil) ?? "")
     }
 }
 
@@ -105,7 +111,7 @@ final class GridModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var totalCount = 0
-    private var loadedWith: String?
+    private var loadedWith: AnyHashable?
     /// How far into the server's results loading has got, counting items
     /// left out by `excluding`, so pages carry on from the right place.
     private var fetched = 0
@@ -113,8 +119,15 @@ final class GridModel {
     /// dropped instead of landing in the new results.
     private var generation = 0
 
-    /// Loads the next page. Items whose ids are in `excluding` are skipped,
-    /// e.g. anime, which has its own tab.
+    /// Loads the next page of `query`. Items whose ids are in `excluding`
+    /// are skipped, e.g. anime, which has its own tab.
+    func load(client: JellyfinClient, query: ItemQuery, excluding: Set<String> = [], reset: Bool = false) async {
+        await load(key: [AnyHashable(query), AnyHashable(excluding.count)], excluding: excluding, reset: reset) { start, size in
+            try await client.items(query.page(from: start, size: size))
+        }
+    }
+
+    /// The same, for a query in Jellyfin's own parameters (music's grids).
     func load(client: JellyfinClient, query: [String: String?], excluding: Set<String> = [], reset: Bool = false) async {
         // Sorted: a dictionary's order can differ between two equal ones, and
         // a key that changed with it reset the grid (and its scrolling) as
@@ -123,6 +136,18 @@ final class GridModel {
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value ?? "")" }
             .joined(separator: "&") + "|\(excluding.count)"
+        await load(key: key, excluding: excluding, reset: reset) { start, size in
+            var merged = query
+            merged["startIndex"] = String(start)
+            merged["limit"] = String(size)
+            return try await client.items(merged)
+        }
+    }
+
+    /// Loads the next page from `page` (given where to start and how many),
+    /// starting afresh when `key` (what's being listed) changes.
+    private func load(key: AnyHashable, excluding: Set<String>, reset: Bool,
+                      page: @escaping @Sendable (Int, Int) async throws -> ItemsResult) async {
         if reset || loadedWith != key {
             items = []
             fetched = 0
@@ -136,15 +161,13 @@ final class GridModel {
         let started = generation
         isLoading = true
         errorMessage = nil
-        var merged = query
-        merged["startIndex"] = String(fetched)
-        merged["limit"] = "100"
+        let start = fetched
         do {
             // The request runs on its own, not in the caller's task: the
             // loading row that asks for a page leaves the screen (and its
             // task is cancelled) on a fast scroll, or as a reset empties the
             // grid, and the page must still arrive.
-            let request = Task { try await client.items(merged) }
+            let request = Task { try await page(start, 100) }
             let result = try await request.value
             guard started == generation else { return }
             fetched += result.items.count
@@ -182,28 +205,19 @@ struct LibraryGridView: View {
         parent.collectionType == "homevideos" || parent.collectionType == "musicvideos"
     }
 
-    private var query: [String: String?] {
-        var query: [String: String?] = [
-            "parentId": parent.id,
-            "sortBy": sort.query.sortBy,
-            "sortOrder": sort.query.order,
-        ]
-        switch parent.collectionType {
-        case "movies":
-            query["includeItemTypes"] = "Movie"
-            query["recursive"] = "true"
-        case "tvshows":
-            query["includeItemTypes"] = "Series"
-            query["recursive"] = "true"
-        case "boxsets":
-            query["includeItemTypes"] = "BoxSet"
-            query["recursive"] = "true"
-        case "musicvideos":
-            // Every video, not the folders (one per show or artist) they're in.
-            query["includeItemTypes"] = "MusicVideo"
-            query["recursive"] = "true"
-        default:
-            break
+    private var query: ItemQuery {
+        var query = ItemQuery(parentId: parent.id, sort: sort.itemSort, descending: sort.descending)
+        let kind: ItemKind? = switch parent.collectionType {
+        case "movies": .movie
+        case "tvshows": .series
+        case "boxsets": .boxSet
+        // Every video, not the folders (one per show or artist) they're in.
+        case "musicvideos": .musicVideo
+        default: nil
+        }
+        if let kind {
+            query.kinds = [kind]
+            query.recursive = true
         }
         return query
     }
@@ -388,13 +402,8 @@ struct TypeGridView: View {
 
     private var indexed: Bool { sort == .name && !sections.isEmpty }
 
-    private var query: [String: String?] {
-        [
-            "includeItemTypes": kind.rawValue,
-            "recursive": "true",
-            "sortBy": sort.query.sortBy,
-            "sortOrder": sort.query.order,
-        ]
+    private var query: ItemQuery {
+        ItemQuery(kinds: [kind], recursive: true, sort: sort.itemSort, descending: sort.descending)
     }
 
     #if os(tvOS)
@@ -708,13 +717,9 @@ struct PersonView: View {
         .task {
             guard let client = session.client else { return }
             details = try? await client.item(person.id)
-            items = (try? await client.items([
-                "personIds": person.id,
-                "recursive": "true",
-                "includeItemTypes": "Movie,Series",
-                "sortBy": "PremiereDate,SortName",
-                "sortOrder": "Descending",
-            ]).items) ?? []
+            items = (try? await client.items(ItemQuery(
+                kinds: [.movie, .series], recursive: true, sort: .releaseDate, descending: true, personId: person.id
+            )).items) ?? []
         }
     }
 

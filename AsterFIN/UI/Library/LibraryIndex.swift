@@ -130,20 +130,20 @@ nonisolated enum LibraryIndex {
     }
 }
 
-/// A grid of titles in their letter sections, each led by its letter.
+#if !os(tvOS)
+/// A grid of titles in their letter sections, each led by its letter, on
+/// iPhone, iPad and the Mac. The Apple TV's grid is `TVCollectionGrid`.
 struct SectionedItemGrid: View {
     let sections: [IndexSection]
     var landscape = false
-    var focus: FocusState<String?>.Binding? = nil
 
     private var columns: [GridItem] {
         let width = landscape ? Lockup.landscapeWidth : Lockup.posterWidth
         return [GridItem(.adaptive(minimum: width, maximum: width), spacing: Lockup.gridSpacing, alignment: .top)]
     }
 
-    /// Off Apple TV, up to this many titles the grid is built whole rather
-    /// than as it scrolls into view; big libraries stay lazy, to open
-    /// quickly. Apple TV always builds lazy rows.
+    /// Up to this many titles the grid is built whole rather than as it
+    /// scrolls into view; big libraries stay lazy, to open quickly.
     static let builtWholeUpTo = 200
 
     private var buildsWhole: Bool {
@@ -152,16 +152,6 @@ struct SectionedItemGrid: View {
 
     /// The grid's width, for how many titles fit in a row when built whole.
     @State private var width: CGFloat = 0
-    /// The last focus change in the grid: from which card to which, and
-    /// when. A press whose own move already went card to card is left alone;
-    /// one that bounced off a stand-in (back from nothing) is carried on.
-    /// Kept in a box SwiftUI doesn't watch, so a move doesn't rebuild every
-    /// card mid-animation.
-    @State private var focusChanges = FocusChangeLog()
-    /// The card focus left the grid from (for the sidebar, say). Coming
-    /// back, the focus engine would pick the card nearest where focus was,
-    /// often one row up; this one is preferred instead.
-    @State private var returnTo: String?
 
     private var itemWidth: CGFloat { landscape ? Lockup.landscapeWidth : Lockup.posterWidth }
 
@@ -171,30 +161,7 @@ struct SectionedItemGrid: View {
     }
 
     var body: some View {
-        // No focus sections here: a section fills its empty space with
-        // invisible stand-ins to catch presses, and the space under each card
-        // (its title) caught every press down and sent it back to the card.
         Group {
-            #if os(tvOS)
-            // One lazy run of rows across every letter, built as they near the
-            // screen, so a move only involves the cards around it. Each
-            // letter sits in the margin beside its first row, so every row is
-            // spaced alike: a heading of its own made a tall gap, where the
-            // focus engine put a stand-in that bounced each press across
-            // letters, stuttering the scroll.
-            LazyVStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
-                ForEach(Self.rows(of: sections, perRow: perRow)) { row in
-                    HStack(alignment: .top, spacing: Lockup.gridSpacing) {
-                        ForEach(row.items) { item in
-                            lockup(item)
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if let letter = row.letter { marginLetter(letter) }
-                    }
-                }
-            }
-            #else
             if buildsWhole {
                 VStack(alignment: .leading, spacing: Lockup.gridRowSpacing) {
                     ForEach(sections) { section in
@@ -226,90 +193,11 @@ struct SectionedItemGrid: View {
                     }
                 }
             }
-            #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        #if os(tvOS)
-        // Up and down move a row at a time, by the grid's own layout. Left to
-        // the focus engine, a press landed on invisible stand-ins it puts in
-        // the gaps between cards (the titles, the letter headings), which sent
-        // it straight back: every move took two presses.
-        // Watched from a background view, so only that view redraws per move.
-        .background {
-            if let focus { FocusChangeWatcher(focus: focus, log: focusChanges, returnTo: $returnTo) }
-        }
-        .modifier(ReturnFocus(focus: focus, card: returnTo))
-        .onMoveCommand { direction in
-            guard direction == .down || direction == .up, let focus else { return }
-            // Each press gets a number: a later press's own move wins over
-            // this one's re-check below.
-            focusChanges.presses += 1
-            let press = focusChanges.presses
-            // The card the press started from. Focus can be on nothing for a
-            // moment: the lazy grid holds stand-ins for rows not built yet, and
-            // a press that lands on one leaves the grid's focus empty, then the
-            // focus engine picks some card on its own once the row is built.
-            // Moving on from the last card keeps the press to one row.
-            let from: String?
-            if let current = focus.wrappedValue {
-                // The focus engine's own move got there, card to card, just now.
-                if let change = focusChanges.last, change.to == current, change.from != nil, change.from != current,
-                   Date().timeIntervalSince(change.at) < 0.3 {
-                    return
-                }
-                from = current
-            } else if let change = focusChanges.last, change.to == nil, Date().timeIntervalSince(change.at) < 0.3 {
-                from = change.from
-            } else {
-                from = nil
-            }
-            guard let from, let target = Self.target(from: from, down: direction == .down, in: sections, perRow: perRow) else { return }
-            focus.wrappedValue = target
-            // Again once the focus engine has had its go (it may have moved
-            // focus on from a stand-in meanwhile), unless another press has
-            // come since: quick presses mustn't be pulled back to this one.
-            Task {
-                // At 80 ms and 250 ms after the press.
-                for wait in [80, 170] {
-                    try? await Task.sleep(for: .milliseconds(wait))
-                    guard focusChanges.presses == press else { return }
-                    if focus.wrappedValue != target { focus.wrappedValue = target }
-                }
-            }
-        }
-        #endif
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.vertical, 40)
-    }
-
-    /// The card a press up or down from `current` goes to: the same column a
-    /// row along (the last card of a shorter row), crossing into the letter
-    /// before or after at its ends; nil off the top or bottom, or for left and
-    /// right, which the focus engine handles.
-    static func target(from current: String, down: Bool, in sections: [IndexSection], perRow: Int) -> String? {
-        guard perRow > 0,
-              let sectionIndex = sections.firstIndex(where: { $0.items.contains { $0.id == current } }),
-              let index = sections[sectionIndex].items.firstIndex(where: { $0.id == current }) else { return nil }
-        let items = sections[sectionIndex].items
-        let column = index % perRow
-        let row = index / perRow
-        let rows = (items.count + perRow - 1) / perRow
-        func card(row: Int, in items: [BaseItem]) -> String? {
-            let start = row * perRow
-            guard start < items.count else { return nil }
-            return items[min(start + column, items.count - 1)].id
-        }
-        if down {
-            if row + 1 < rows { return card(row: row + 1, in: items) }
-            guard sectionIndex + 1 < sections.count else { return nil }
-            return card(row: 0, in: sections[sectionIndex + 1].items)
-        } else {
-            if row > 0 { return card(row: row - 1, in: items) }
-            guard sectionIndex > 0 else { return nil }
-            let previous = sections[sectionIndex - 1].items
-            return card(row: (previous.count - 1) / perRow, in: previous)
-        }
     }
 
     private func header(_ section: IndexSection) -> some View {
@@ -322,104 +210,16 @@ struct SectionedItemGrid: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    /// One row of the grid. A letter's first row has the letter's anchor for
-    /// its id, so the index bar can scroll to it even before it's built.
-    struct Row: Identifiable {
-        let id: String
-        /// The letter shown beside it, on a letter's first row only.
-        let letter: String?
-        let items: ArraySlice<BaseItem>
-    }
-
-    /// The sections cut into rows of `perRow`, each letter starting a new row.
-    static func rows(of sections: [IndexSection], perRow: Int) -> [Row] {
-        let perRow = max(1, perRow)
-        return sections.flatMap { section in
-            stride(from: 0, to: section.items.count, by: perRow).map { start in
-                let items = section.items[start ..< min(start + perRow, section.items.count)]
-                let id = start == 0 ? LibraryIndexBar.anchor(section.key) : "\(LibraryIndexBar.anchor(section.key))-\(start)"
-                return Row(id: id, letter: start == 0 ? section.key : nil, items: items)
-            }
-        }
-    }
-
-    /// A letter's label in the left margin, level with its first row's top.
-    private func marginLetter(_ key: String) -> some View {
-        Text(key)
-            .font(.title3.weight(.bold))
-            .foregroundStyle(.secondary)
-            .frame(width: Lockup.screenPadding, alignment: .center)
-            .offset(x: -Lockup.screenPadding)
-            .padding(.top, 8)
-            .accessibilityAddTraits(.isHeader)
-    }
-
     @ViewBuilder
     private func lockup(_ item: BaseItem) -> some View {
         if landscape {
-            LandscapeLockup(item: item, focus: focus)
+            LandscapeLockup(item: item)
         } else {
-            PosterLockup(item: item, focus: focus)
+            PosterLockup(item: item)
         }
     }
 }
-
-/// A grid's last focus change, in a plain object: writing to it doesn't
-/// redraw anything.
-final class FocusChangeLog {
-    var last: (from: String?, to: String?, at: Date)?
-    /// How many up and down presses the grid has had.
-    var presses = 0
-}
-
-/// Notes each focus change in a `FocusChangeLog`. Being its own small view,
-/// it's the only thing that redraws when focus moves.
-private struct FocusChangeWatcher: View {
-    let focus: FocusState<String?>.Binding
-    let log: FocusChangeLog
-    @Binding var returnTo: String?
-
-    var body: some View {
-        Color.clear
-            .onChange(of: focus.wrappedValue) { old, new in
-                log.last = (old, new, Date())
-                if let old, new == nil {
-                    // Focus left the grid. A hop onto a stand-in for an
-                    // unbuilt row is back on a card within a few
-                    // milliseconds; still out after that, it went elsewhere
-                    // (the sidebar, the letters), and coming back should land
-                    // on this card. (The remote's press into the sidebar never
-                    // reaches the grid, so it's told by focus alone.)
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(150))
-                        if focus.wrappedValue == nil, log.last?.to == nil, log.last?.from == old { returnTo = old }
-                    }
-                } else if new != nil, returnTo != nil {
-                    // Back in the grid: the card to return to has done its job.
-                    returnTo = nil
-                }
-            }
-    }
-}
-
-/// Prefers `card` when focus moves into the grid by a press from outside
-/// (with `.userInitiated`, not only when the page first appears).
-private struct ReturnFocus: ViewModifier {
-    let focus: FocusState<String?>.Binding?
-    let card: String?
-
-    func body(content: Content) -> some View {
-        #if os(tvOS)
-        if let focus {
-            content.defaultFocus(focus, card, priority: .userInitiated)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
+#endif
 
 /// The index of a sectioned grid's letters. `jump` brings one's section up.
 struct LibraryIndexBar: View {

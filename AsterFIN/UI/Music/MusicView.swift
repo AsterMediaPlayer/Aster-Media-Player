@@ -500,7 +500,7 @@ struct SquareLockup: View {
                 if let action {
                     Button(action: action) { artwork }
                 } else {
-                    NavigationLink(value: item) { artwork }
+                    ItemLink(item: item) { artwork }
                 }
             }
             .cardButtonStyle()
@@ -536,7 +536,7 @@ struct ArtistLockup: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            NavigationLink(value: artist) {
+            ItemLink(item: artist) {
                 RemoteImage(url: session.client?.posterURL(for: artist, width: 500), systemImage: "music.mic")
                     .frame(width: size, height: size)
                     .clipShape(Circle())

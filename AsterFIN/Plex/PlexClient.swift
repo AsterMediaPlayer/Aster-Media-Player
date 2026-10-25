@@ -112,15 +112,18 @@ nonisolated final class PlexClient: MediaServer {
     // MARK: Pictures
 
     /// `ref.tag` is the picture's path on the server (a `thumb` or `art`),
-    /// resized by the server's photo transcoder.
+    /// resized by the server's photo transcoder to fit inside the size asked
+    /// for (the free side is left three times as long, so it never decides).
+    /// Logos come as PNG, keeping their transparency.
     func imageURL(_ ref: ImageRef) -> URL {
         url("/photo/:/transcode", query: [
             "url": ref.tag,
-            "width": ref.maxWidth.map(String.init) ?? ref.maxHeight.map { String($0 * 2) },
-            "height": ref.maxHeight.map(String.init) ?? ref.maxWidth.map { String($0 * 2) },
-            "minSize": "1",
+            "width": ref.maxWidth.map(String.init) ?? ref.maxHeight.map { String($0 * 3) },
+            "height": ref.maxHeight.map(String.init) ?? ref.maxWidth.map { String($0 * 3) },
+            "minSize": "0",
             "upscale": "1",
             "quality": String(ref.quality),
+            "format": ref.kind == .logo ? "png" : nil,
             "X-Plex-Token": accessToken,
         ])
     }

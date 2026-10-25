@@ -40,6 +40,48 @@ nonisolated protocol MediaServer: AnyObject, Sendable {
 
     /// Ends this device's sign-in on the server, where it has one.
     func logout() async
+
+    // Playing, in the shapes the players were written for: Jellyfin's
+    // playback info and reports. Other servers answer in the same shapes.
+
+    /// How the item can be played: its files and tracks, and the server's
+    /// converted stream when it isn't played as it is.
+    func playbackInfo(_ request: PlaybackInfoRequest) async throws -> PlaybackInfoResponse
+    /// The file itself, for playing as it is.
+    func directStreamURL(itemId: String, mediaSourceId: String, playSessionId: String?, container: String?) -> URL
+    /// A path from the server's playback info (a converted stream) as a
+    /// full address the player can open.
+    func absoluteURL(serverRelative path: String) -> URL?
+    func reportStart(_ report: PlaybackReport) async
+    /// Also saves the resume point, when due, at once, or never.
+    func reportProgress(_ report: PlaybackReport, resumePoint: ResumePoints.Saving) async
+    func reportStopped(_ report: PlaybackReport) async
+    /// Sets where the item was left, leaving its watched state alone.
+    func saveResumePosition(itemId: String, ticks: Int64) async throws
+    /// Ends the server's conversion for a playback that's over.
+    func stopTranscoding(playSessionId: String) async
+    /// A text subtitle track's cues, for the app to draw.
+    func subtitleCues(itemId: String, mediaSourceId: String, streamIndex: Int) async throws -> [SubtitleCue]
+    /// The intro, credits and the like, to skip or offer the next episode at.
+    func mediaSegments(itemId: String) async throws -> [MediaSegment]
+    func trickplayTileURL(itemId: String, width: Int, index: Int, mediaSourceId: String) -> URL
+    func chapterImageURL(itemId: String, index: Int, stamp: Int64?) -> URL
+    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL
+}
+
+/// What `MediaServer.playbackInfo` is asked: an item, where to start, the
+/// tracks wanted, and how freely the server may play the file as it is.
+nonisolated struct PlaybackInfoRequest: Sendable {
+    var itemId: String
+    var mediaSourceId: String?
+    var startTicks: Int64
+    var maxBitrate: Int
+    var audioStreamIndex: Int?
+    var subtitleStreamIndex: Int?
+    var allowDirect = true
+    /// A fresh 8-bit H.264 + AAC encode: the last resort.
+    var mostCompatible = false
+    var profile: DeviceProfile?
 }
 
 /// One picture of a title, for `MediaServer.imageURL`.
@@ -102,6 +144,19 @@ nonisolated extension MediaServer {
 
     func search(_ term: String) async throws -> [BaseItem] {
         try await search(term, limit: 60)
+    }
+
+    func playbackInfo(itemId: String, mediaSourceId: String? = nil, startTicks: Int64, maxBitrate: Int,
+                      audioStreamIndex: Int? = nil, subtitleStreamIndex: Int? = nil, allowDirect: Bool = true,
+                      mostCompatible: Bool = false, profile: DeviceProfile? = nil) async throws -> PlaybackInfoResponse {
+        try await playbackInfo(PlaybackInfoRequest(
+            itemId: itemId, mediaSourceId: mediaSourceId, startTicks: startTicks, maxBitrate: maxBitrate,
+            audioStreamIndex: audioStreamIndex, subtitleStreamIndex: subtitleStreamIndex,
+            allowDirect: allowDirect, mostCompatible: mostCompatible, profile: profile))
+    }
+
+    func reportProgress(_ report: PlaybackReport, savingResumePoint saving: ResumePoints.Saving = .whenDue) async {
+        await reportProgress(report, resumePoint: saving)
     }
 }
 

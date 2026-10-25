@@ -767,6 +767,17 @@ nonisolated final class JellyfinClient: MediaServer {
         return try await post(PlaybackInfoResponse.self, "/Items/\(itemId)/PlaybackInfo", query: ["userId": user], body: body)
     }
 
+    func playbackInfo(_ request: PlaybackInfoRequest) async throws -> PlaybackInfoResponse {
+        try await playbackInfo(itemId: request.itemId, mediaSourceId: request.mediaSourceId, startTicks: request.startTicks,
+                               maxBitrate: request.maxBitrate, audioStreamIndex: request.audioStreamIndex,
+                               subtitleStreamIndex: request.subtitleStreamIndex, allowDirect: request.allowDirect,
+                               mostCompatible: request.mostCompatible, profile: request.profile)
+    }
+
+    func reportProgress(_ report: PlaybackReport, resumePoint: ResumePoints.Saving) async {
+        await reportProgress(report, savingResumePoint: resumePoint)
+    }
+
     /// The cues of a text subtitle track, converted by the server to its
     /// JSON form (what Jellyfin's web player reads). The first request for
     /// a track inside an MKV makes the server extract it, which can take

@@ -24,7 +24,7 @@ final class ImageStore {
         cache.object(forKey: url as NSURL)
     }
 
-    func image(for url: URL, client: JellyfinClient?) async -> PlatformImage? {
+    func image(for url: URL, client: (any MediaServer)?) async -> PlatformImage? {
         if let hit = cache.object(forKey: url as NSURL) { return hit }
         if let task = inFlight[url] { return await task.value }
         let task = Task<PlatformImage?, Never> {
@@ -74,7 +74,7 @@ final class ImageStore {
         return result
     }
 
-    func prefetch(_ urls: [URL], client: JellyfinClient?) {
+    func prefetch(_ urls: [URL], client: (any MediaServer)?) {
         for url in urls where cache.object(forKey: url as NSURL) == nil {
             Task { _ = await image(for: url, client: client) }
         }
@@ -86,7 +86,7 @@ final class ImageStore {
     /// when the caller's task is cancelled (the grid went away). Three at a
     /// time leaves half of the session's six connections to the server for
     /// the pictures on screen, so they never wait behind the look-ahead.
-    func warm(_ urls: [URL], client: JellyfinClient?, concurrently width: Int = 3) async {
+    func warm(_ urls: [URL], client: (any MediaServer)?, concurrently width: Int = 3) async {
         guard let client else { return }
         let pending = urls.filter { cache.object(forKey: $0 as NSURL) == nil }
         await withTaskGroup(of: Void.self) { group in

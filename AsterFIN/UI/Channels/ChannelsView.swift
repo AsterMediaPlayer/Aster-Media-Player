@@ -70,7 +70,7 @@ struct ChannelsView: View {
         // Only playlists whose contents changed are fetched again.
         .onAppear {
             Task {
-                guard let client = session.client else { return }
+                guard let client = session.jellyfin else { return }
                 let before = model.channels
                 await model.load(client: client, userName: session.userName)
                 // The guide covers a week from when it was made: it's made

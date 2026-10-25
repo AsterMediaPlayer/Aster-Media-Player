@@ -109,7 +109,7 @@ extension Lockup {
     /// A poster card's picture. At quality 80 it's about 40% smaller than at
     /// 90, with no difference you can see at card size. Cards and the grid's
     /// look-ahead both use this, so they ask for the same URL and share the cache.
-    static func posterImageURL(for item: BaseItem, client: JellyfinClient?) -> URL? {
+    static func posterImageURL(for item: BaseItem, client: (any MediaServer)?) -> URL? {
         client?.posterURL(for: item, width: posterImageWidth, quality: 80)
     }
 }
@@ -520,7 +520,7 @@ struct ItemActionsMenu: View {
     }
 
     /// Shows the change right away and puts it back if the server refuses.
-    private func update(to data: UserItemData, _ send: @escaping (JellyfinClient) async throws -> Void) {
+    private func update(to data: UserItemData, _ send: @escaping (any MediaServer) async throws -> Void) {
         guard let client = session.client else { return }
         let previous = userData
         userData = data

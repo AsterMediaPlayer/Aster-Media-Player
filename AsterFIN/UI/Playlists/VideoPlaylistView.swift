@@ -83,7 +83,7 @@ struct VideoPlaylistView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         isLoading = true
         do {
             items = try await client.playlistItems(playlistId: playlist.id)
@@ -94,7 +94,7 @@ struct VideoPlaylistView: View {
     }
 
     private func remove(_ item: BaseItem) {
-        guard let client = session.client, let entry = item.playlistItemId else { return }
+        guard let client = session.jellyfin, let entry = item.playlistItemId else { return }
         let previous = items
         items.removeAll { $0.playlistRowID == item.playlistRowID }
         Task {
@@ -108,7 +108,7 @@ struct VideoPlaylistView: View {
     }
 
     private func move(_ item: BaseItem, to newIndex: Int) {
-        guard let client = session.client, let entry = item.playlistItemId,
+        guard let client = session.jellyfin, let entry = item.playlistItemId,
               let from = items.firstIndex(where: { $0.playlistRowID == item.playlistRowID }) else { return }
         let previous = items
         let moved = items.remove(at: from)
@@ -135,7 +135,7 @@ private struct PlaylistVideoLockup<Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             NavigationLink(value: item) {
-                RemoteImage(url: session.client?.landscapeURL(for: item, width: 800), systemImage: item.kind == .episode ? "tv" : "film")
+                RemoteImage(url: session.jellyfin?.landscapeURL(for: item, width: 800), systemImage: item.kind == .episode ? "tv" : "film")
                     .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
             }
             .cardButtonStyle()

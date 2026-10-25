@@ -116,7 +116,7 @@ final class DetailModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    func load(_ summary: BaseItem, client: JellyfinClient) async {
+    func load(_ summary: BaseItem, client: any MediaServer) async {
         isLoading = item == nil
         errorMessage = nil
         do {
@@ -126,8 +126,10 @@ final class DetailModel {
             isLoading = false
 
             async let similarItems = client.similar(to: full.id, limit: 20)
-            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime
-                ? Self.openingsEndings(for: full, client: client)
+            // Openings and endings come from Jellyfin's OP/ED plugin and chapters.
+            let jellyfin = client as? JellyfinClient
+            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime && jellyfin != nil
+                ? Self.openingsEndings(for: full, client: jellyfin!)
                 : []
 
             switch full.kind {
@@ -164,7 +166,7 @@ final class DetailModel {
         }
     }
 
-    func refresh(client: JellyfinClient) async {
+    func refresh(client: any MediaServer) async {
         guard let current = item else { return }
         if let fresh = try? await client.item(current.id) {
             item = fresh
@@ -181,7 +183,7 @@ final class DetailModel {
         await loadDiscMenu(client: client)
     }
 
-    func selectSeason(_ seasonId: String, client: JellyfinClient) async {
+    func selectSeason(_ seasonId: String, client: any MediaServer) async {
         guard let item, let seriesId = item.kind == .series ? item.id : item.seriesId else { return }
         selectedSeasonId = seasonId
         episodes = (try? await client.episodes(seriesId: seriesId, seasonId: seasonId)) ?? []
@@ -194,8 +196,10 @@ final class DetailModel {
     /// The page's disc menu: its own (a movie's, show's or season's), or for
     /// a show without one, the menu of the season it's showing, which is
     /// where a one-season show's menu is often bound.
-    func loadDiscMenu(client: JellyfinClient) async {
-        guard let item, item.kind == .movie || item.kind == .series || item.kind == .season else { return }
+    func loadDiscMenu(client: any MediaServer) async {
+        // Disc menus come from Jellyfin's Aster Disc plugin.
+        guard let client = client as? JellyfinClient,
+              let item, item.kind == .movie || item.kind == .series || item.kind == .season else { return }
         if let own = (try? await client.discMenu(for: item.id)) ?? nil {
             discMenu = own
             discMenuItemId = item.id
@@ -209,7 +213,7 @@ final class DetailModel {
         }
     }
 
-    func toggleFavorite(client: JellyfinClient) async {
+    func toggleFavorite(client: any MediaServer) async {
         guard var current = item else { return }
         let newValue = !(current.userData?.isFavorite ?? false)
         current.userData?.isFavorite = newValue
@@ -217,7 +221,7 @@ final class DetailModel {
         try? await client.setFavorite(current.id, newValue)
     }
 
-    func togglePlayed(client: JellyfinClient) async {
+    func togglePlayed(client: any MediaServer) async {
         guard var current = item else { return }
         let newValue = !(current.userData?.played ?? false)
         current.userData?.played = newValue
@@ -480,20 +484,25 @@ struct ItemDetailView: View {
         }
         .task(id: item.id) {
             guard let client = session.client else { return }
-            session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
+            // Theme songs and videos, and openings and endings, are Jellyfin's.
+            if let jellyfin = session.jellyfin {
+                session.theme.show(item: item, client: jellyfin, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
+            }
             await model.load(item, client: client)
             // Opened from a hero's Play: play now, with this page behind.
             if session.playOnOpen == item.id {
                 session.playOnOpen = nil
                 play(fromBeginning: false)
             }
-            await showOpening(client: client)
-            await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
+            if let jellyfin = session.jellyfin {
+                await showOpening(client: jellyfin)
+                await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
+            }
         }
         // Picking another season swaps in that season's opening, both behind
         // the page and for Watch OP.
         .onChange(of: model.selectedSeasonId) { _, _ in
-            guard let client = session.client else { return }
+            guard let client = session.jellyfin else { return }
             Task {
                 await showOpening(client: client)
                 await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
@@ -1141,7 +1150,7 @@ struct ItemDetailView: View {
 
     /// Carries on with a failed download from where it stopped.
     private func resumeDownload(_ item: BaseItem) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 try await DownloadStore.shared.retry(item.id, client: client, preferences: session.playbackPreferences, canDownload: session.canDownload)
@@ -1152,7 +1161,7 @@ struct ItemDetailView: View {
     }
 
     private func beginDownload(_ item: BaseItem, audio: Int? = nil, subtitle: Int? = nil) {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 let store = DownloadStore.shared
@@ -1170,7 +1179,7 @@ struct ItemDetailView: View {
 
     /// Series and seasons add their episodes; everything else adds itself.
     private func addToPlaylist() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             let ids: [String]
             switch detail.kind {
@@ -1190,7 +1199,7 @@ struct ItemDetailView: View {
     }
 
     private func deleteRecording() {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         Task {
             do {
                 try await client.deleteRecording(detail.id)
@@ -1310,7 +1319,7 @@ struct ItemDetailView: View {
 
     /// Plays an OP/ED plugin theme: its MP4, or audio tvOS can play.
     private func play(_ theme: OpEdTheme) {
-        guard let path = theme.playablePath, let client = session.client else { return }
+        guard let path = theme.playablePath, let client = session.jellyfin else { return }
         urlPlayback = URLPlayback(
             url: client.opEdMediaURL(path),
             title: theme.songLine ?? theme.code,
@@ -1330,7 +1339,9 @@ struct ItemDetailView: View {
             switch detail.kind {
             case .episode:
                 await model.load(reached, client: client)
-                await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
+                if let jellyfin = session.jellyfin {
+                    await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
+                }
                 return
             case .series, .season:
                 if let seasonId = reached.seasonId, seasonId != model.selectedSeasonId, detail.kind == .series {

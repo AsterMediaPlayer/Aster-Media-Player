@@ -98,7 +98,7 @@ struct SettingsView: View {
         }
         // Settings that follow the user come from their server on opening.
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            if let client = session.jellyfin { await SettingsSync.pull(client: client) }
         }
     }
 }
@@ -133,7 +133,7 @@ struct MacSettingsView: View {
         .frame(width: 560)
         .frame(minHeight: 380)
         .task {
-            if let client = session.client { await SettingsSync.pull(client: client) }
+            if let client = session.jellyfin { await SettingsSync.pull(client: client) }
         }
     }
 }
@@ -1299,7 +1299,7 @@ struct ChannelSettingsView: View {
     private func save(_ playlist: BaseItem, _ tags: ChannelTags) {
         var tags = tags
         if tags.number == nil { tags.number = numbers[playlist.id] }
-        guard canEdit, let client = session.client, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        guard canEdit, let client = session.jellyfin, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
         let previous = playlists[index].tags
         let updated = tags.applied(to: previous)
         playlists[index].tags = updated
@@ -1316,7 +1316,7 @@ struct ChannelSettingsView: View {
     }
 
     private func load() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         async let genres = client.videoGenres()
         async let views = client.userViews()
         async let studios = client.videoStudios()
@@ -1352,7 +1352,7 @@ struct ChannelSettingsView: View {
             if let playlist = playlists.first(where: { $0.id == id }) { turnOn(playlist) }
             return
         }
-        guard canEdit, !isCreating, let client = session.client else { return }
+        guard canEdit, !isCreating, let client = session.jellyfin else { return }
         isCreating = true
         var tags = ChannelTags(isChannel: true, number: (numbers.values.max() ?? 0) + 1)
         switch source {
@@ -1654,7 +1654,7 @@ private struct AccountSettingsView: View {
             }
         }
         .task {
-            serverInfo = try? await session.client?.publicSystemInfo()
+            serverInfo = try? await session.jellyfin?.publicSystemInfo()
         }
     }
 }

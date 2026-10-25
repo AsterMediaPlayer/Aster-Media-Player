@@ -254,7 +254,7 @@ struct GuideView: View {
     /// row and its neighbours, so the panel's picture is ready before focus
     /// arrives there.
     private func prefetchArtwork(around channelId: String) {
-        guard let client = session.client, let index = rows.firstIndex(where: { $0.id == channelId }) else { return }
+        guard let client = session.jellyfin, let index = rows.firstIndex(where: { $0.id == channelId }) else { return }
         let windowEnd = windowStart.addingTimeInterval(visibleMinutes * 60)
         var urls: [URL] = []
         for offset in -1...2 {
@@ -383,7 +383,7 @@ struct GuideView: View {
                             ForEach(rows) { channel in
                                 GuideRow(
                                     channel: channel,
-                                    logoURL: session.client.flatMap { model.channelLogoURL(channel, width: 200, client: $0) },
+                                    logoURL: session.jellyfin.flatMap { model.channelLogoURL(channel, width: 200, client: $0) },
                                     programs: model.programs[channel.id],
                                     guideStart: model.guideStart,
                                     windowStart: windowStart,
@@ -401,7 +401,7 @@ struct GuideView: View {
                                 )
                                 .id(channel.id)
                                 .onAppear {
-                                    guard let client = session.client else { return }
+                                    guard let client = session.jellyfin else { return }
                                     model.ensurePrograms(for: channel.id, client: client)
                                     // Fetch a stretch of rows ahead too, so a held
                                     // button rarely reaches a row that is still loading.
@@ -492,7 +492,7 @@ struct GuideView: View {
             nudgeIntoRow(id)
         }
         .task(id: highlightedProgram?.id) {
-            guard let id = highlightedProgram?.id, let client = session.client else { return }
+            guard let id = highlightedProgram?.id, let client = session.jellyfin else { return }
             model.ensureDetail(for: id, client: client)
             if let channelId = highlightedChannelId ?? rows.first?.id {
                 prefetchArtwork(around: channelId)
@@ -772,7 +772,7 @@ struct GuideNowPlayingPanel: View {
 
     /// The programme's own picture, else its channel's logo.
     private var imageURL: URL? {
-        guard let client = session.client else { return nil }
+        guard let client = session.jellyfin else { return nil }
         if let program {
             let hasOwnPicture = program.imageTags?["Primary"] != nil || program.imageTags?["Thumb"] != nil
             // Without a picture of its own, wait for the full record before

@@ -18,7 +18,12 @@ final class AppSession {
     }
 
     private(set) var phase: Phase = .loading
-    private(set) var client: JellyfinClient?
+    /// The server signed in to: browsing, Home, title pages, search and
+    /// playback go through this, whichever server it is.
+    private(set) var client: (any MediaServer)?
+    /// The same server as Jellyfin (or Emby), for what only they have
+    /// (music, audiobooks, Live TV, channels, Aster's plugins); nil on Plex.
+    var jellyfin: JellyfinClient? { client as? JellyfinClient }
     private(set) var serverURL: URL?
     private(set) var serverName: String?
     /// Jellyfin or Emby. Jellyfin's plugins and extras (Quick Connect, OP/ED,
@@ -152,7 +157,7 @@ final class AppSession {
     var playOnOpen: String?
 
     func refreshUpcoming() async {
-        guard let client else { return }
+        guard let client = jellyfin else { return }
         if let soonest = try? await client.upcoming(limit: 1) {
             hasUpcoming = !soonest.isEmpty
         }
@@ -196,7 +201,7 @@ final class AppSession {
 
     func detectAnimeMusic(among views: [BaseItem]) async {
         musicVideoLibraries = views.filter { $0.collectionType == "musicvideos" }
-        opEdVideosLibraryId = await client?.opEdLibraries()?.videosLibraryId
+        opEdVideosLibraryId = await jellyfin?.opEdLibraries()?.videosLibraryId
         updateAnimeMusicVideoLibraries()
     }
 
@@ -214,7 +219,7 @@ final class AppSession {
     }
 
     func detectAnimeLibraries(among views: [BaseItem]) async {
-        guard let client else { return }
+        guard let client = jellyfin else { return }
         let libraries = await client.animeLibraries(among: views)
         let ids = await client.itemIds(inLibraries: libraries.map(\.id), types: "Series,Movie")
         animeLibraries = libraries
@@ -292,12 +297,12 @@ final class AppSession {
     func refreshChannels() async {
         // Channels are playlist tags in Jellyfin's shape; Emby's differ.
         guard isJellyfin else { hasChannels = false; return }
-        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        guard let client = jellyfin, let playlists = try? await client.playlists(mediaType: "Video") else { return }
         hasChannels = ChannelsModel.taggedChannels(in: playlists).contains { $0.tags.isShown(to: userName) }
     }
 
     func refreshUserConfiguration() async {
-        guard let client, let me = try? await client.me() else { return }
+        guard let client = jellyfin, let me = try? await client.me() else { return }
         canDownload = me.policy?.enableContentDownloading ?? false
         canEditChannels = me.policy?.isAdministrator ?? false
         if let config = me.configuration {
@@ -311,7 +316,7 @@ final class AppSession {
     /// the first time an administrator signs in after the change (or if
     /// someone types an old one in Jellyfin); old tags are read meanwhile.
     private func convertOldChannelTags() async {
-        guard let client, let playlists = try? await client.playlists(mediaType: "Video") else { return }
+        guard let client = jellyfin, let playlists = try? await client.playlists(mediaType: "Video") else { return }
         var converted = false
         for playlist in playlists {
             guard let tags = ChannelTags.converted(playlist.tags) else { continue }
@@ -323,7 +328,7 @@ final class AppSession {
     /// Changes one or more settings and saves them to the server, keeping the
     /// local copy if the save fails so the UI does not lie.
     func updateUserConfiguration(_ mutate: (inout UserConfiguration) -> Void) async {
-        guard let client else { return }
+        guard let client = jellyfin else { return }
         let previous = userConfiguration
         var config = userConfiguration ?? UserConfiguration()
         mutate(&config)

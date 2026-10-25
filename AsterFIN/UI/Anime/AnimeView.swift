@@ -63,7 +63,7 @@ final class AnimeModel {
 
     /// The newest series and films across the anime libraries. Home's
     /// Recently Added Anime shelf uses this too.
-    static func recentlyAdded(client: JellyfinClient, libraries: [BaseItem], limit: Int = 20) async -> [BaseItem] {
+    static func recentlyAdded(client: any MediaServer, libraries: [BaseItem], limit: Int = 20) async -> [BaseItem] {
         let all = await merged(libraries.map(\.id)) { try await client.latest(parentId: $0, limit: limit) }
         let newest = all.sorted { ($0.dateCreated ?? "") > ($1.dateCreated ?? "") }
 
@@ -273,7 +273,7 @@ struct AnimeView: View {
     #endif
 
     private func reload() async {
-        guard let client = session.client else { return }
+        guard let client = session.jellyfin else { return }
         await model.load(client: client, libraries: session.animeLibraries, musicVideoLibraries: session.animeMusicVideoLibraries)
     }
 }

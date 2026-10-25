@@ -77,6 +77,8 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
     var accessToken: String
     /// Nil in sessions saved before Emby was supported: those are Jellyfin.
     var serverKind: ServerKind?
+    /// A Plex sign-in's plex.tv side; nil for Jellyfin and Emby.
+    var plex: PlexLink?
 
     var kind: ServerKind { serverKind ?? .jellyfin }
 
@@ -98,6 +100,25 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
     }
 }
 
+/// What a Plex sign-in keeps beyond the server's own token: the plex.tv
+/// account it came through, and every address plex.tv gave for the server,
+/// to find it again when the one in use stops answering.
+nonisolated struct PlexLink: Codable, Sendable, Equatable {
+    /// The plex.tv account's token (the Home user's, once one is picked).
+    var accountToken: String
+    /// The server's `machineIdentifier`.
+    var machineId: String
+    /// Every connection plex.tv listed, best first.
+    var connections: [PlexConnectionInfo]
+}
+
+/// One way to reach a Plex server.
+nonisolated struct PlexConnectionInfo: Codable, Sendable, Equatable, Hashable {
+    var uri: URL
+    var local: Bool
+    var relay: Bool
+}
+
 /// A server signed in to, kept so the app can switch back to it without
 /// signing in again; the one in use is also the `StoredSession` the widget
 /// and Top Shelf read.
@@ -112,8 +133,16 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     /// The lock-after choices offered, in minutes.
     static let lockChoices = [5, 15, 30, 60, 240]
 
-    /// One per server and user.
-    var id: String { Self.id(session.serverURL, session.userId) }
+    /// One per server and user. A Plex server by its own id: the address
+    /// used to reach it can change.
+    var id: String {
+        if let plex = session.plex { return Self.plexID(plex.machineId, session.userId) }
+        return Self.id(session.serverURL, session.userId)
+    }
+
+    static func plexID(_ machineId: String, _ userId: String) -> String {
+        "plex:" + machineId + "|" + userId
+    }
 
     static func id(_ url: URL, _ userId: String) -> String {
         url.absoluteString + "|" + userId

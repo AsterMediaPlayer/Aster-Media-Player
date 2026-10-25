@@ -182,6 +182,7 @@ nonisolated struct PlexMetadata: Decodable, Sendable {
     /// Seconds since 1970.
     var addedAt: Int?
     var guid: String?
+    var librarySectionID: Int?
     var genre: [PlexTag]?
     var role: [PlexTag]?
     var director: [PlexTag]?
@@ -196,7 +197,7 @@ nonisolated struct PlexMetadata: Decodable, Sendable {
         case ratingKey, key, type, subtype, title, titleSort, originalTitle, summary, tagline, year, duration
         case viewOffset, viewCount, lastViewedAt, leafCount, viewedLeafCount, childCount, index, parentIndex
         case thumb, art, parentThumb, grandparentThumb, grandparentArt, parentRatingKey, grandparentRatingKey
-        case parentTitle, grandparentTitle, contentRating, audienceRating, rating, studio, originallyAvailableAt, addedAt, guid
+        case parentTitle, grandparentTitle, contentRating, audienceRating, rating, studio, originallyAvailableAt, addedAt, guid, librarySectionID
         case genre = "Genre"
         case role = "Role"
         case director = "Director"

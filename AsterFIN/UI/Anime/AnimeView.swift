@@ -28,16 +28,19 @@ final class AnimeModel {
         var id: String { library.id }
     }
 
-    func load(client: JellyfinClient, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
+    func load(client: any MediaServer, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
         isLoading = featured.isEmpty && !libraries.isEmpty
         let ids = libraries.map(\.id)
         let showIds = libraries.filter { $0.collectionType == "tvshows" }.map(\.id)
 
         async let resume = Self.merged(ids) { try await client.resume(limit: 20, parentId: $0) }
-        async let next = Self.merged(showIds) { try await client.nextUp(limit: 20, parentId: $0) }
+        async let next = Self.merged(showIds) { try await client.nextUp(limit: 20, seriesId: nil, parentId: $0) }
         async let latest = Self.recentlyAdded(client: client, libraries: libraries)
+        // Music videos (the OP/ED plugin's, and AMV libraries) are Jellyfin's.
+        let jellyfin = client as? JellyfinClient
         async let musicVideos = withTaskGroup(of: (Int, MusicVideoShelf).self) { group in
             for (position, library) in musicVideoLibraries.enumerated() {
+                guard let client = jellyfin else { break }
                 group.addTask { (position, MusicVideoShelf(library: library, items: await client.latestMusicVideos(inLibrary: library.id))) }
             }
             var shelves: [(Int, MusicVideoShelf)] = []
@@ -273,7 +276,7 @@ struct AnimeView: View {
     #endif
 
     private func reload() async {
-        guard let client = session.jellyfin else { return }
+        guard let client = session.client else { return }
         await model.load(client: client, libraries: session.animeLibraries, musicVideoLibraries: session.animeMusicVideoLibraries)
     }
 }

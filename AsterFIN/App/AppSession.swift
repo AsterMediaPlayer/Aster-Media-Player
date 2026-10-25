@@ -222,7 +222,7 @@ final class AppSession {
     }
 
     func detectAnimeLibraries(among views: [BaseItem]) async {
-        guard let client = jellyfin else { return }
+        guard let client else { return }
         let libraries = await client.animeLibraries(among: views)
         let ids = await client.itemIds(inLibraries: libraries.map(\.id), types: "Series,Movie")
         animeLibraries = libraries

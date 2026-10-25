@@ -268,10 +268,12 @@ nonisolated final class PlexClient: MediaServer {
         return Array(found.prefix(limit))
     }
 
-    /// What's partway through.
+    /// What's partway through, everywhere or in one library.
     func resume(limit: Int, parentId: String?) async throws -> [BaseItem] {
-        let hubs = try await container("/hubs/continueWatching", query: ["count": String(limit)]).hub ?? []
-        let items = hubs.flatMap { ($0.metadata ?? []).map(PlexMapper.item) }
+        let hubs = try await container("/hubs/continueWatching", query: ["count": String(parentId == nil ? limit : limit * 4)]).hub ?? []
+        let section = parentId.flatMap(Int.init)
+        let metadata = hubs.flatMap { $0.metadata ?? [] }.filter { section == nil || $0.librarySectionID == section }
+        let items = metadata.map(PlexMapper.item)
         return Array(items.filter { ($0.userData?.playbackPositionTicks ?? 0) > 0 }.prefix(limit))
     }
 
@@ -284,7 +286,7 @@ nonisolated final class PlexClient: MediaServer {
                 ?? episodes.first { $0.userData?.played != true }
             return next.map { [$0] } ?? []
         }
-        let deck = try await titles("/library/onDeck", start: 0, size: limit * 2)
+        let deck = try await titles(parentId.map { "/library/sections/\($0)/onDeck" } ?? "/library/onDeck", start: 0, size: limit * 2)
         return Array(deck.filter { $0.kind == .episode && ($0.userData?.playbackPositionTicks ?? 0) == 0 }.prefix(limit))
     }
 
@@ -332,6 +334,37 @@ nonisolated final class PlexClient: MediaServer {
 
     /// Plex has no per-device sign-in to end on the server.
     func logout() async {}
+
+    // MARK: Anime
+
+    /// Libraries matched by an anime agent: Shoko, HAMA or AniDB.
+    func animeLibraries(among libraries: [BaseItem]) async -> [BaseItem] {
+        guard let sections = try? await sections() else { return [] }
+        let anime = Set(sections.filter { section in
+            let agent = (section.agent ?? "").lowercased()
+            return ["shoko", "hama", "anidb"].contains { agent.contains($0) }
+        }.map(\.key))
+        return libraries.filter { anime.contains($0.id) }
+    }
+
+    func itemIds(inLibraries libraryIds: [String], types: String) async -> Set<String> {
+        var typeNumbers: [String] = []
+        if types.contains("Series") { typeNumbers.append("2") }
+        if types.contains("Movie") { typeNumbers.append("1") }
+        return await withTaskGroup(of: [String].self) { group in
+            for libraryId in libraryIds {
+                for type in typeNumbers {
+                    group.addTask {
+                        let found = try? await self.container("/library/sections/\(libraryId)/all", query: ["type": type])
+                        return found?.metadata?.map(\.ratingKey) ?? []
+                    }
+                }
+            }
+            var ids = Set<String>()
+            for await chunk in group { ids.formUnion(chunk) }
+            return ids
+        }
+    }
 }
 
 /// The client for a saved sign-in, whichever server it's for.

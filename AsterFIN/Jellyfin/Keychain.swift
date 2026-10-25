@@ -114,6 +114,10 @@ nonisolated struct PlexLink: Codable, Sendable, Equatable {
     /// (which locking and switching then ask for). Nil without a Home.
     var homeUserUUID: String?
     var homeUserHasPin: Bool?
+    /// The token from the plex.tv link code (the Home's account), which
+    /// checks a PIN: a profile's own token switching to itself is let
+    /// through without one.
+    var homeToken: String?
 }
 
 /// One way to reach a Plex server.
@@ -143,7 +147,9 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
 
     /// Whether there's anything to ask for: a Plex profile without a PIN
     /// can't be locked.
-    var canBeLocked: Bool { session.kind != .plex || session.plex?.homeUserHasPin == true }
+    var canBeLocked: Bool {
+        session.kind != .plex || (session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil)
+    }
 
     /// One per server and user. A Plex server by its own id: the address
     /// used to reach it can change.

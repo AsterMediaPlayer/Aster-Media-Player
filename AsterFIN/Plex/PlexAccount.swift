@@ -111,6 +111,10 @@ nonisolated enum PlexAccount {
             request.setValue(value, forHTTPHeaderField: name)
         }
         let (data, response) = try await session.data(for: request)
+        #if DEBUG
+        // The answer, never the address (it can carry a PIN).
+        print("DEBUG plex.tv: \(method) \(path) -> \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        #endif
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw PlexError.http(http.statusCode)
         }

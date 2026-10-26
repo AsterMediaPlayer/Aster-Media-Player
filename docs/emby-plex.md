@@ -11,6 +11,7 @@ Aster started as a Jellyfin client. Since 0.10 it also signs in to **Emby** and 
 | Skip Intro and Skip Credits | media segments | chapter markers | Plex Pass markers, or chapters |
 | Anime tab | Shoko | AniDB ids | Shoko, HAMA or AniDB agents |
 | Song cards for openings and endings | OP/ED plugin, or AnimeThemes | AnimeThemes | AnimeThemes |
+| Styled ASS subtitles (libass), with the file's fonts | ✓ | ✓ (fonts read from the file) | ✓ (track and fonts read from the file) |
 | Music, audiobooks, lyrics | ✓ | ✓ | |
 | Live TV and recordings | ✓ | ✓ (Emby Premiere) | |
 | Channels from playlists, playlists, Upcoming | ✓ | ✓ | |
@@ -48,7 +49,8 @@ All of a server's addresses are tried at once, and the first to answer is used; 
 - **Skip Intro and Skip Credits:** Plex Pass intro and credits markers. Without them, chapters named Opening and Ending are used.
 - **Subtitles:**
   - Subtitle files beside the video are fetched and drawn by Aster.
-  - Plex won't hand out tracks inside a file (it answers 501). On direct play, AetherEngine draws them from the file. On a converted stream, the server burns them in.
+  - Plex won't hand out tracks inside a file (it answers 501), so Aster reads a text track out of the file itself: AetherEngine opens the file a second time for that one stream, and the fonts come from the MKV's attachments (`MatroskaFonts`). ASS/SSA is then drawn by libass, as on Jellyfin, whether the picture plays from the file or from a conversion, and a text track never needs the stream restarted. Picture subtitles (PGS) are drawn by the engine on direct play and burned in by the server on a converted stream, as on Jellyfin.
+  - Before each converted stream Aster asks for Plex's transcode decision, which Plex requires, and the video comes as H.264: AetherEngine can't show Plex's HEVC in MPEG-TS when a conversion starts partway in.
 
 **When something goes wrong,** Aster says why:
 - the server isn't answering (check it's on, and turn on Remote Access to use it away from home);

@@ -134,6 +134,12 @@ final class AetherPlayback {
     /// files (an ASS track's fonts).
     private var subtitleStreams: [MediaStream] = []
     private var attachments: [MediaAttachment] = []
+    /// Plex hands out no subtitle track inside a file, so one is read from
+    /// the file itself by the engine (a second, subtitles-only read): the
+    /// track (its stream index) being read now, and the engine's own id for
+    /// each one read so far, which stay out of the subtitle menu.
+    private var plexFileSubtitle: Int?
+    private var plexFileReads: [Int: Int] = [:]
     private var assTask: Task<Void, Never>?
     private var countdownTask: Task<Void, Never>?
     /// Follows the playhead for the markers and Play Next Episode.
@@ -362,7 +368,7 @@ final class AetherPlayback {
         } else {
             playMethod = "DirectPlay"
             let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: setup.source.id, playSessionId: info.playSessionId, container: setup.source.container)
-            try await engine.load(url: url, startPosition: setup.start, audioSourceStreamIndex: setup.audio.map { Int32($0) })
+            try await engine.load(url: url, startPosition: setup.start, options: titleLoadOptions, audioSourceStreamIndex: setup.audio.map { Int32($0) })
             guard !stopped else { return }
             selectFileSubtitle(setup.subtitle)
         }
@@ -388,6 +394,8 @@ final class AetherPlayback {
         let audio = entry.audioStreamIndex ?? PlaybackCoordinator.preferredAudioTrack(in: streams, language: preferences.audioLanguage)
         let subtitles = streams.filter { $0.type == "Subtitle" }
         subtitleStreams = subtitles
+        plexFileSubtitle = nil
+        plexFileReads = [:]
         audioStreams = streams.filter { $0.type == "Audio" }
         attachments = source.mediaAttachments ?? item.mediaSources?.first { $0.id == source.id }?.mediaAttachments ?? []
         let subtitle = PlaybackCoordinator.resolveSubtitle(for: entry, source: source, among: subtitles, preferences: preferences)
@@ -932,7 +940,7 @@ final class AetherPlayback {
         #if DEBUG
         print("DEBUG playback: AetherEngine plays a converted stream (\(entry.fallback == .mostCompatible ? "H.264" : "HEVC/H.264"), cap \((qualityCap ?? AppSettings.maxBitrate) / 1_000_000) Mbps)")
         #endif
-        try await engine.load(url: url, startPosition: start, audioSourceStreamIndex: nil)
+        try await engine.load(url: url, startPosition: start, options: titleLoadOptions, audioSourceStreamIndex: nil)
         guard !stopped else { return }
         showConvertedSubtitle()
     }
@@ -1285,12 +1293,13 @@ final class AetherPlayback {
         if isConverted {
             return subtitleStreams.compactMap { stream in stream.index.map { TrackChoice(id: $0, title: stream.trackTitle) } }
         }
-        return engine.subtitleTracks.map { TrackChoice(id: $0.id, title: AetherPlayerView.label(for: $0)) }
+        let fileReads = Set(plexFileReads.values)
+        return engine.subtitleTracks.filter { !fileReads.contains($0.id) }.map { TrackChoice(id: $0.id, title: AetherPlayerView.label(for: $0)) }
     }
 
     var currentAudio: Int? { isConverted ? convertedAudio : engine.activeAudioTrackIndex }
     /// -1 for none.
-    var currentSubtitle: Int { isConverted ? convertedSubtitle : (engine.activeSubtitleTrackIndex ?? -1) }
+    var currentSubtitle: Int { isConverted ? convertedSubtitle : (plexFileSubtitle ?? engine.activeSubtitleTrackIndex ?? -1) }
 
     /// A converted stream carries one audio track, so another one is a new
     /// stream from the server, from here.
@@ -1320,9 +1329,15 @@ final class AetherPlayback {
             return
         }
         clearStyledSubtitles()
+        plexFileSubtitle = nil
         if let id {
-            engine.selectSubtitleTrack(index: id)
-            loadStyledSubtitles(id)
+            if isPlexFileTrack(id), let stream = subtitleStreams.first(where: { $0.index == id }), styles(stream) {
+                // Styled from the file itself, as Jellyfin's script is.
+                readPlexFileSubtitle(id, styled: true)
+            } else {
+                engine.selectSubtitleTrack(index: id)
+                loadStyledSubtitles(id)
+            }
         } else {
             engine.clearSubtitle()
         }
@@ -1330,7 +1345,27 @@ final class AetherPlayback {
 
     private func isTextSubtitle(_ index: Int) -> Bool {
         guard let stream = subtitleStreams.first(where: { $0.index == index }) else { return true }
+        // On Plex a text track inside the file is read from the file, so
+        // it's drawn by the app, never burned in.
+        if isPlexFileTrack(index) { return true }
         return PlaybackCoordinator.isTextTrack(stream)
+    }
+
+    /// A Plex text track inside the file, which Plex won't hand out.
+    private func isPlexFileTrack(_ index: Int) -> Bool {
+        guard client is PlexClient, let stream = subtitleStreams.first(where: { $0.index == index }) else { return false }
+        return stream.isExternal != true && PlexSubtitles.isText(stream.codec)
+    }
+
+    /// Whether `stream` is drawn by libass (the setting on, an ASS track).
+    private func styles(_ stream: MediaStream) -> Bool {
+        AppSettings.styledSubtitles && AssSubtitleTrack.isAvailable && AssSubtitleTrack.handles(stream)
+    }
+
+    /// On Plex, raw ASS lines from the engine when styled subtitles are on,
+    /// so a track read from the file can be put back together as a script.
+    private var titleLoadOptions: LoadOptions {
+        LoadOptions(preserveASSMarkup: client is PlexClient && AppSettings.styledSubtitles)
     }
 
     // MARK: Speed, chapters and scrubbing
@@ -1373,9 +1408,15 @@ final class AetherPlayback {
     private func showConvertedSubtitle() {
         clearStyledSubtitles()
         clearCues()
+        if plexFileSubtitle != nil {
+            plexFileSubtitle = nil
+            engine.clearSubtitle()
+        }
         let id = convertedSubtitle
-        guard id >= 0, let stream = subtitleStreams.first(where: { $0.index == id }), PlaybackCoordinator.isTextTrack(stream) else { return }
-        if AppSettings.styledSubtitles, AssSubtitleTrack.isAvailable, AssSubtitleTrack.handles(stream) {
+        guard id >= 0, let stream = subtitleStreams.first(where: { $0.index == id }), isTextSubtitle(id) else { return }
+        if isPlexFileTrack(id) {
+            readPlexFileSubtitle(id, styled: styles(stream))
+        } else if styles(stream) {
             loadStyledSubtitles(id)
         } else {
             loadCues(id)
@@ -1444,6 +1485,78 @@ final class AetherPlayback {
                 #endif
                 // A converted stream has no engine cues to fall back on.
                 if let self, self.isConverted { self.loadCues(id) }
+            }
+        }
+    }
+
+    // MARK: Plex subtitles from the file
+
+    /// Reads track `id` out of the Plex file, the way Jellyfin's server
+    /// extracts it: the engine opens the file a second time for that stream
+    /// alone and decodes all of it, whether the picture plays from the file
+    /// or from a conversion. Then it's drawn: styled through libass, with
+    /// the fonts the file carries, or as text.
+    private func readPlexFileSubtitle(_ id: Int, styled: Bool) {
+        guard let mediaSourceId else { return }
+        let url = client.directStreamURL(itemId: entry.itemId, mediaSourceId: mediaSourceId, playSessionId: nil, container: nil)
+        plexFileSubtitle = id
+        isLoadingStyledSubtitles = styled
+        let engineId: Int
+        if let known = plexFileReads[id] {
+            engineId = known
+        } else {
+            let stream = subtitleStreams.first { $0.index == id }
+            engineId = engine.addExternalSubtitleTrack(ExternalSubtitleTrack(
+                url: url, name: stream?.trackTitle, language: stream?.language, sourceStreamIndex: Int32(id)
+            )).id
+            plexFileReads[id] = engineId
+        }
+        engine.selectSubtitleTrack(index: engineId)
+        let itemId = entry.itemId
+        let engine = engine
+        assTask = Task { [weak self] in
+            async let fonts = styled ? MatroskaFonts.fonts(at: url) : []
+            // The engine reads the whole file before it publishes the track.
+            let deadline = Date().addingTimeInterval(300)
+            try? await Task.sleep(for: .milliseconds(300))
+            while engine.isLoadingSubtitles, Date() < deadline, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            let loadedFonts = await fonts
+            guard let self, !Task.isCancelled, self.plexFileSubtitle == id, engine.activeSubtitleTrackIndex == engineId else { return }
+            let cues = engine.subtitleCues
+            #if DEBUG
+            print("DEBUG subtitles: Plex track \(id) read from the file: \(cues.count) cues, header \(engine.sidecarASSHeader != nil), \(loadedFonts.count) fonts")
+            #endif
+            if styled, let header = engine.sidecarASSHeader, !cues.isEmpty {
+                let builder = ASSScriptBuilder(header: header)
+                for cue in cues {
+                    if let text = cue.text { builder.add(rawEventText: text, start: cue.startTime, end: cue.endTime) }
+                }
+                if let loaded = try? AssSubtitleTrack.load(script: builder.script(), fonts: loadedFonts, itemId: itemId) {
+                    self.isLoadingStyledSubtitles = false
+                    self.assTrack = loaded
+                    // 30 times a second: signs slide and fade, so 10 judders.
+                    while !Task.isCancelled {
+                        loaded.update(seconds: self.precisePosition)
+                        try? await Task.sleep(for: .milliseconds(33))
+                    }
+                    return
+                }
+            }
+            self.isLoadingStyledSubtitles = false
+            // As text. On the file itself the engine's own layer draws it; a
+            // converted stream carries no subtitles, so the app does.
+            guard self.isConverted else { return }
+            let plain = cues.compactMap { cue -> SubtitleCue? in
+                guard let text = cue.text.flatMap(SubtitleCue.engineText) else { return nil }
+                return SubtitleCue(start: cue.startTime, end: cue.endTime, text: text)
+            }
+            while !Task.isCancelled {
+                guard self.currentSubtitle == id else { return }
+                let text = SubtitleCue.text(at: self.precisePosition, in: plain)
+                if text != self.subtitleText { self.subtitleText = text }
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
     }

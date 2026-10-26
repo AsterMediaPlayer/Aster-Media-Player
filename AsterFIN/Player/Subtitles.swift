@@ -112,6 +112,23 @@ nonisolated struct SubtitleCue: Codable, Sendable, Equatable {
         return result
     }
 
+    /// An AetherEngine cue's text as it should read. Asked to keep ASS
+    /// markup (for the styled renderer), the engine hands over raw event
+    /// lines, "ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,
+    /// Text"; their text is cleaned like a script's. Other text has had its
+    /// tags taken out already, and only bare drawings are left out.
+    static func engineText(_ raw: String) -> String? {
+        let lines = raw.components(separatedBy: "\n").compactMap { line -> String? in
+            let fields = line.split(separator: ",", maxSplits: 8, omittingEmptySubsequences: false)
+            if fields.count == 9, Int(fields[0]) != nil, Int(fields[1]) != nil {
+                let text = plainText(String(fields[8]))
+                return text.isEmpty ? nil : text
+            }
+            return withoutDrawingLines(line)
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     /// Text whose `{…}` tags were already taken out (AetherEngine's own
     /// cues, as on Plex) can't be told from its `\p1` any more, so a line
     /// that is nothing but shape commands ("m 278 -116 l 278 201 …": a

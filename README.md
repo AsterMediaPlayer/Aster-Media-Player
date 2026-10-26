@@ -183,7 +183,7 @@ Theme songs and theme videos use Jellyfin's standard theme media.
 
 Requirements:
 - Xcode 27
-- The tvOS 27, iOS 27 and macOS 27 SDKs (every platform's deployment target is 27.0)
+- The tvOS 27, iOS 27 and macOS 27 SDKs. The app runs on iOS and iPadOS 26.1, tvOS 26 and macOS 26 or later.
 - An Apple silicon Mac. AetherEngine's decoders ship for arm64 only, so the simulators run as arm64.
 
 ```sh

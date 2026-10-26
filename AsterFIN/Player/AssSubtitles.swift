@@ -61,6 +61,15 @@ final class AssSubtitleTrack {
         async let script = client.subtitleScript(itemId: itemId, mediaSourceId: mediaSourceId, streamIndex: streamIndex)
         let fonts = await fetchFonts(attachments.filter(\.isFont), itemId: itemId, mediaSourceId: mediaSourceId, client: client)
         let content = try await script
+        // Emby lists no attachments and has no route for them: the fonts
+        // come from the file itself, as on Plex.
+        if fonts.isEmpty {
+            let file = client.directStreamURL(itemId: itemId, mediaSourceId: mediaSourceId, playSessionId: nil, container: nil)
+            let fromFile = await MatroskaFonts.fonts(at: file)
+            if !fromFile.isEmpty {
+                return try load(script: content, fonts: fromFile, itemId: itemId)
+            }
+        }
 
         // CoreText finds the fonts registered here first, then the system's
         // for any the file doesn't carry ("Arial Unicode MS", say).
@@ -74,6 +83,34 @@ final class AssSubtitleTrack {
         )
         renderer.loadTrack(content: content)
         return AssSubtitleTrack(renderer: renderer, fontURLs: fonts)
+        #else
+        throw JellyfinError.decoding("Styled subtitles aren't in this build")
+        #endif
+    }
+
+    /// A script and fonts read from the file itself (Plex, which hands out
+    /// neither): the fonts go in the same per-title folder as Jellyfin's.
+    static func load(script: String, fonts: [MatroskaFonts.Font], itemId: String) throws -> AssSubtitleTrack {
+        #if canImport(SwiftAssRenderer)
+        let folder = fontsFolder(for: itemId)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var urls: [URL] = []
+        for (index, font) in fonts.enumerated() {
+            let file = folder.appending(path: "\(index)-\(font.name.replacingOccurrences(of: "/", with: "_"))")
+            if FileManager.default.fileExists(atPath: file.path) || (try? font.data.write(to: file, options: .atomic)) != nil {
+                urls.append(file)
+            }
+        }
+        register(urls)
+        let renderer = AssSubtitlesRenderer(
+            fontConfig: FontConfig(
+                fontsPath: folder,
+                defaultFontFamily: "Helvetica Neue",
+                fontProvider: .coreText
+            )
+        )
+        renderer.loadTrack(content: script)
+        return AssSubtitleTrack(renderer: renderer, fontURLs: urls)
         #else
         throw JellyfinError.decoding("Styled subtitles aren't in this build")
         #endif

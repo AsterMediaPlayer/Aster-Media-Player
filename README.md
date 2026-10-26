@@ -230,7 +230,7 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 - **Anime without the OP/ED plugin:** openings and endings are found from chapter names, and their songs from AnimeThemes by the show's name and year, which can miss or pick the wrong season.
 - **Plex:**
   - Music, audiobooks, Live TV, channels, playlists, Upcoming, downloads and favourites aren't built yet, so they're hidden on Plex. So are the widget's and Top Shelf's rows.
-  - Plex won't hand out subtitle tracks inside a file. On direct play AetherEngine draws them from the file itself; on a converted stream the server burns them in.
+  - Plex won't hand out subtitle tracks inside a file, so Aster reads them from the file itself. The first time a text track is picked, it takes a few seconds to appear (longer over Wi-Fi), as Aster reads through the file. Picture subtitles (PGS) on a converted stream are burned in, as on Jellyfin.
   - A stream the server has to convert fails while its transcoder is at its limit (Settings ▸ Transcoder in Plex); Aster says so rather than showing a playback error.
 
 ## Open-source components

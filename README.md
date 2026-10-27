@@ -239,11 +239,23 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 | --- | --- |
 | [AetherEngine](https://github.com/superuser404notfound/AetherEngine) | LGPL-3.0, with an exception for App Store distribution |
 | ↳ [FFmpeg](https://ffmpeg.org) (via FFmpegBuild, as separate frameworks) | LGPL-2.1 |
-| ↳ libdovi, the TrueHD decoder | MIT |
+| ↳ dav1d | BSD-2-Clause |
+| ↳ zimg | WTFPL |
+| ↳ libzvbi | LGPL-2.1 (ure.c: MIT) |
+| ↳ libdovi | MIT |
+| ↳ the TrueHD decoder | MIT (truehd and oamd crates: Apache-2.0) |
 | ↳ the DTS:X decoder | Apache-2.0 |
 | ↳ SMBClient | MIT |
-| [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and swift-libass ([libass](https://github.com/libass/libass)) | MIT (libass: ISC) |
+| [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and swift-libass | MIT |
+| ↳ [libass](https://github.com/libass/libass) | ISC |
+| ↳ FreeType | FreeType License (FTL) |
+| ↳ HarfBuzz | MIT ("Old MIT") |
+| ↳ FriBidi | LGPL-2.1 |
+| ↳ Fontconfig | MIT-style |
+| ↳ libpng | PNG Reference Library License v2 |
 | Point-Free's swift-issue-reporting, swift-concurrency-extras, combine-schedulers | MIT |
+
+Every license text ships in the app, under Settings ▸ About ▸ Open Source & Licenses (also on the welcome screen); they're in [AsterFIN/Licenses](AsterFIN/Licenses).
 
 ## License
 

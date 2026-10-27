@@ -107,12 +107,13 @@ struct WelcomeView: View {
         #if os(tvOS)
         // Back closes it, from its first page.
         .fullScreenCover(isPresented: $showsLicenses) {
-            NavigationStack { OpenSourceView() }
+            NavigationStack { OpenSourceView().openSourceDestinations() }
         }
         #else
         .sheet(isPresented: $showsLicenses) {
             NavigationStack {
                 OpenSourceView()
+                    .openSourceDestinations()
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { showsLicenses = false }

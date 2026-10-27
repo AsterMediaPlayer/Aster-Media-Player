@@ -96,6 +96,7 @@ struct SettingsView: View {
             case .lockAfter(let id): LockAfterPage(serverID: id)
             }
         }
+        .openSourceDestinations()
         // Settings that follow the user come from their server on opening.
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }
@@ -130,6 +131,7 @@ struct MacSettingsView: View {
             // A stack of its own, for Open Source & Licenses and its pages.
             NavigationStack {
                 AboutSettingsView()
+                    .openSourceDestinations()
             }
             .tabItem { Label("About", systemImage: "info.circle") }
         }
@@ -1810,9 +1812,7 @@ private struct AboutSettingsView: View {
                     .focusable()
             }
             Section {
-                NavigationLink {
-                    OpenSourceView()
-                } label: {
+                NavigationLink(value: OpenSourceRoute.list) {
                     Label("Open Source & Licenses", systemImage: "doc.text")
                 }
             }

@@ -103,7 +103,8 @@ nonisolated struct OpenSourceComponent: Identifiable, Hashable, Sendable {
             ),
             OpenSourceComponent(
                 name: "Fontconfig", role: "Finds the fonts subtitles ask for.",
-                license: "MIT-style", url: "https://gitlab.freedesktop.org/fontconfig/fontconfig", files: ["fontconfig"]
+                license: "MIT-style", url: "https://gitlab.freedesktop.org/fontconfig/fontconfig", files: ["fontconfig"],
+                note: "Reads its settings with expat, which comes with Apple's system rather than in this app."
             ),
             OpenSourceComponent(
                 name: "libpng", role: "Reads PNG images for libass.",
@@ -140,6 +141,27 @@ nonisolated struct OpenSourceComponent: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Where Open Source & Licenses goes: the list, or one license. Registered
+/// only at the root of each stack that shows them (`openSourceDestinations`),
+/// as Settings' other pages are: registered on a pushed page, Apple TV kept
+/// drawing that page under the next one.
+enum OpenSourceRoute: Hashable {
+    case list
+    case license(OpenSourceComponent)
+}
+
+extension View {
+    /// Registers Open Source & Licenses' pages; put on a stack's root view.
+    func openSourceDestinations() -> some View {
+        navigationDestination(for: OpenSourceRoute.self) { route in
+            switch route {
+            case .list: OpenSourceView()
+            case .license(let component): LicenseTextView(component: component)
+            }
+        }
+    }
+}
+
 struct OpenSourceView: View {
     var body: some View {
         Form {
@@ -152,7 +174,7 @@ struct OpenSourceView: View {
             }
             #endif
             Section {
-                NavigationLink(value: OpenSourceComponent.aster) {
+                NavigationLink(value: OpenSourceRoute.license(.aster)) {
                     ComponentRow(component: .aster)
                 }
                 OpenSourceNote("Aster is open source, under the Mozilla Public License 2.0. You're free to use, change and share it; changed files of Aster you share must stay under the same license. Its source is at \(OpenSourceComponent.aster.url).")
@@ -163,7 +185,7 @@ struct OpenSourceView: View {
             ForEach(OpenSourceComponent.groups, id: \.title) { group in
                 Section {
                     ForEach(group.components) { component in
-                        NavigationLink(value: component) {
+                        NavigationLink(value: OpenSourceRoute.license(component)) {
                             ComponentRow(component: component)
                         }
                     }
@@ -179,9 +201,6 @@ struct OpenSourceView: View {
         .formStyle(.grouped)
         .navigationTitle("Open Source & Licenses")
         #endif
-        .navigationDestination(for: OpenSourceComponent.self) { component in
-            LicenseTextView(component: component)
-        }
     }
 }
 
@@ -221,7 +240,7 @@ private struct OpenSourceNote: View {
 }
 
 /// A component's license in full: its address, any notice, then each text.
-private struct LicenseTextView: View {
+struct LicenseTextView: View {
     let component: OpenSourceComponent
 
     /// The texts in paragraphs, so the Apple TV remote can scroll through

@@ -127,8 +127,11 @@ struct MacSettingsView: View {
             }
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
-            AboutSettingsView()
-                .tabItem { Label("About", systemImage: "info.circle") }
+            // A stack of its own, for Open Source & Licenses and its pages.
+            NavigationStack {
+                AboutSettingsView()
+            }
+            .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 560)
         .frame(minHeight: 380)
@@ -1803,8 +1806,15 @@ private struct AboutSettingsView: View {
             Section {
                 LabeledContent("Aster Media Player", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     .focusable()
-                SettingsNote("A Jellyfin and Emby client for Apple TV, iPhone, iPad and Mac, with DVD and Blu-ray style menus on Jellyfin from the Aster Disc plugin.")
+                SettingsNote("A Jellyfin, Emby and Plex client for Apple TV, iPhone, iPad and Mac, with DVD and Blu-ray style menus on Jellyfin from the Aster Disc plugin.")
                     .focusable()
+            }
+            Section {
+                NavigationLink {
+                    OpenSourceView()
+                } label: {
+                    Label("Open Source & Licenses", systemImage: "doc.text")
+                }
             }
         }
     }

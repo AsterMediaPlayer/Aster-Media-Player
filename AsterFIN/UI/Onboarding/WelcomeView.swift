@@ -20,6 +20,7 @@ struct WelcomeView: View {
         case firstFeature
     }
     @FocusState private var focus: Target?
+    @State private var showsLicenses = false
 
     var body: some View {
         ZStack {
@@ -87,6 +88,13 @@ struct WelcomeView: View {
                     .onboardingPrimaryButton()
                     // Not while the server restarts: the app needs it back.
                     .disabled(model.restart == .restarting)
+
+                    Button {
+                        showsLicenses = true
+                    } label: {
+                        Label("Open Source & Licenses", systemImage: "doc.text")
+                    }
+                    .onboardingSecondaryButton()
                 }
                 .padding(.horizontal, Welcome.sidePadding)
                 .padding(.vertical, Welcome.verticalPadding)
@@ -96,6 +104,26 @@ struct WelcomeView: View {
             .defaultFocus($focus, .firstFeature)
         }
         .task { await model.load(session) }
+        #if os(tvOS)
+        // Back closes it, from its first page.
+        .fullScreenCover(isPresented: $showsLicenses) {
+            NavigationStack { OpenSourceView() }
+        }
+        #else
+        .sheet(isPresented: $showsLicenses) {
+            NavigationStack {
+                OpenSourceView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsLicenses = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 560, minHeight: 520)
+            #endif
+        }
+        #endif
     }
 
     private var header: some View {

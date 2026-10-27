@@ -238,20 +238,30 @@ private struct LicenseTextView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
-                Text(component.name)
-                    .font(.largeTitle.weight(.bold))
-                Text(component.license)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+        // A form, like every settings page, so it has their backdrop and
+        // replaces the list behind it on Apple TV.
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(component.name)
+                        .font(.largeTitle.weight(.bold))
+                    Text(component.license)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .listRowBackground(Color.clear)
                 address
                 if let note = component.note {
                     Text(note)
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        #if os(tvOS)
+                        .focusable()
+                        #endif
                 }
-                Divider()
+            }
+            Section {
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(.system(.footnote, design: .monospaced))
@@ -263,10 +273,10 @@ private struct LicenseTextView: View {
                         #endif
                 }
             }
-            .padding(LicenseMetrics.padding)
-            .frame(maxWidth: LicenseMetrics.maxWidth, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
         #if !os(tvOS)
         .navigationTitle(component.name)
         #endif
@@ -290,14 +300,4 @@ private struct LicenseTextView: View {
         }
         #endif
     }
-}
-
-private enum LicenseMetrics {
-    #if os(tvOS)
-    static let padding: CGFloat = 80
-    static let maxWidth: CGFloat = 1500
-    #else
-    static let padding: CGFloat = 20
-    static let maxWidth: CGFloat = 760
-    #endif
 }

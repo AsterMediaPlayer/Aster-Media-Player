@@ -130,6 +130,17 @@ struct SignInView: View {
                     .frame(maxWidth: .infinity)
                     .tvFocusSection()
 
+                    if let url = session.serverURL, ServerAddress.isUnencryptedRemote(url) {
+                        Label("This address isn't encrypted, so your password and what you watch travel over the internet where others could see them. If your server has an https:// address, use that instead.", systemImage: "lock.open")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: Onboarding.fieldWidth)
+                            #if os(tvOS)
+                            .focusable()
+                            #endif
+                    }
+
                     if let quickConnectCode {
                         VStack(spacing: 10) {
                             Text("Enter this code in Jellyfin on another device")

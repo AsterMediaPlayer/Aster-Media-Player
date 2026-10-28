@@ -22,16 +22,14 @@ All three are the same app with the same features.
 
 ## Screenshots
 
-Taken on Apple TV.
+Taken on Apple TV, with openly licensed films from the Blender Foundation and friends.
 
 | | |
 | --- | --- |
 | ![Home](docs/screenshots/home.jpg) | ![Title page](docs/screenshots/detail.jpg) |
-| **Home**: featured banner, Continue Watching, Up Next, recently added | **Title page**: full-bleed art, episodes, cast, Watch OP / Watch ED for anime |
-| ![Live TV guide](docs/screenshots/guide.jpg) | ![Music](docs/screenshots/music.jpg) |
-| **Live TV**: guide, recordings, mini player | **Music**: albums, artists, lyrics, Now Playing |
-| ![Anime](docs/screenshots/anime.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
-| **Anime**: openings and endings with song cards | **Disc menus**: JellyDisc menus with transitions and sounds |
+| **Home**: featured banner, Continue Watching, Up Next, recently added | **Title page**: full-bleed art, extras, cast, related titles |
+| ![Music](docs/screenshots/music.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
+| **Music**: albums, artists, lyrics, Now Playing | **Disc menus**: menus from the Aster Disc plugin, with transitions and sounds |
 | ![Channels](docs/screenshots/channels.jpg) | ![Channel row](docs/screenshots/channel-row.jpg) |
 | **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | **Channel row**: press Up while watching to flick through channels, or Go to Episode |
 
@@ -219,7 +217,7 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Use AetherEngine for both.
 - **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). Aster avoids this by drawing subtitles itself.
 - **AetherEngine:**
-  - No Picture in Picture yet.
+  - Picture in Picture is on iPhone and iPad only (a video carries on in a floating window when you leave the app); not yet on Apple TV or the Mac.
   - A converted stream (AV1 on Apple TV, or a lower quality) carries one audio track, so switching audio asks the server for a new stream.
   - Video the engine decodes in software has no system Now Playing info.
   - The Apple TV's Control Center doesn't list Aster's video, with either player.
@@ -239,11 +237,23 @@ To run on a device, set your own development team in **Signing & Capabilities** 
 | --- | --- |
 | [AetherEngine](https://github.com/superuser404notfound/AetherEngine) | LGPL-3.0, with an exception for App Store distribution |
 | ↳ [FFmpeg](https://ffmpeg.org) (via FFmpegBuild, as separate frameworks) | LGPL-2.1 |
-| ↳ libdovi, the TrueHD decoder | MIT |
+| ↳ dav1d | BSD-2-Clause |
+| ↳ zimg | WTFPL |
+| ↳ libzvbi | LGPL-2.1 (ure.c: MIT) |
+| ↳ libdovi | MIT |
+| ↳ the TrueHD decoder | MIT (truehd and oamd crates: Apache-2.0) |
 | ↳ the DTS:X decoder | Apache-2.0 |
 | ↳ SMBClient | MIT |
-| [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and swift-libass ([libass](https://github.com/libass/libass)) | MIT (libass: ISC) |
+| [swift-ass-renderer](https://github.com/mihai8804858/swift-ass-renderer) and swift-libass | MIT |
+| ↳ [libass](https://github.com/libass/libass) | ISC |
+| ↳ FreeType | FreeType License (FTL) |
+| ↳ HarfBuzz | MIT ("Old MIT") |
+| ↳ FriBidi | LGPL-2.1 |
+| ↳ Fontconfig | MIT-style |
+| ↳ libpng | PNG Reference Library License v2 |
 | Point-Free's swift-issue-reporting, swift-concurrency-extras, combine-schedulers | MIT |
+
+Every license text ships in the app, under Settings ▸ About ▸ Open Source & Licenses (also on the welcome screen); they're in [AsterFIN/Licenses](AsterFIN/Licenses).
 
 ## License
 

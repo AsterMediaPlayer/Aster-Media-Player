@@ -149,6 +149,12 @@ struct SignInView: View {
                             Text(quickConnectCode)
                                 .font(.system(size: Onboarding.quickConnectCodeSize, weight: .bold, design: .monospaced))
                                 .kerning(12)
+                            // Waiting on another device can feel stuck: the
+                            // way out, right under the code.
+                            Button("Cancel", role: .cancel) {
+                                cancelQuickConnect()
+                            }
+                            .onboardingSecondaryButton()
                         }
                     }
 
@@ -166,6 +172,25 @@ struct SignInView: View {
         }
         .task { await load() }
         .onDisappear { quickConnectTask?.cancel() }
+        #if os(tvOS) || os(macOS)
+        // Back (Menu, or Esc on a Mac) stops Quick Connect first, then goes
+        // back to the server screen, rather than leaving the app.
+        .onExitCommand { goBack() }
+        #endif
+    }
+
+    private func cancelQuickConnect() {
+        quickConnectTask?.cancel()
+        quickConnectTask = nil
+        quickConnectCode = nil
+    }
+
+    private func goBack() {
+        if quickConnectCode != nil || quickConnectTask != nil {
+            cancelQuickConnect()
+        } else {
+            session.changeServer()
+        }
     }
 
     private func load() async {

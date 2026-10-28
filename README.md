@@ -219,7 +219,7 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Use AetherEngine for both.
 - **Jellyfin HLS subtitles:** Jellyfin's fMP4 HLS output times subtitles about 10 seconds late (jellyfin/jellyfin#16647). Aster avoids this by drawing subtitles itself.
 - **AetherEngine:**
-  - No Picture in Picture yet.
+  - Picture in Picture is on iPhone and iPad only (a video carries on in a floating window when you leave the app); not yet on Apple TV or the Mac.
   - A converted stream (AV1 on Apple TV, or a lower quality) carries one audio track, so switching audio asks the server for a new stream.
   - Video the engine decodes in software has no system Now Playing info.
   - The Apple TV's Control Center doesn't list Aster's video, with either player.

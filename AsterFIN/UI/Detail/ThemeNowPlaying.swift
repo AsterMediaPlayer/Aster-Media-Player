@@ -362,7 +362,7 @@ struct ThemeNowPlayingPanel: View {
         case .theme(let theme):
             ((theme.songTitle ?? theme.code) + (theme.playedCut.label.map { " (\($0))" } ?? ""), theme.artists.isEmpty ? nil : theme.artists.joined(separator: ", "))
         case .chapter(let clip):
-            (clip.title, clip.episode.episodeCode.map { "From \($0)" })
+            (clip.songTitle, clip.artists ?? clip.episode.episodeCode.map { "From \($0)" })
         }
     }
 

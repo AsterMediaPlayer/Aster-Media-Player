@@ -22,16 +22,14 @@ All three are the same app with the same features.
 
 ## Screenshots
 
-Taken on Apple TV.
+Taken on Apple TV, with openly licensed films from the Blender Foundation and friends.
 
 | | |
 | --- | --- |
 | ![Home](docs/screenshots/home.jpg) | ![Title page](docs/screenshots/detail.jpg) |
-| **Home**: featured banner, Continue Watching, Up Next, recently added | **Title page**: full-bleed art, episodes, cast, Watch OP / Watch ED for anime |
-| ![Live TV guide](docs/screenshots/guide.jpg) | ![Music](docs/screenshots/music.jpg) |
-| **Live TV**: guide, recordings, mini player | **Music**: albums, artists, lyrics, Now Playing |
-| ![Anime](docs/screenshots/anime.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
-| **Anime**: openings and endings with song cards | **Disc menus**: JellyDisc menus with transitions and sounds |
+| **Home**: featured banner, Continue Watching, Up Next, recently added | **Title page**: full-bleed art, extras, cast, related titles |
+| ![Music](docs/screenshots/music.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
+| **Music**: albums, artists, lyrics, Now Playing | **Disc menus**: menus from the Aster Disc plugin, with transitions and sounds |
 | ![Channels](docs/screenshots/channels.jpg) | ![Channel row](docs/screenshots/channel-row.jpg) |
 | **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | **Channel row**: press Up while watching to flick through channels, or Go to Episode |
 

@@ -150,6 +150,38 @@ struct ServerConnectView: View {
     }
 }
 
+/// Whether an address sends everything in the clear over the internet:
+/// plain http:// to a host that isn't on the home network. Aster allows it
+/// (many self-hosted servers are reached that way), and warns before a
+/// password is sent.
+nonisolated enum ServerAddress {
+    static func isUnencryptedRemote(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "http", let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return false }
+        return !isLocal(host)
+    }
+
+    /// A name or address only the home network (or a private overlay such
+    /// as Tailscale) reaches.
+    static func isLocal(_ host: String) -> Bool {
+        let host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host == "localhost" || !host.contains(".") && !host.contains(":") { return true }
+        if [".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain"].contains(where: host.hasSuffix) { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        if parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) {
+            switch (parts[0], parts[1]) {
+            case (10, _), (127, _), (192, 168), (169, 254): return true
+            case (172, 16...31): return true
+            case (100, 64...127): return true
+            default: return false
+            }
+        }
+        if host.contains(":") {
+            return host == "::1" || host.hasPrefix("fc") || host.hasPrefix("fd") || host.hasPrefix("fe80")
+        }
+        return false
+    }
+}
+
 struct OnboardingBackdrop: View {
     var body: some View {
         LinearGradient(colors: [Color(red: 0.08, green: 0.09, blue: 0.14), Color.black], startPoint: .top, endPoint: .bottom)

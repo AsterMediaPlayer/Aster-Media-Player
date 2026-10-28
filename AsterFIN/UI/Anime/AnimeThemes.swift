@@ -22,6 +22,19 @@ nonisolated struct KnownTheme: Sendable, Hashable {
     /// The episodes it plays in, as AnimeThemes writes them: "1-6, 8-".
     var episodes: String?
 
+    /// How many episodes it plays in; unknown, as good as all of them, so a
+    /// theme listed for a few episodes comes before one for the whole show.
+    var episodeCount: Int {
+        guard let episodes, !episodes.trimmingCharacters(in: .whitespaces).isEmpty else { return .max }
+        var total = 0
+        for range in Self.ranges(episodes) {
+            // "8-": every episode from the eighth on.
+            if range.upperBound == .max { return .max }
+            total += range.count
+        }
+        return total
+    }
+
     /// Whether it plays in episode `number`; any episode when unknown.
     func plays(inEpisode number: Int?) -> Bool {
         guard let number, let episodes, !episodes.trimmingCharacters(in: .whitespaces).isEmpty else { return true }

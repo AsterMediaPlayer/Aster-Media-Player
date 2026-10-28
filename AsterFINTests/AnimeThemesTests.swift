@@ -12,6 +12,28 @@ import Testing
 @testable import AsterFIN
 
 struct AnimeThemesTests {
+    /// A Music tab clip gets its song: Beastars on AnimeThemes has one
+    /// opening for the whole season and endings that take turns by episode.
+    @Test func aClipGetsTheSongOfItsEpisode() {
+        let known = [
+            KnownTheme(isOpening: true, sequence: 1, songTitle: "Wild Side", artists: ["ALI"], episodes: nil),
+            KnownTheme(isOpening: false, sequence: 1, songTitle: "Le zoo", artists: ["YOASOBI"], episodes: "2, 5, 8-9"),
+            KnownTheme(isOpening: false, sequence: 2, songTitle: "Nemureru Honoo", artists: [], episodes: "3, 7, 10"),
+        ]
+        func clip(_ kind: ThemeClip.Kind, _ number: Int) -> ThemeClip {
+            var episode = BaseItem(id: "e\(number)")
+            episode.type = ItemKind.episode.rawValue
+            episode.indexNumber = number
+            return ThemeClip(kind: kind, season: 1, number: 1, episode: episode,
+                             chapterIndex: 0, chapterImageTag: nil, startTicks: 0, endTicks: 900_000_000)
+        }
+        #expect(OpeningsEndings.song(for: clip(.opening, 4), in: known)?.songTitle == "Wild Side")
+        #expect(OpeningsEndings.song(for: clip(.ending, 2), in: known)?.songTitle == "Le zoo")
+        #expect(OpeningsEndings.song(for: clip(.ending, 3), in: known)?.songTitle == "Nemureru Honoo")
+        // An ending AnimeThemes doesn't place in that episode: no song, rather than a wrong one.
+        #expect(OpeningsEndings.song(for: clip(.ending, 1), in: known) == nil)
+    }
+
     private let reply = #"""
     {"anime":{"name":"Bad Girl","slug":"bad_girl","year":2025,"animethemes":[
       {"type":"OP","sequence":null,"song":{"title":"Super Big Love!","performances":[{"artist":{"name":"Tenrou-gun"}}]},"animethemeentries":[{"episodes":"1-"}]},

@@ -111,7 +111,18 @@ final class DetailModel {
         let themes = (await client.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
         if !themes.isEmpty { return themes.map(OpeningEnding.theme) }
         let episodes = (try? await client.episodesWithChapters(seriesId: series.id)) ?? []
-        return OpeningsEndings.find(in: episodes).map(OpeningEnding.chapter)
+        let clips = OpeningsEndings.find(in: episodes)
+        // Their songs, from AnimeThemes, asked once a season (as it lists
+        // each season apart); a few seasons, each asked once per launch.
+        var known: [Int: [KnownTheme]] = [:]
+        for clip in clips where known[clip.season] == nil {
+            known[clip.season] = await PlaybackCoordinator.knownThemes(for: clip.episode, client: client)
+        }
+        return clips.map { clip in
+            var named = clip
+            named.song = OpeningsEndings.song(for: clip, in: known[clip.season] ?? [])
+            return .chapter(named)
+        }
     }
     private(set) var isLoading = false
     private(set) var errorMessage: String?

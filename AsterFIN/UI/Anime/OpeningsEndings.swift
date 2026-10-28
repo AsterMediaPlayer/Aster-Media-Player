@@ -27,17 +27,38 @@ nonisolated struct ThemeClip: Identifiable, Hashable, Sendable {
     var chapterImageTag: String?
     var startTicks: Int64
     var endTicks: Int64
+    /// The song, from AnimeThemes, when it knows which plays in this
+    /// episode (servers without the OP/ED plugin).
+    var song: KnownTheme? = nil
 
     var id: String { "\(episode.id)-\(kind.rawValue)-\(startTicks)" }
 
+    /// Which opening it is: "Season 1 Opening".
     var title: String {
         number > 1 ? "Season \(season) \(kind.rawValue) \(number)" : "Season \(season) \(kind.rawValue)"
+    }
+
+    /// What its card is called: the song, else which opening it is.
+    var songTitle: String { song?.songTitle ?? title }
+
+    /// Who performs the song, when known.
+    var artists: String? {
+        guard let artists = song?.artists, !artists.isEmpty else { return nil }
+        return artists.joined(separator: ", ")
     }
 
     var duration: Int { Int((endTicks - startTicks) / 10_000_000) }
 }
 
 nonisolated enum OpeningsEndings {
+    /// The AnimeThemes theme a clip is, when one's known: of the same kind,
+    /// playing in the clip's episode, and of those the one in the fewest
+    /// episodes (a season's own over one listed for the whole show).
+    static func song(for clip: ThemeClip, in known: [KnownTheme]) -> KnownTheme? {
+        known.filter { $0.isOpening == (clip.kind == .opening) && $0.plays(inEpisode: clip.episode.indexNumber) }
+            .min { $0.episodeCount < $1.episodeCount }
+    }
+
     /// Whole words at the start of a chapter name. "OP"/"Opening" and
     /// "ED"/"Ending" are definite; "Intro" and "Outro"/"Credits" are used
     /// only when an episode has no definite one, since many releases call
@@ -193,12 +214,17 @@ struct ThemeClipLockup: View {
             .preferredFocus(in: preferredIn)
             .sectionLead(lead)
             .keyboardTarget(action: play)
-            .accessibilityLabel("\(clip.title), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
+            .accessibilityLabel("\(clip.songTitle), from episode \(clip.episode.indexNumber.map(String.init) ?? "")")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(clip.title)
+                Text(clip.songTitle)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
+                if let artists = clip.artists {
+                    Text(artists)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
                 Text(clip.episode.episodeCode.map { "From \($0)" } ?? clip.episode.displayTitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -264,12 +290,14 @@ nonisolated struct ThemeInfo: Hashable, Sendable {
     }
 
     init(clip: ThemeClip, series: String) {
-        kicker = clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue
-        title = series
-        artists = nil
-        self.series = nil
-        let parts = ["Season \(clip.season)", clip.episode.episodeCode.map { "From \($0)" }].compactMap { $0 }
-        detail = parts.joined(separator: " · ")
+        if let song = clip.song {
+            // AnimeThemes named its song: that card, as the player's.
+            self.init(known: song, series: series, seasonName: clip.episode.seasonName)
+        } else {
+            let parts = ["Season \(clip.season)", clip.episode.episodeCode.map { "From \($0)" }].compactMap { $0 }
+            self.init(kicker: clip.number > 1 ? "\(clip.kind.rawValue) \(clip.number)" : clip.kind.rawValue,
+                      title: series, detail: parts.joined(separator: " · "))
+        }
     }
 }
 

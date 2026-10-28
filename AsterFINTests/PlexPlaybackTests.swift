@@ -40,6 +40,18 @@ struct PlexPlaybackTests {
         #expect(segments[1].startTicks == 12_809_700_000)
     }
 
+    /// Beastars on the test server names its whole first half "Intro": too
+    /// long to be an opening, so no Skip Intro jumps ten minutes.
+    @Test func aHalfNamedIntroIsNoOpening() {
+        let chapters = [
+            PlexChapter(tag: "Intro", startTimeOffset: 33, endTimeOffset: 646_950),
+            PlexChapter(tag: "Part B", startTimeOffset: 646_950, endTimeOffset: 1_279_920),
+            PlexChapter(tag: "ED", startTimeOffset: 1_279_920, endTimeOffset: 1_397_800),
+        ]
+        let segments = PlexSegments.segments(markers: [], chapters: chapters, itemId: "6359", durationMilliseconds: 1_397_800)
+        #expect(segments.map(\.type) == ["Outro"])
+    }
+
     @Test func plainChaptersGiveNothing() {
         let chapters = [PlexChapter(tag: "Chapter 1", startTimeOffset: 0, endTimeOffset: 60_000)]
         #expect(PlexSegments.segments(markers: [], chapters: chapters, itemId: "x", durationMilliseconds: 60_000).isEmpty)

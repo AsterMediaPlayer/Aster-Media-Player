@@ -1812,10 +1812,40 @@ private struct AboutSettingsView: View {
                     .focusable()
             }
             Section {
+                AboutLink(title: "Help & Support", systemImage: "questionmark.circle", address: AboutLink.support)
+                AboutLink(title: "Privacy Policy", systemImage: "hand.raised", address: AboutLink.privacy)
                 NavigationLink(value: OpenSourceRoute.list) {
                     Label("Open Source & Licenses", systemImage: "doc.text")
                 }
             }
         }
+    }
+}
+
+/// One of Aster's web pages: a link where there's a browser, and the address
+/// to type in on Apple TV, which has none.
+private struct AboutLink: View {
+    static let support = "https://astermediaplayer.com/support.html"
+    static let privacy = "https://astermediaplayer.com/privacy.html"
+
+    let title: String
+    let systemImage: String
+    let address: String
+
+    var body: some View {
+        #if os(tvOS)
+        LabeledContent {
+            Text(address.replacingOccurrences(of: "https://", with: ""))
+        } label: {
+            Label(title, systemImage: systemImage)
+        }
+        .focusable()
+        #else
+        if let url = URL(string: address) {
+            Link(destination: url) {
+                Label(title, systemImage: systemImage)
+            }
+        }
+        #endif
     }
 }

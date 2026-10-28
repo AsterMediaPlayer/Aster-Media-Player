@@ -241,6 +241,10 @@ nonisolated extension PlexClient {
 
 /// Plex's markers and chapters as the app's skip segments.
 nonisolated enum PlexSegments {
+    /// The longest a chapter can be and still be taken for an opening or
+    /// ending: some files name their whole first half "Intro".
+    static let longestThemeMilliseconds = 4 * 60 * 1000
+
     static func segments(markers: [PlexMarker], chapters: [PlexChapter], itemId: String, durationMilliseconds: Int?) -> [MediaSegment] {
         func ticks(_ ms: Int) -> Int64 { Int64(ms) * PlexMapper.ticksPerMillisecond }
         var found: [MediaSegment] = []
@@ -267,7 +271,7 @@ nonisolated enum PlexSegments {
             }
             guard let type, found.allSatisfy({ $0.type != type }) else { continue }
             let end = chapter.endTimeOffset ?? (index + 1 < sorted.count ? sorted[index + 1].startTimeOffset : durationMilliseconds)
-            guard let end, end > chapter.startTimeOffset else { continue }
+            guard let end, end > chapter.startTimeOffset, end - chapter.startTimeOffset <= longestThemeMilliseconds else { continue }
             found.append(MediaSegment(id: "\(itemId)-\(type.lowercased())", itemId: itemId, type: type,
                                       startTicks: ticks(chapter.startTimeOffset), endTicks: ticks(end)))
         }

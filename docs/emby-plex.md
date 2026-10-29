@@ -27,6 +27,9 @@ Emby and Jellyfin share an API underneath (Jellyfin forked from Emby 3.5), so Em
 - **Routes:** about 15 of Emby's routes still use the older per-user form (`/Users/{id}/Views`, `/Users/{id}/Items/Resume`, …). `route(_:emby:)` picks the right one.
 - **Sign-in:** the server's address and a password, as on Jellyfin. There's no Quick Connect.
 - **Skip Intro:** Emby has no media segments API. Its intro chapter markers become skip segments instead.
+- **Scrub previews:** Emby's thumbnails come as one BIF file per title (`/Videos/{id}/index.bif`), made when the library has thumbnail extraction turned on. `BIFIndex` reads its index, and each frame is a JPEG cut from the file.
+- **Lyrics:** Emby has no lyrics route. It lists a song's lyrics (an `.lrc` beside it, or the file's own tag) as a subtitle stream, fetched as text and read by `Lyrics(lrc:)`.
+- **Converted streams:** MPEG-TS with H.264 only. Emby's fMP4 HLS fails on Apple TV.
 - **Server detection:** `/System/Info/Public` answers on both; its product name tells them apart, so the user only types an address.
 
 ## Plex

@@ -1674,10 +1674,12 @@ private struct SavedServerPage: View {
     @Environment(\.dismiss) private var dismiss
     @State private var switchRequest: SavedServer?
     @State private var signingInToPlex = false
+    @State private var showsOnTopShelf = true
 
     var body: some View {
         if let server = session.savedServers.first(where: { $0.id == serverID }) {
             content(server)
+                .onAppear { showsOnTopShelf = TopShelfServers.isShown(serverID) }
         }
     }
 
@@ -1745,6 +1747,22 @@ private struct SavedServerPage: View {
                     SettingsNote("After this long away from Aster, coming back to this server asks for \(server.session.userName)'s \(server.credentialName).")
                 }
             }
+            #if os(tvOS)
+            // The Top Shelf reads Jellyfin and Emby only, so Plex has nothing to turn off.
+            if server.session.kind != .plex {
+                Section {
+                    Toggle("Show on Top Shelf", isOn: Binding(
+                        get: { showsOnTopShelf },
+                        set: {
+                            showsOnTopShelf = $0
+                            TopShelfServers.setShown($0, for: serverID)
+                        }
+                    ))
+                } footer: {
+                    SettingsNote("While this server is in use, the Top Shelf shows its Continue Watching, Next Up and channels. Turn it off to keep them off the Home Screen.")
+                }
+            }
+            #endif
             if !isInUse {
                 Section {
                     Button("Remove Server", role: .destructive) {

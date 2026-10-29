@@ -151,6 +151,19 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
         session.kind != .plex || (session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil)
     }
 
+    /// Whether a new Lock After lets more past the lock than the one set:
+    /// never, or a longer wait. That change asks for the credential first.
+    func loosens(lockAfter minutes: Int?) -> Bool {
+        guard canBeLocked, let current = lockAfterMinutes else { return false }
+        return minutes.map { $0 > current } ?? true
+    }
+
+    /// Whether turning the ask-to-switch setting to `asks` lets anyone switch
+    /// without the credential, which asks for it first.
+    func loosens(asksToSwitch asks: Bool) -> Bool {
+        canBeLocked && asksPasswordToSwitch && !asks
+    }
+
     /// One per server and user. A Plex server by its own id: the address
     /// used to reach it can change.
     var id: String {

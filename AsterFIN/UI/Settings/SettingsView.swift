@@ -1673,6 +1673,7 @@ private struct SavedServerPage: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var switchRequest: SavedServer?
+    @State private var credentialRequest: ServerCredentialRequest?
     @State private var signingInToPlex = false
     @State private var showsOnTopShelf = true
 
@@ -1707,7 +1708,16 @@ private struct SavedServerPage: View {
                 if server.canBeLocked {
                     Toggle("Ask for \(server.credentialName.capitalized) to Switch", isOn: Binding(
                         get: { server.asksPasswordToSwitch },
-                        set: { session.setAsksPasswordToSwitch($0, for: serverID) }
+                        set: { asks in
+                            // Turning it off asks for the credential, so nobody else can.
+                            guard server.loosens(asksToSwitch: asks) else {
+                                session.setAsksPasswordToSwitch(asks, for: serverID)
+                                return
+                            }
+                            credentialRequest = ServerCredentialRequest(
+                                server: server, purpose: "stop asking for it to switch", buttonTitle: "Turn Off"
+                            ) { session.setAsksPasswordToSwitch(false, for: serverID) }
+                        }
                     ))
                 }
             } footer: {
@@ -1734,7 +1744,16 @@ private struct SavedServerPage: View {
                         options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, Self.lockTitle($0)) },
                         selection: Binding(
                             get: { server.lockAfterMinutes ?? 0 },
-                            set: { session.setLockAfter($0 > 0 ? $0 : nil, for: serverID) }
+                            set: { choice in
+                                let minutes = choice > 0 ? choice : nil
+                                guard server.loosens(lockAfter: minutes) else {
+                                    session.setLockAfter(minutes, for: serverID)
+                                    return
+                                }
+                                credentialRequest = ServerCredentialRequest(
+                                    server: server, purpose: "change when it locks", buttonTitle: "Change"
+                                ) { session.setLockAfter(minutes, for: serverID) }
+                            }
                         )
                     )
                     #else
@@ -1773,6 +1792,7 @@ private struct SavedServerPage: View {
             }
         }
         .savedServerSwitcher(request: $switchRequest)
+        .serverCredentialCheck(request: $credentialRequest)
         #if os(macOS)
         .sheet(isPresented: $signingInToPlex) {
             PlexSignInView()
@@ -1792,15 +1812,28 @@ private struct LockAfterPage: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
+    @State private var credentialRequest: ServerCredentialRequest?
 
     var body: some View {
-        let chosen = session.savedServers.first { $0.id == serverID }?.lockAfterMinutes ?? 0
+        let server = session.savedServers.first { $0.id == serverID }
+        let chosen = server?.lockAfterMinutes ?? 0
         SettingsPage(title: "Lock After") {
             Section {
                 ForEach([0] + SavedServer.lockChoices, id: \.self) { minutes in
                     Button {
-                        session.setLockAfter(minutes > 0 ? minutes : nil, for: serverID)
-                        dismiss()
+                        let choice = minutes > 0 ? minutes : nil
+                        // Never, or a longer wait, asks for the credential first.
+                        if let server, server.loosens(lockAfter: choice) {
+                            credentialRequest = ServerCredentialRequest(
+                                server: server, purpose: "change when it locks", buttonTitle: "Change"
+                            ) {
+                                session.setLockAfter(choice, for: serverID)
+                                dismiss()
+                            }
+                        } else {
+                            session.setLockAfter(choice, for: serverID)
+                            dismiss()
+                        }
                     } label: {
                         HStack {
                             Text(SavedServerPage.lockTitle(minutes))
@@ -1813,6 +1846,7 @@ private struct LockAfterPage: View {
                 }
             }
         }
+        .serverCredentialCheck(request: $credentialRequest)
     }
 }
 

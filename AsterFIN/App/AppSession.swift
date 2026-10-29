@@ -450,6 +450,17 @@ final class AppSession {
         return StoredSession(serverURL: session.serverURL, serverName: session.serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: session.kind)
     }
 
+    /// Keeps the sign-in a password or PIN check just made, which can stand
+    /// in for the one saved (Jellyfin ends the old one), for the server in
+    /// use too.
+    func keepSignIn(_ fresh: StoredSession) {
+        if SavedServer(session: fresh).id == currentServerID {
+            fresh.save()
+            client = MediaServerFactory.client(for: fresh)
+        }
+        remember(fresh)
+    }
+
     func setLockAfter(_ minutes: Int?, for id: String) {
         guard let index = savedServers.firstIndex(where: { $0.id == id }) else { return }
         savedServers[index].lockAfterMinutes = minutes

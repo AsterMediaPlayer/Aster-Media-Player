@@ -57,7 +57,46 @@ struct SavedServerSwitcher: ViewModifier {
                 }
             }
             .sheet(item: $asking) { server in
-                ServerPasswordSheet(server: server)
+                ServerPasswordSheet(
+                    server: server,
+                    message: "Enter \(server.session.userName)'s \(server.credentialName) to switch to this \(server.session.kind.displayName) server.",
+                    buttonTitle: "Switch"
+                ) { fresh in
+                    session.switchServer(to: server, session: fresh)
+                }
+            }
+    }
+}
+
+/// A change that loosens a server's lock, held until the server's password
+/// or PIN is given.
+struct ServerCredentialRequest: Identifiable {
+    let id = UUID()
+    let server: SavedServer
+    /// What the sheet says it's for: "turn off the password for switching".
+    let purpose: String
+    let buttonTitle: String
+    let onConfirmed: () -> Void
+}
+
+/// Asks for a server's password or PIN, checked by the server, before a
+/// change that would let others past its lock.
+struct ServerCredentialCheck: ViewModifier {
+    @Binding var request: ServerCredentialRequest?
+
+    @Environment(AppSession.self) private var session
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $request) { request in
+                ServerPasswordSheet(
+                    server: request.server,
+                    message: "Enter \(request.server.session.userName)'s \(request.server.credentialName) to \(request.purpose).",
+                    buttonTitle: request.buttonTitle
+                ) { fresh in
+                    session.keepSignIn(fresh)
+                    request.onConfirmed()
+                }
             }
     }
 }
@@ -66,12 +105,20 @@ extension View {
     func savedServerSwitcher(request: Binding<SavedServer?>) -> some View {
         modifier(SavedServerSwitcher(request: request))
     }
+
+    func serverCredentialCheck(request: Binding<ServerCredentialRequest?>) -> some View {
+        modifier(ServerCredentialCheck(request: request))
+    }
 }
 
-/// The user's own password for the server, checked by the server, before
-/// switching to it.
+/// The user's own password for the server (a Plex profile's PIN), checked
+/// by the server, before switching to it or loosening its lock.
 private struct ServerPasswordSheet: View {
     let server: SavedServer
+    let message: String
+    let buttonTitle: String
+    /// Run with the fresh sign-in once the check passes, after the sheet goes.
+    let onSuccess: (StoredSession) -> Void
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -84,7 +131,7 @@ private struct ServerPasswordSheet: View {
         VStack(spacing: Onboarding.controlSpacing) {
             Text(server.session.serverName ?? "Server")
                 .font(.title2.weight(.bold))
-            Text("Enter \(server.session.userName)'s \(server.credentialName) to switch to this \(server.session.kind.displayName) server.")
+            Text(message)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             SecureField(server.credentialName.capitalized, text: $password)
@@ -101,7 +148,7 @@ private struct ServerPasswordSheet: View {
                 } label: {
                     HStack {
                         if isChecking { ProgressView().controlSize(.small) }
-                        Text("Switch")
+                        Text(buttonTitle)
                     }
                 }
                 .onboardingPrimaryButton()
@@ -132,7 +179,7 @@ private struct ServerPasswordSheet: View {
             do {
                 let fresh = try await session.signInAgain(to: server, password: password)
                 dismiss()
-                session.switchServer(to: server, session: fresh)
+                onSuccess(fresh)
             } catch {
                 errorMessage = Self.message(for: error, server: server)
             }

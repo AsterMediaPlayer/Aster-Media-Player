@@ -75,10 +75,73 @@ nonisolated struct UserPolicy: Codable, Sendable, Hashable {
     var enableContentDownloading: Bool?
     /// An administrator can edit any item's metadata, a playlist's tags included.
     var isAdministrator: Bool?
+    /// The parental controls on the user's profile: the highest rating's
+    /// score (and sub-score) allowed, tags blocked or required, item types
+    /// whose unrated titles are blocked, and whether only some libraries are open.
+    var maxParentalRating: Int?
+    var maxParentalSubRating: Int?
+    var blockedTags: [String]?
+    var allowedTags: [String]?
+    var blockUnratedItems: [String]?
+    var enableAllFolders: Bool?
 
     enum CodingKeys: String, CodingKey {
         case enableContentDownloading = "EnableContentDownloading"
         case isAdministrator = "IsAdministrator"
+        case maxParentalRating = "MaxParentalRating"
+        case maxParentalSubRating = "MaxParentalSubRating"
+        case blockedTags = "BlockedTags"
+        case allowedTags = "AllowedTags"
+        case blockUnratedItems = "BlockUnratedItems"
+        case enableAllFolders = "EnableAllFolders"
+    }
+
+    /// Restrictions other than a rating cap: titles held back by tag,
+    /// unrated titles, or libraries left closed.
+    var restrictsBeyondRating: Bool {
+        !(blockedTags ?? []).isEmpty || !(allowedTags ?? []).isEmpty
+            || !(blockUnratedItems ?? []).isEmpty || enableAllFolders == false
+    }
+
+    /// Whether the server holds anything back from this user.
+    var restrictsContent: Bool { maxParentalRating != nil || restrictsBeyondRating }
+}
+
+/// A rating the server knows ("PG-13") and how it ranks; a user's
+/// `maxParentalRating` is compared with `score`, then `subScore`.
+nonisolated struct ParentalRating: Codable, Sendable, Hashable {
+    var name: String
+    var score: Int?
+    var subScore: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case value = "Value"
+        case ratingScore = "RatingScore"
+    }
+
+    private struct Score: Codable { var score: Int?; var subScore: Int? }
+
+    init(name: String, score: Int?, subScore: Int? = nil) {
+        self.name = name
+        self.score = score
+        self.subScore = subScore
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        // Jellyfin 10.11+ ranks by RatingScore; earlier servers by Value.
+        let ranked = try container.decodeIfPresent(Score.self, forKey: .ratingScore)
+        let value = try container.decodeIfPresent(Int.self, forKey: .value)
+        score = ranked?.score ?? value
+        subScore = ranked?.subScore
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(score, forKey: .value)
     }
 }
 

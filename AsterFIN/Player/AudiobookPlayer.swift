@@ -75,6 +75,8 @@ final class AudiobookPlayer {
     private var playsThroughCache = false
     private var cacheFailed = false
     private var artworkTask: Task<Void, Never>?
+    /// The chapter the Now Playing info was last given for.
+    private var nowPlayingChapterId: Int?
 
     // MARK: Starting
 
@@ -398,6 +400,8 @@ final class AudiobookPlayer {
                 guard let self, self.hasStarted else { return }
                 let seconds = time.seconds
                 if seconds.isFinite { self.currentTime = seconds }
+                // A new chapter: its own bar from zero on the Lock Screen.
+                if self.currentChapter?.id != self.nowPlayingChapterId { self.updateNowPlayingPlayback() }
                 #if os(iOS)
                 if let book = self.book {
                     ListenAhead.shared.update(bookId: book.id, part: self.partIndex, seconds: self.currentTime)
@@ -525,7 +529,8 @@ final class AudiobookPlayer {
             let seconds = event.positionTime
             Task { @MainActor [weak self] in
                 guard let self, self.book != nil else { return }
-                self.seek(to: seconds)
+                // The Lock Screen's and headphones' bar is the chapter's.
+                self.seek(to: self.chapterBounds.start + seconds)
             }
             return .success
         }
@@ -537,13 +542,12 @@ final class AudiobookPlayer {
             MPMediaItemPropertyTitle: book.title,
             MPMediaItemPropertyAlbumTitle: book.series ?? book.title,
             MPMediaItemPropertyMediaType: MPMediaType.audioBook.rawValue,
-            MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(rate) : 0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: Double(rate),
         ]
         if let author = book.author { info[MPMediaItemPropertyArtist] = author }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        updateNowPlayingPlayback()
 
         artworkTask?.cancel()
         guard let client, let url = client.posterURL(for: book.cover, width: 600) else { return }
@@ -558,10 +562,14 @@ final class AudiobookPlayer {
         }
     }
 
+    /// The Lock Screen, Control Center, headphones and car stereos show the
+    /// chapter's progress, as the app's own bar does, not the whole file's.
     private func updateNowPlayingPlayback() {
         guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
-        info[MPMediaItemPropertyPlaybackDuration] = duration
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        let bounds = chapterBounds
+        nowPlayingChapterId = currentChapter?.id
+        info[MPMediaItemPropertyPlaybackDuration] = bounds.end - bounds.start
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = min(max(currentTime - bounds.start, 0), bounds.end - bounds.start)
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = Double(rate)
         if let chapter = currentChapter {

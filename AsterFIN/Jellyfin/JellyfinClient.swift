@@ -1251,6 +1251,7 @@ nonisolated final class JellyfinClient: MediaServer {
 
     /// A song's lyrics, or nil when the server has none.
     func lyrics(itemId: String) async throws -> Lyrics? {
+        if kind == .emby { return try await embyLyrics(itemId: itemId) }
         let request = authorizedRequest(url("/Audio/\(itemId)/Lyrics"))
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { return nil }
@@ -1259,6 +1260,30 @@ nonisolated final class JellyfinClient: MediaServer {
             throw JellyfinError.http(http.statusCode, nil)
         }
         return try await decode(Lyrics.self, from: data)
+    }
+
+    /// Emby has no lyrics route: it lists a song's lyrics (an .lrc beside
+    /// it, or the file's own tag) as a subtitle stream, fetched as text.
+    private func embyLyrics(itemId: String) async throws -> Lyrics? {
+        let song = try await item(itemId)
+        let sources = song.mediaSources ?? []
+        let candidates = sources.flatMap { source in
+            (source.mediaStreams ?? song.mediaStreams ?? []).filter { $0.type == "Subtitle" }.map { (source.id, $0) }
+        }
+        // A timed .lrc first.
+        guard let (sourceId, stream) = candidates.first(where: { $0.1.codec?.lowercased() == "lrc" }) ?? candidates.first,
+              let index = stream.index else { return nil }
+        let format = stream.codec?.lowercased() ?? "lrc"
+        let request = authorizedRequest(url("/Items/\(itemId)/\(sourceId)/Subtitles/\(index)/Stream.\(format)"))
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return Lyrics(lrc: text)
+    }
+
+    /// A title's BIF file of preview frames on Emby, nearest `width` across.
+    func thumbnailsURL(itemId: String, mediaSourceId: String?, width: Int) -> URL {
+        url("/Videos/\(itemId)/index.bif", query: ["Width": String(width), "MediaSourceId": mediaSourceId])
     }
 
     // MARK: Media segments

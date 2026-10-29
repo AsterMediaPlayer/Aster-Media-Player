@@ -1046,6 +1046,65 @@ nonisolated struct Lyrics: Codable, Sendable, Hashable {
     var isSynced: Bool {
         metadata?.isSynced ?? lyrics.contains { $0.start != nil }
     }
+
+    init(metadata: LyricMetadata? = nil, lyrics: [LyricLine]) {
+        self.metadata = metadata
+        self.lyrics = lyrics
+    }
+
+    /// Lyrics from LRC text (Emby's): `[mm:ss.xx]` stamps before each line,
+    /// several when a line repeats, and `[offset:±ms]`; tags such as `[ar:]`
+    /// are skipped. Text without stamps is unsynced, a line each. Nil when
+    /// there are no words.
+    init?(lrc text: String) {
+        var timed: [LyricLine] = []
+        var plain: [String] = []
+        var offsetTicks: Int64 = 0
+        for raw in text.components(separatedBy: .newlines) {
+            var line = Substring(raw.trimmingCharacters(in: .whitespaces))
+            var stamps: [Int64] = []
+            var tagged = false
+            while line.hasPrefix("["), let close = line.firstIndex(of: "]") {
+                let tag = line[line.index(after: line.startIndex)..<close]
+                line = line[line.index(after: close)...]
+                if let ticks = Self.ticks(tag) {
+                    stamps.append(ticks)
+                } else {
+                    tagged = true
+                    let parts = tag.split(separator: ":", maxSplits: 1)
+                    if parts.count == 2, parts[0].lowercased() == "offset", let ms = Int64(parts[1].trimmingCharacters(in: .whitespaces)) {
+                        offsetTicks = ms * 10_000
+                    }
+                }
+            }
+            let words = line.trimmingCharacters(in: .whitespaces)
+            if !stamps.isEmpty {
+                timed += stamps.map { LyricLine(text: words, start: $0) }
+            } else if !tagged {
+                plain.append(words)
+            }
+        }
+        if !timed.isEmpty {
+            // A positive offset shows the lines sooner.
+            lyrics = timed.sorted { ($0.start ?? 0) < ($1.start ?? 0) }
+                .map { LyricLine(text: $0.text, start: max(($0.start ?? 0) - offsetTicks, 0)) }
+            metadata = LyricMetadata(isSynced: true)
+        } else {
+            while plain.first?.isEmpty == true { plain.removeFirst() }
+            while plain.last?.isEmpty == true { plain.removeLast() }
+            guard !plain.isEmpty else { return nil }
+            lyrics = plain.map { LyricLine(text: $0, start: nil) }
+            metadata = LyricMetadata(isSynced: false)
+        }
+    }
+
+    /// `mm:ss`, `mm:ss.xx` or `mm:ss.xxx` in ticks; nil for other tags.
+    private static func ticks(_ stamp: Substring) -> Int64? {
+        let parts = stamp.split(separator: ":")
+        guard parts.count == 2, let minutes = Int64(parts[0]),
+              parts[1].allSatisfy({ $0.isNumber || $0 == "." }), let seconds = Double(parts[1]) else { return nil }
+        return minutes * 600_000_000 + Int64((seconds * 10_000_000).rounded())
+    }
 }
 
 nonisolated struct LyricMetadata: Codable, Sendable, Hashable {

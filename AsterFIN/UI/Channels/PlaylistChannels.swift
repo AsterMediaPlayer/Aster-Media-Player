@@ -180,9 +180,13 @@ final class ChannelsModel {
     /// episodes, in channel-number order. A tagged playlist with neither is
     /// left out.
     /// Loads the channels `userName` gets (`aster:user=`), every one for nil.
+    /// A channel with anything on it the user's parental controls hold back
+    /// is left out altogether (see `isHeldBack`).
     func load(client: JellyfinClient, userName: String? = nil, force: Bool = false) async {
         errorMessage = nil
         do {
+            // Read each time, so an administrator's change counts on the next visit.
+            let policy = try await client.me().policy
             let playlists = try await client.playlists(mediaType: "Video")
             let tagged = Self.taggedChannels(in: playlists).filter { userName == nil || $0.tags.isShown(to: userName) }
             let numbers = ChannelTags.numbers(for: tagged.map { ($0.playlist.id, $0.tags.name ?? $0.playlist.displayTitle, $0.tags.number) })
@@ -208,7 +212,16 @@ final class ChannelsModel {
                 if let items = fetched[playlist.id] { itemCache[playlist.id] = (playlist.childCount, items) }
             }
             await loadSources(for: tagged, client: client, force: force)
+            // The ratings' ranks, only needed to clear a restricted user's
+            // genre, network or collection channel.
+            var ratings: [ParentalRating] = []
+            if policy?.restrictsContent == true, tagged.contains(where: { $0.tags.hasSources && !$0.tags.ratings.isEmpty }) {
+                ratings = try await client.parentalRatings()
+            }
             let built = tagged.compactMap { entry -> PlaylistChannel? in
+                if let policy, Self.isHeldBack(entry.playlist, tags: entry.tags, fetched: self.itemCache[entry.playlist.id]?.items.count, policy: policy, ratings: ratings) {
+                    return nil
+                }
                 let own = itemCache[entry.playlist.id]?.items ?? []
                 let fromSources = entry.tags.hasSources ? (sourceCache[entry.playlist.id]?.items ?? []) : []
                 let items = Self.merged(own, fromSources).filter { $0.kind == .movie || $0.kind == .episode }
@@ -329,6 +342,27 @@ final class ChannelsModel {
                 title.kind == .series ? (episodeCache[title.id] ?? []) : [title]
             }
             sourceCache[entry.playlist.id] = (query, ids, items)
+        }
+    }
+
+    /// Whether a channel has anything on it the user's parental controls
+    /// hold back, so it's left out rather than shown with gaps. The server
+    /// leaves those titles out of what it sends this user, so:
+    /// - A playlist lists more titles than came back (or none came back).
+    /// - Genres, networks and collections can't be counted that way, so a
+    ///   restricted user gets such a channel only when its own `rating=`
+    ///   tags keep it within their rating cap and nothing else is restricted.
+    /// A user without restrictions gets every channel, whatever the counts.
+    nonisolated static func isHeldBack(_ playlist: BaseItem, tags: ChannelTags, fetched: Int?, policy: UserPolicy, ratings: [ParentalRating]) -> Bool {
+        guard policy.restrictsContent else { return false }
+        if let listed = playlist.childCount, listed > 0, (fetched ?? 0) < listed { return true }
+        guard tags.hasSources else { return false }
+        guard !policy.restrictsBeyondRating, let cap = policy.maxParentalRating, !tags.ratings.isEmpty else { return true }
+        return tags.ratings.contains { name in
+            guard let rating = ratings.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let score = rating.score else {
+                return true
+            }
+            return score > cap || (score == cap && (rating.subScore ?? 0) > (policy.maxParentalSubRating ?? .max))
         }
     }
 

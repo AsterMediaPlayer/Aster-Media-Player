@@ -39,7 +39,16 @@ nonisolated struct TopShelfSession: Decodable, Sendable {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         // A Plex sign-in: these Jellyfin requests don't apply, so show nothing yet.
         guard let session = try? JSONDecoder().decode(TopShelfSession.self, from: data), session.serverKind != "plex" else { return nil }
+        // Turned off for this server in the app's server settings (TopShelfServers).
+        guard !session.isHiddenFromShelf else { return nil }
         return session
+    }
+
+    /// The app's `SavedServer.id` for a Jellyfin or Emby session.
+    var serverID: String { serverURL.absoluteString + "|" + userId }
+
+    var isHiddenFromShelf: Bool {
+        (UserDefaults(suiteName: Self.accessGroup)?.stringArray(forKey: "AsterFIN.topShelfHiddenServers") ?? []).contains(serverID)
     }
 
     /// The app's device id, so the server sees one Apple TV rather than two.

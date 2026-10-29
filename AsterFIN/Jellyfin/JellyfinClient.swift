@@ -1193,6 +1193,11 @@ nonisolated final class JellyfinClient: MediaServer {
     // MARK: Playlists
 
     /// The user's playlists of one media type ("Audio" or "Video").
+    /// The ratings the server knows, with how each ranks.
+    func parentalRatings() async throws -> [ParentalRating] {
+        try await get([ParentalRating].self, "/Localization/ParentalRatings")
+    }
+
     func playlists(mediaType: String) async throws -> [BaseItem] {
         try await items([
             "fields": Self.listFields + ",Tags",

@@ -752,8 +752,15 @@ nonisolated final class JellyfinClient: MediaServer {
             var AllowAudioStreamCopy: Bool = true
         }
         let direct = allowDirect && !mostCompatible
+        var deviceProfile = profile ?? (mostCompatible ? .appleTVMostCompatible(maxBitrate: maxBitrate) : .appleTV(maxBitrate: maxBitrate))
+        // Emby's fMP4 HLS doesn't hold up: AVFoundation refuses its HEVC
+        // stream (-16046), and its H.264 one freezes or drifts out of sync.
+        // Its MPEG-TS stream, H.264, is what it serves well.
+        if kind == .emby, profile == nil {
+            deviceProfile = deviceProfile.withoutFragmentedMP4Streams()
+        }
         let body = Body(
-            DeviceProfile: profile ?? (mostCompatible ? .appleTVMostCompatible(maxBitrate: maxBitrate) : .appleTV(maxBitrate: maxBitrate)),
+            DeviceProfile: deviceProfile,
             MediaSourceId: mediaSourceId,
             StartTimeTicks: startTicks,
             MaxStreamingBitrate: maxBitrate,
@@ -1477,6 +1484,14 @@ nonisolated struct DeviceProfile: Encodable, Sendable {
                 ]),
             ]
         )
+    }
+
+    /// The same profile with its fMP4 video streams taken out, so the server
+    /// converts to MPEG-TS (H.264) instead: for Emby, whose fMP4 HLS fails.
+    func withoutFragmentedMP4Streams() -> DeviceProfile {
+        var profile = self
+        profile.TranscodingProfiles.removeAll { $0.kind == "Video" && $0.Container == "mp4" }
+        return profile
     }
 
     /// Only what every Apple TV plays: a fresh 8-bit H.264 + AAC encode. Used

@@ -500,6 +500,7 @@ final class AppSession {
         guard id != currentServerID, let saved = savedServers.first(where: { $0.id == id }) else { return }
         savedServers.removeAll { $0.id == id }
         SavedServers.save(savedServers)
+        TopShelfServers.setShown(true, for: id)
         let session = saved.session
         Task { await MediaServerFactory.client(for: session).logout() }
     }

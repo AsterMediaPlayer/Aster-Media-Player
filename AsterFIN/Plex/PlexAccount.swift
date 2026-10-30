@@ -98,7 +98,7 @@ nonisolated enum PlexAccount {
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }()
 
     private static func send<T: Decodable>(_ type: T.Type, _ path: String, method: String = "GET",

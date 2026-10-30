@@ -61,7 +61,8 @@ nonisolated enum AnimeThemesLookup {
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 15
+        // AnimeThemes often takes 5 to 15 seconds to answer.
+        configuration.timeoutIntervalForRequest = 30
         return URLSession(configuration: configuration)
     }()
 
@@ -71,17 +72,22 @@ nonisolated enum AnimeThemesLookup {
         let key = aniDBId.map { "anidb:\($0)" } ?? "name:\(seriesName.lowercased())|\(year ?? 0)"
         if let cached = found.withLock({ $0[key] }) { return cached }
         let themes: [KnownTheme]
-        if let aniDBId {
-            themes = await byAniDB(aniDBId)
-        } else {
-            themes = await byName(seriesName, year: year)
+        do {
+            if let aniDBId {
+                themes = try await byAniDB(aniDBId)
+            } else {
+                themes = try await byName(seriesName, year: year)
+            }
+        } catch {
+            // Not kept: a lookup that didn't get through is tried again next time.
+            return []
         }
         found.withLock { $0[key] = themes }
         return themes
     }
 
-    private static func byAniDB(_ id: String) async -> [KnownTheme] {
-        let reply: AnimeList? = await get("/anime", [
+    private static func byAniDB(_ id: String) async throws -> [KnownTheme] {
+        let reply: AnimeList? = try await get("/anime", [
             "filter[has]": "resources",
             "filter[site]": "AniDB",
             "filter[external_id]": id,
@@ -94,8 +100,8 @@ nonisolated enum AnimeThemesLookup {
     /// over New Year began in the earlier one) among those the name finds;
     /// with no year, the first found. AnimeThemes names shows in Japanese,
     /// so the year, not the name, tells its seasons apart.
-    private static func byName(_ name: String, year: Int?) async -> [KnownTheme] {
-        let search: SearchReply? = await get("/search", ["q": name, "fields[search]": "anime"])
+    private static func byName(_ name: String, year: Int?) async throws -> [KnownTheme] {
+        let search: SearchReply? = try await get("/search", ["q": name, "fields[search]": "anime"])
         let candidates = search?.search.anime ?? []
         let pick: Anime?
         if let year {
@@ -104,7 +110,7 @@ nonisolated enum AnimeThemesLookup {
             pick = candidates.first
         }
         guard let pick else { return [] }
-        let reply: AnimeReply? = await get("/anime/\(pick.slug)", ["include": include])
+        let reply: AnimeReply? = try await get("/anime/\(pick.slug)", ["include": include])
         return reply.map { themes($0.anime) } ?? []
     }
 
@@ -118,15 +124,27 @@ nonisolated enum AnimeThemesLookup {
         }
     }
 
-    private static func get<T: Decodable>(_ path: String, _ query: [String: String]) async -> T? {
+    /// The reply, or nil when AnimeThemes has nothing there (a 404, or a
+    /// reply that isn't what was asked). Throws when it couldn't be asked:
+    /// a timeout, a dropped connection or a server error, each tried once more.
+    private static func get<T: Decodable>(_ path: String, _ query: [String: String]) async throws -> T? {
         var components = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }.sorted { $0.name < $1.name }
         guard let url = components.url else { return nil }
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        for attempt in 1...2 {
+            do {
+                let (data, response) = try await session.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status >= 500 || status == 429 { throw URLError(.badServerResponse) }
+                guard status == 200 else { return nil }
+                return try? JSONDecoder().decode(T.self, from: data)
+            } catch {
+                if attempt == 2 || Task.isCancelled { throw error }
+            }
+        }
+        return nil
     }
 
     // MARK: AnimeThemes' JSON

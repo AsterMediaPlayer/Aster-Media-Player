@@ -214,9 +214,10 @@ final class ChannelsModel {
             await loadSources(for: tagged, client: client, force: force)
             // The ratings' ranks, only needed to clear a restricted user's
             // genre, network or collection channel.
+            // Unreadable, they clear nothing: those channels are held back, the rest still load.
             var ratings: [ParentalRating] = []
             if policy?.restrictsContent == true, tagged.contains(where: { $0.tags.hasSources && !$0.tags.ratings.isEmpty }) {
-                ratings = try await client.parentalRatings()
+                ratings = (try? await client.parentalRatings()) ?? []
             }
             let built = tagged.compactMap { entry -> PlaylistChannel? in
                 if let policy, Self.isHeldBack(entry.playlist, tags: entry.tags, fetched: self.itemCache[entry.playlist.id]?.items.count, policy: policy, ratings: ratings) {

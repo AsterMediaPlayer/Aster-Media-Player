@@ -95,7 +95,7 @@ nonisolated final class PlexClient: MediaServer {
         self.serverName = serverName.flatMap { $0.isEmpty ? nil : $0 } ?? "The Plex server"
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }
 
     /// Browsing, playing, resume and watched; the rest comes later.

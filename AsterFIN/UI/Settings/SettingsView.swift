@@ -1305,6 +1305,7 @@ struct ChannelSettingsView: View {
         var tags = tags
         if tags.number == nil { tags.number = numbers[playlist.id] }
         guard canEdit, let client = session.jellyfin, let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        pinNumbers(except: playlist.id)
         let previous = playlists[index].tags
         let updated = tags.applied(to: previous)
         playlists[index].tags = updated
@@ -1316,6 +1317,25 @@ struct ChannelSettingsView: View {
                 if let current = playlists.firstIndex(where: { $0.id == playlist.id }) { playlists[current].tags = previous }
                 if case JellyfinError.http(let code, _) = error, code == 401 || code == 403 { refused = true }
                 errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Writes each channel numbered automatically the number it has now,
+    /// before a change that would move them: numbers left to the app follow
+    /// the highest set one in name order, so adding a channel, turning one
+    /// off, renumbering one, or saving one's number would shift the rest.
+    private func pinNumbers(except id: String?) {
+        guard let client = session.jellyfin else { return }
+        let current = numbers
+        for (playlist, tags) in ChannelsModel.taggedChannels(in: playlists) where tags.number == nil && playlist.id != id {
+            guard let number = current[playlist.id], let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { continue }
+            var pinned = tags
+            pinned.number = number
+            let updated = pinned.applied(to: playlists[index].tags)
+            playlists[index].tags = updated
+            Task {
+                do { try await client.setTags(updated, onItem: playlist.id) } catch { errorMessage = error.localizedDescription }
             }
         }
     }
@@ -1359,6 +1379,7 @@ struct ChannelSettingsView: View {
         }
         guard canEdit, !isCreating, let client = session.jellyfin else { return }
         isCreating = true
+        pinNumbers(except: nil)
         var tags = ChannelTags(isChannel: true, number: (numbers.values.max() ?? 0) + 1)
         switch source {
         case .show: tags.showsLogo = true

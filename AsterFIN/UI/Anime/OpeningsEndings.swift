@@ -83,19 +83,13 @@ nonisolated enum OpeningsEndings {
         var kept: [String: [ThemeClip]] = [:]
 
         for episode in episodes {
-            guard let season = episode.parentIndexNumber, season > 0,
-                  let chapters = episode.chapters?.sorted(by: { $0.startPositionTicks < $1.startPositionTicks }),
-                  !chapters.isEmpty else { continue }
-            let marks = chapters.map { mark(of: $0.name) }
-            let hasDefiniteOpening = marks.contains { if case (.opening, true)? = $0 { true } else { false } }
-            let hasDefiniteEnding = marks.contains { if case (.ending, true)? = $0 { true } else { false } }
-
-            for (index, chapter) in chapters.enumerated() {
-                guard let (kind, definite) = marks[index] else { continue }
-                // An "Intro" beside a real "OP" is the cold open.
-                if !definite, kind == .opening ? hasDefiniteOpening : hasDefiniteEnding { continue }
-                let start = chapter.startPositionTicks
-                let end = index + 1 < chapters.count ? chapters[index + 1].startPositionTicks : (episode.runTimeTicks ?? 0)
+            guard let season = episode.parentIndexNumber, season > 0, let unsorted = episode.chapters, !unsorted.isEmpty else { continue }
+            // In time order, chapters at the same moment kept in the server's order.
+            let chapters = unsorted.enumerated()
+                .sorted { ($0.element.startPositionTicks, $0.offset) < ($1.element.startPositionTicks, $1.offset) }
+                .map(\.element)
+            for found in candidates(in: chapters, runTimeTicks: episode.runTimeTicks) {
+                let (kind, index, start, end) = (found.kind, found.chapterIndex, found.start, found.end)
                 guard durationRange.contains(end - start) else { continue }
 
                 let key = "\(season)-\(kind.rawValue)"
@@ -109,7 +103,7 @@ nonisolated enum OpeningsEndings {
                     number: earlier.count + 1,
                     episode: episode,
                     chapterIndex: index,
-                    chapterImageTag: chapter.imageTag,
+                    chapterImageTag: chapters[index].imageTag,
                     startTicks: start,
                     endTicks: end
                 )
@@ -121,6 +115,41 @@ nonisolated enum OpeningsEndings {
         return clips.sorted {
             ($0.season, $0.kind == .opening ? 0 : 1, $0.number) < ($1.season, $1.kind == .opening ? 0 : 1, $1.number)
         }
+    }
+
+    /// An episode's openings and endings, before their lengths are checked:
+    /// Emby's own marks first (an IntroStart through its IntroEnd, and
+    /// CreditsStart through the end), else chapters by name, each running
+    /// until the next chapter that starts later. Emby puts an ordinary
+    /// chapter at the same moment as IntroStart, which, taken as the end,
+    /// left an opening of no length. `chapters` are in time order.
+    static func candidates(in chapters: [ChapterInfo], runTimeTicks: Int64?)
+        -> [(kind: ThemeClip.Kind, chapterIndex: Int, start: Int64, end: Int64)] {
+        func marker(_ type: String) -> Int? {
+            chapters.firstIndex { $0.markerType?.caseInsensitiveCompare(type) == .orderedSame }
+        }
+        var found: [(kind: ThemeClip.Kind, chapterIndex: Int, start: Int64, end: Int64)] = []
+        if let start = marker("IntroStart"), let end = marker("IntroEnd"),
+           chapters[end].startPositionTicks > chapters[start].startPositionTicks {
+            found.append((.opening, start, chapters[start].startPositionTicks, chapters[end].startPositionTicks))
+        }
+        if let start = marker("CreditsStart"), let runTimeTicks, runTimeTicks > chapters[start].startPositionTicks {
+            found.append((.ending, start, chapters[start].startPositionTicks, runTimeTicks))
+        }
+        let marked = Set(found.map(\.kind))
+
+        let marks = chapters.map { mark(of: $0.name) }
+        let hasDefiniteOpening = marks.contains { if case (.opening, true)? = $0 { true } else { false } }
+        let hasDefiniteEnding = marks.contains { if case (.ending, true)? = $0 { true } else { false } }
+        for (index, chapter) in chapters.enumerated() {
+            guard let (kind, definite) = marks[index], !marked.contains(kind) else { continue }
+            // An "Intro" beside a real "OP" is the cold open.
+            if !definite, kind == .opening ? hasDefiniteOpening : hasDefiniteEnding { continue }
+            let start = chapter.startPositionTicks
+            let end = chapters[(index + 1)...].first { $0.startPositionTicks > start }?.startPositionTicks ?? (runTimeTicks ?? 0)
+            found.append((kind, index, start, end))
+        }
+        return found.sorted { $0.start < $1.start }
     }
 
     /// What a chapter name marks, and whether the name is definite.

@@ -54,7 +54,7 @@ nonisolated final class JellyfinClient: MediaServer {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 512 * 1024 * 1024)
         configuration.requestCachePolicy = .returnCacheDataElseLoad
-        return URLSession(configuration: configuration)
+        return URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }()
 
     init(baseURL: URL, accessToken: String? = nil, userId: String? = nil, kind: ServerKind = .jellyfin) {
@@ -65,7 +65,7 @@ nonisolated final class JellyfinClient: MediaServer {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.waitsForConnectivity = true
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }
 
     func signedIn(token: String, userId: String) -> JellyfinClient {

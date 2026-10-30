@@ -521,7 +521,7 @@
 				CODE_SIGN_ENTITLEMENTS = AsterFIN/AsterFIN.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "AsterFIN/AsterFIN-CarPlay.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -576,7 +576,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AsterFIN/AsterFIN.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -676,7 +676,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -717,7 +717,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -758,7 +758,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINTopShelf/AsterFINTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
@@ -789,7 +789,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINTopShelf/AsterFINTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";

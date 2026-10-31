@@ -1252,21 +1252,22 @@ struct NowPlayingView: View {
     /// Whether the lyrics are on screen (turned on, and the song has some).
     private var lyricsShowing: Bool { showLyrics && player.lyrics != nil }
 
-    /// AirPlay 2 (a Sonos room, a HomePod, a TV), centred under the
-    /// controls as in Music: the row is full on a phone held upright.
+    /// Where the sound goes: AirPlay (a HomePod, a TV) and Sonos rooms.
     @ViewBuilder
-    private var airPlayRow: some View {
+    private var outputButtons: some View {
         #if os(iOS)
-        VStack(spacing: 8) {
-            HStack(spacing: 28) {
-                AirPlayRoutePicker()
-                    .frame(width: 30, height: 30)
-                    .accessibilityLabel("AirPlay")
-                SonosControl(target: .music, size: 34)
-            }
-            SonosPlayingLabel(target: .music)
+        HStack(spacing: PlayerControl.spacing) {
+            AirPlayControl()
+            SonosControl(target: .music)
         }
-        .frame(maxWidth: .infinity)
+        #endif
+    }
+
+    /// "Playing on Living Room", while a Sonos room is.
+    @ViewBuilder
+    private var outputLabel: some View {
+        #if os(iOS)
+        SonosPlayingLabel(target: .music)
         #endif
     }
 
@@ -1311,7 +1312,11 @@ struct NowPlayingView: View {
                             progress
                             controls
                                 .frame(maxWidth: .infinity)
-                            airPlayRow
+                            // Upright the row is full: under it, centred.
+                            outputButtons
+                                .frame(maxWidth: .infinity)
+                            outputLabel
+                                .frame(maxWidth: .infinity)
                             errorText
                         }
                         .padding(.horizontal, 24)
@@ -1321,8 +1326,13 @@ struct NowPlayingView: View {
                             VStack(alignment: .leading, spacing: 14) {
                                 trackInfo(track, titleSize: 22)
                                 progress
-                                controls
-                                airPlayRow
+                                // Beside the controls, where the row has room.
+                                HStack(spacing: 16) {
+                                    controls
+                                    Spacer(minLength: 0)
+                                    outputButtons
+                                }
+                                outputLabel
                                 errorText
                             }
                         }

@@ -458,6 +458,16 @@ struct HeroCarousel: View {
         openItem?(target)
     }
 
+    /// A click on the banner itself opens the title's page and nothing more
+    /// (on the Mac, where the Play button is the one thing that plays).
+    private func open(_ item: BaseItem) {
+        if let onSelect {
+            onSelect(item)
+            return
+        }
+        openItem?(destination(item))
+    }
+
     private func noteHorizontalMove() {
         lastHorizontalMoveAt = Date()
         pendingMoveDown?.cancel()
@@ -511,6 +521,34 @@ struct HeroCarousel: View {
     }
 
     #if !os(tvOS)
+    /// One page of the touch and Mac banner.
+    @ViewBuilder
+    private func bannerPage(_ item: BaseItem, in size: CGSize) -> some View {
+        if let card {
+            card(item, false)
+        } else {
+            HeroCard(
+                item: item,
+                isFocused: false,
+                isPortrait: size.height > size.width,
+                screenPixels: pixels(size),
+                tag: tag(item),
+                action: action(item),
+                onPlay: playButtonAction(item)
+            )
+        }
+    }
+
+    /// The Play button's own action where it's a button of its own (the
+    /// Mac), nil where the whole banner is the button.
+    private func playButtonAction(_ item: BaseItem) -> (() -> Void)? {
+        #if os(macOS)
+        return { select(item) }
+        #else
+        return nil
+        #endif
+    }
+
     /// What the hero prefetches for: the featured titles at a banner size.
     private struct PrefetchKey: Equatable {
         var ids: [String]
@@ -533,25 +571,24 @@ struct HeroCarousel: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 0) {
                         ForEach(items) { item in
+                            #if os(macOS)
+                            // Clicking the art, title or text opens the page; only the
+                            // Play / Resume button inside the card plays.
+                            bannerPage(item, in: proxy.size)
+                                .contentShape(Rectangle())
+                                .onTapGesture { open(item) }
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .id(item.id)
+                            #else
                             Button {
                                 select(item)
                             } label: {
-                                if let card {
-                                    card(item, false)
-                                } else {
-                                    HeroCard(
-                                        item: item,
-                                        isFocused: false,
-                                        isPortrait: proxy.size.height > proxy.size.width,
-                                        screenPixels: pixels(proxy.size),
-                                        tag: tag(item),
-                                        action: action(item)
-                                    )
-                                }
+                                bannerPage(item, in: proxy.size)
                             }
                             .buttonStyle(.plain)
                             .frame(width: proxy.size.width, height: proxy.size.height)
                             .id(item.id)
+                            #endif
                         }
                     }
                     .scrollTargetLayout()
@@ -814,6 +851,9 @@ struct HeroCard: View {
     var tag: String? = nil
     /// The button's wording and symbol, in place of Play / Resume.
     var action: Action? = nil
+    /// Where the Play button is a button of its own, what it does; nil where
+    /// the whole banner is the button.
+    var onPlay: (() -> Void)? = nil
 
     struct Action {
         var title: String
@@ -887,6 +927,27 @@ struct HeroCard: View {
     static let bottomPadding: CGFloat = 110
     #endif
 
+    /// The white Play / Resume capsule.
+    private var playPill: some View {
+        HStack(spacing: 14) {
+            if let action {
+                Image(systemName: action.systemImage)
+                Text(action.title)
+            } else {
+                Image(systemName: "play.fill")
+                Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
+                if let remaining = item.remainingText {
+                    Text("·  \(remaining)").foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.headline)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
+        .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
+        .foregroundStyle(.black)
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
@@ -937,23 +998,12 @@ struct HeroCard: View {
                         .lineLimit(3)
                         .frame(maxWidth: Self.overviewWidth, alignment: .leading)
                 }
-                HStack(spacing: 14) {
-                    if let action {
-                        Image(systemName: action.systemImage)
-                        Text(action.title)
-                    } else {
-                        Image(systemName: "play.fill")
-                        Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
-                        if let remaining = item.remainingText {
-                            Text("·  \(remaining)").foregroundStyle(.secondary)
-                        }
-                    }
+                if let onPlay {
+                    Button(action: onPlay) { playPill }
+                        .buttonStyle(.plain)
+                } else {
+                    playPill
                 }
-                .font(.headline)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 14)
-                .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
-                .foregroundStyle(.black)
             }
             .padding(.horizontal, Lockup.screenPadding)
             .padding(.bottom, Self.bottomPadding)

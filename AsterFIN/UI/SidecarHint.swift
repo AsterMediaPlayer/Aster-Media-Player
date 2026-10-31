@@ -61,7 +61,10 @@ final class SidecarHint {
     static func isSidecar(_ screen: NSScreen?) -> Bool {
         guard let screen else { return false }
         let name = screen.localizedName.lowercased()
-        return name.contains("ipad") || name.contains("sidecar")
+        if name.contains("ipad") || name.contains("sidecar") { return true }
+        // The display's model code, "iPad" as four letters, whatever the name's language.
+        guard let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { return false }
+        return CGDisplayModelNumber(number) == 0x6950_6164
     }
 }
 

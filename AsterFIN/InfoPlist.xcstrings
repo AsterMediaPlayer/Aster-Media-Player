@@ -44,7 +44,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Aster connects to your Jellyfin server on your home network to browse and play your media."
+            "value" : "Aster finds Sonos speakers on your network so music and audiobooks can play on them, and reaches media servers at home."
           }
         }
       }

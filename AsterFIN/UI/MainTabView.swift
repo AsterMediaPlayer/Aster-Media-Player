@@ -269,6 +269,11 @@ struct MainTabView: View {
             // Away once a tab is chosen, however it was (a click, the
             // keyboard, a link), then the page gets the keyboard back.
             WindowSidebar.setShown(false)
+            // A tab picked with the mouse leaves the keyboard's place in the sidebar behind.
+            keyboard.inSidebar = false
+            keyboard.sidebarHighlight = nil
+            keyboard.settingsHighlighted = false
+            keyboard.highlightFrame = nil
             restoreKeyboardFocus()
         }
         .onKeyPress(.upArrow) { routeKey(.up) }
@@ -299,8 +304,8 @@ struct MainTabView: View {
             ZStack(alignment: .topLeading) {
                 if let frame = keyboard.highlightFrame {
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(.tint, lineWidth: 2.5)
-                        .background(.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+                        .strokeBorder(.white, lineWidth: 2.5)
+                        .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
                         .frame(width: frame.width, height: frame.height)
                         .offset(x: frame.minX, y: frame.minY)
                         .animation(.easeOut(duration: 0.15), value: frame)
@@ -309,11 +314,29 @@ struct MainTabView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .ignoresSafeArea()
             .allowsHitTesting(false)
+            // The sidebar closing some other way (its own hide button) while the keyboard is in it.
+            .task(id: keyboard.inSidebar) { await watchSidebar() }
         }
         #endif
     }
 
     #if os(macOS)
+    /// While the keyboard is in the sidebar, notices the sidebar has gone
+    /// (closed with the mouse, say) and takes the keyboard out of it, so
+    /// the arrows go to the page and no outline is left behind.
+    private func watchSidebar() async {
+        guard keyboard.inSidebar else { return }
+        // It's still sliding out at first.
+        try? await Task.sleep(for: .milliseconds(900))
+        while keyboard.inSidebar, !Task.isCancelled {
+            if WindowSidebar.isShown == false {
+                leaveSidebar()
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
     /// Takes the keyboard once the view is in its window (set as it
     /// appears, focus doesn't take), so no click is needed first.
     private func claimKeyboard() {

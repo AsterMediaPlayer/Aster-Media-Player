@@ -40,6 +40,20 @@ final class DragScroller {
     func install(isEnabled: @escaping () -> Bool) {
         self.isEnabled = isEnabled
         guard monitor == nil else { return }
+        #if DEBUG
+        dragLog.notice("installing the drag scroller")
+        // Temporary: what an iPad display's touches arrive as.
+        _ = NSEvent.addLocalMonitorForEvents(matching: .any) { event in
+            switch event.type {
+            case .leftMouseDown, .leftMouseDragged, .leftMouseUp, .otherMouseDown, .otherMouseDragged, .otherMouseUp,
+                 .rightMouseDown, .rightMouseDragged, .rightMouseUp, .tabletPoint, .tabletProximity, .directTouch,
+                 .gesture, .magnify, .swipe, .rotate, .beginGesture, .endGesture, .pressure, .scrollWheel:
+                dragLog.notice("event type=\(event.type.rawValue) subtype=\(event.subtype.rawValue) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.window != nil)")
+            default: break
+            }
+            return event
+        }
+        #endif
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             self?.handle(event) ?? event
         }

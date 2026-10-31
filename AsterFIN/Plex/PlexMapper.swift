@@ -62,7 +62,7 @@ nonisolated enum PlexMapper {
         item.people = people(metadata)
         item.providerIds = providerIds(metadata)
         item.chapters = metadata.chapter?.map { chapter in
-            ChapterInfo(startPositionTicks: Int64(chapter.startTimeOffset) * ticksPerMillisecond, name: chapter.tag)
+            ChapterInfo(startPositionTicks: Int64(chapter.startTimeOffset) * ticksPerMillisecond, name: chapter.tag, imageTag: chapter.thumb)
         }
         item.mediaStreams = metadata.media?.first?.part?.first?.stream?.map(stream)
         item.container = metadata.media?.first?.container

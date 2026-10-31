@@ -130,7 +130,12 @@ nonisolated extension PlexClient {
 
     func trickplayTileURL(itemId: String, width: Int, index: Int, mediaSourceId: String) -> URL { baseURL }
     func chapterImageURL(itemId: String, index: Int, stamp: Int64?) -> URL { baseURL }
-    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL { baseURL }
+    /// A chapter's picture, by its own path (the `tag`), fetched as it is:
+    /// it's small already, and Plex's photo transcoder refuses a chapter's path.
+    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL {
+        guard tag.hasPrefix("/") else { return baseURL }
+        return url(tag, query: ["X-Plex-Token": accessToken])
+    }
 
     // MARK: Helpers
 

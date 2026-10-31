@@ -917,11 +917,18 @@ extension View {
             .buttonBorderShape(.capsule)
             .tint(prominent ? .white : Color(white: 0.3))
             .foregroundStyle(prominent ? .black : .white)
-            #if os(macOS)
-            // The Mac greys a prominent button out while its window isn't the
-            // active one, which left Resume's black label on dark grey.
-            .environment(\.controlActiveState, .key)
-            #endif
+            .alwaysActiveControl()
+        #endif
+    }
+
+    /// The Mac greys a tinted button out while its window isn't the active
+    /// one, which left Resume's black label on dark grey and made the
+    /// picked tab and season vanish. Drawn as in the active window instead.
+    func alwaysActiveControl() -> some View {
+        #if os(macOS)
+        environment(\.controlActiveState, .key)
+        #else
+        self
         #endif
     }
 }

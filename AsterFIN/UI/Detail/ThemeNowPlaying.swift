@@ -60,7 +60,7 @@ final class ThemeDeck {
     /// title-page theme music meanwhile.
     @ObservationIgnored var onActiveChange: ((Bool) -> Void)?
 
-    @ObservationIgnored private var client: JellyfinClient?
+    @ObservationIgnored private var client: (any MediaServer)?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endWatcher: Task<Void, Never>?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
@@ -68,7 +68,7 @@ final class ThemeDeck {
     /// clip's start in the episode, else zero.
     @ObservationIgnored private var offset: Double = 0
     /// A chapter clip's server transcode, ended once it's done with.
-    @ObservationIgnored private var transcode: (JellyfinClient, String)?
+    @ObservationIgnored private var transcode: (any MediaServer, String)?
 
     /// Whether something is loaded, playing or paused.
     var isActive: Bool { current != nil }
@@ -83,7 +83,7 @@ final class ThemeDeck {
     }
 
     /// Plays `entry`, then the rest of `queue` after it.
-    func play(_ entry: OpeningEnding, in queue: [OpeningEnding], client: JellyfinClient) {
+    func play(_ entry: OpeningEnding, in queue: [OpeningEnding], client: any MediaServer) {
         let wasActive = current != nil
         defer { if !wasActive { onActiveChange?(true) } }
         loadTask?.cancel()
@@ -95,11 +95,12 @@ final class ThemeDeck {
         isPlaying = true
         switch entry {
         case .theme(let theme):
-            guard let path = theme.playablePath else { return }
+            // The plugin's files are Jellyfin's.
+            guard let path = theme.playablePath, let jellyfin = client as? JellyfinClient else { return }
             offset = 0
             duration = 0
             isLoading = false
-            start(AVPlayerItem(url: client.opEdMediaURL(path)))
+            start(AVPlayerItem(url: jellyfin.opEdMediaURL(path)))
         case .chapter(let clip):
             offset = Double(clip.startTicks) / 10_000_000
             duration = Double(clip.endTicks - clip.startTicks) / 10_000_000

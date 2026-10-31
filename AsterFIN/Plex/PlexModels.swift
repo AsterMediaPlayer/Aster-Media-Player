@@ -107,6 +107,9 @@ nonisolated struct PlexChapter: Decodable, Sendable {
     var tag: String?
     var startTimeOffset: Int
     var endTimeOffset: Int?
+    /// The chapter's own picture, by a path of its own
+    /// ("/library/media/.../chapterImages/1"), where Plex has made them.
+    var thumb: String?
 }
 
 /// Plex Pass's detected intro and credits.

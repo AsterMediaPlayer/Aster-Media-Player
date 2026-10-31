@@ -26,7 +26,7 @@ final class ThemePlayer {
     private var loadTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     /// The server transcode behind an opening used as the theme video.
-    private var clipTranscode: (client: JellyfinClient, playSessionId: String)?
+    private var clipTranscode: (client: any MediaServer, playSessionId: String)?
     /// Which opening is standing in as the theme video. Nil while the
     /// title's own theme video plays (or none does), which is never swapped.
     private var fallbackId: String?
@@ -67,7 +67,7 @@ final class ThemePlayer {
     /// (found in the episodes' chapters) behind the page instead. Waits for
     /// the server's theme video first, which always wins. With `sound`, the
     /// opening plays at theme-music volume and replaces any theme song.
-    func showOpeningIfNoVideo(_ clip: ThemeClip, for item: BaseItem, client: JellyfinClient, sound: Bool = false) {
+    func showOpeningIfNoVideo(_ clip: ThemeClip, for item: BaseItem, client: any MediaServer, sound: Bool = false) {
         let range = CMTimeRange(
             start: CMTime(value: clip.startTicks, timescale: 10_000_000),
             end: CMTime(value: clip.endTicks, timescale: 10_000_000)
@@ -122,7 +122,7 @@ final class ThemePlayer {
         for item: BaseItem,
         sound: Bool,
         timeRange: CMTimeRange,
-        resolve: @escaping () async -> (url: URL, transcode: (JellyfinClient, String)?)?
+        resolve: @escaping () async -> (url: URL, transcode: (any MediaServer, String)?)?
     ) {
         let themeKey = item.seriesId ?? item.id
         Task { [weak self] in
@@ -224,7 +224,7 @@ final class ThemePlayer {
 
     /// Episodes are mostly MKV, which Apple TV can't open, so the server's
     /// stream (usually a cheap remux) is used unless the file plays as is.
-    static func stream(for clip: ThemeClip, client: JellyfinClient) async -> (url: URL, playSessionId: String?)? {
+    static func stream(for clip: ThemeClip, client: any MediaServer) async -> (url: URL, playSessionId: String?)? {
         guard let info = try? await client.playbackInfo(
             itemId: clip.episode.id,
             startTicks: clip.startTicks,

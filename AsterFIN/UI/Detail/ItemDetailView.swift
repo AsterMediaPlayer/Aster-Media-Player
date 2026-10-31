@@ -57,9 +57,9 @@ final class DetailModel {
     private(set) var watchOpening: OpeningEnding?
     private(set) var watchEnding: OpeningEnding?
 
-    func updateWatchThemes(client: JellyfinClient, isAnime: Bool) async {
-        // An episode asks the plugin once for both.
-        let episodeThemes = item?.kind == .episode ? await client.opEdThemes(for: item?.id ?? "") ?? [] : []
+    func updateWatchThemes(client: any MediaServer, isAnime: Bool) async {
+        // An episode asks the plugin (Jellyfin's) once for both.
+        let episodeThemes = item?.kind == .episode ? await (client as? JellyfinClient)?.opEdThemes(for: item?.id ?? "") ?? [] : []
         watchOpening = await watchTheme(opening: true, episodeThemes: episodeThemes, client: client, isAnime: isAnime)
         watchEnding = await watchTheme(opening: false, episodeThemes: episodeThemes, client: client, isAnime: isAnime)
     }
@@ -68,7 +68,7 @@ final class DetailModel {
     /// season's chapter clip, else the show's first. Episode: the plugin's
     /// theme that plays in it (then its season's, then a show-wide one),
     /// else the episode's own chapter when the show is anime.
-    private func watchTheme(opening: Bool, episodeThemes: [OpEdTheme], client: JellyfinClient, isAnime: Bool) async -> OpeningEnding? {
+    private func watchTheme(opening: Bool, episodeThemes: [OpEdTheme], client: any MediaServer, isAnime: Bool) async -> OpeningEnding? {
         guard let item else { return nil }
         let kind: ThemeClip.Kind = opening ? .opening : .ending
         switch item.kind {
@@ -76,7 +76,8 @@ final class DetailModel {
             let themes = openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
             let clips = openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == kind }
             if let seasonId = selectedSeasonId {
-                if !themes.isEmpty, let theme = await pluginTheme(forSeason: seasonId, opening: opening, client: client, allowFlagged: true) {
+                if !themes.isEmpty, let jellyfin = client as? JellyfinClient,
+                   let theme = await pluginTheme(forSeason: seasonId, opening: opening, client: jellyfin, allowFlagged: true) {
                     return .theme(theme)
                 }
                 let number = seasons.first { $0.id == seasonId }?.indexNumber
@@ -105,10 +106,11 @@ final class DetailModel {
         }
     }
 
-    /// The plugin's themes when it has any that play (or soon will) for the
-    /// show, so chapters needn't be read; otherwise clips from chapters.
-    static func openingsEndings(for series: BaseItem, client: JellyfinClient) async -> [OpeningEnding] {
-        let themes = (await client.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
+    /// The plugin's themes (Jellyfin's) when it has any that play (or soon
+    /// will) for the show, so chapters needn't be read; otherwise clips from
+    /// chapters, on every server.
+    static func openingsEndings(for series: BaseItem, client: any MediaServer) async -> [OpeningEnding] {
+        let themes = (await (client as? JellyfinClient)?.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
         if !themes.isEmpty { return themes.map(OpeningEnding.theme) }
         let episodes = (try? await client.episodesWithChapters(seriesId: series.id)) ?? []
         let clips = OpeningsEndings.find(in: episodes)
@@ -137,10 +139,10 @@ final class DetailModel {
             isLoading = false
 
             async let similarItems = client.similar(to: full.id, limit: 20)
-            // Openings and endings come from Jellyfin's OP/ED plugin and chapters.
-            let jellyfin = client as? JellyfinClient
-            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind) && jellyfin != nil
-                ? Self.openingsEndings(for: full, client: jellyfin!)
+            // Openings and endings come from Jellyfin's OP/ED plugin, else
+            // from the episodes' chapters on any server.
+            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind)
+                ? Self.openingsEndings(for: full, client: client)
                 : []
 
             switch full.kind {
@@ -505,15 +507,13 @@ struct ItemDetailView: View {
                 session.playOnOpen = nil
                 play(fromBeginning: false)
             }
-            if let jellyfin = session.jellyfin {
-                await showOpening(client: jellyfin)
-                await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
-            }
+            await showOpening(client: client)
+            await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
         }
         // Picking another season swaps in that season's opening, both behind
         // the page and for Watch OP.
         .onChange(of: model.selectedSeasonId) { _, _ in
-            guard let client = session.jellyfin else { return }
+            guard let client = session.client else { return }
             Task {
                 await showOpening(client: client)
                 await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
@@ -1228,13 +1228,15 @@ struct ItemDetailView: View {
     /// instead, never one marked as a spoiler or NSFW. Preference: the
     /// plugin's opening for the selected season, then one found in that
     /// season's chapters, then the show's first opening of either kind.
-    private func showOpening(client: JellyfinClient) async {
+    private func showOpening(client: any MediaServer) async {
         guard themeVideos, detail.kind == .series, !model.openingsEndings.isEmpty else { return }
         let themes = model.openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
         let clips = model.openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == .opening }
+        // The plugin's themes are Jellyfin's.
+        let jellyfin = client as? JellyfinClient
 
         if let seasonId = model.selectedSeasonId {
-            if !themes.isEmpty, let theme = await model.pluginTheme(forSeason: seasonId, opening: true, client: client), show(theme, client: client) {
+            if !themes.isEmpty, let jellyfin, let theme = await model.pluginTheme(forSeason: seasonId, opening: true, client: jellyfin), show(theme, client: jellyfin) {
                 return
             }
             let number = model.seasons.first { $0.id == seasonId }?.indexNumber
@@ -1245,7 +1247,7 @@ struct ItemDetailView: View {
             // Nothing for this season: keep whatever opening is already playing.
             if session.theme.isShowingOpening { return }
         }
-        if let theme = DetailModel.preferredTheme(in: themes, opening: true), show(theme, client: client) {
+        if let jellyfin, let theme = DetailModel.preferredTheme(in: themes, opening: true), show(theme, client: jellyfin) {
             return
         }
         if let clip = clips.first {
@@ -1353,9 +1355,7 @@ struct ItemDetailView: View {
             switch detail.kind {
             case .episode:
                 await model.load(reached, client: client)
-                if let jellyfin = session.jellyfin {
-                    await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
-                }
+                await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
                 return
             case .series, .season:
                 if let seasonId = reached.seasonId, seasonId != model.selectedSeasonId, detail.kind == .series {
@@ -1405,6 +1405,7 @@ struct ItemDetailView: View {
                             .buttonStyle(.bordered)
                             .tint(model.selectedSeasonId == season.id ? .white : Color(white: 0.3))
                             .foregroundStyle(model.selectedSeasonId == season.id ? .black : .white)
+                            .alwaysActiveControl()
                             .keyboardTarget {
                                 Task { if let client = session.client { await model.selectSeason(season.id, client: client) } }
                             }

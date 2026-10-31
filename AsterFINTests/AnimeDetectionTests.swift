@@ -73,6 +73,14 @@ struct AnimeDetectionTests {
         #expect(try ids(#"{"MediaContainer":{"Metadata":[{"ratingKey":"1","type":"show","title":"A","guid":"plex://show/abc"}]}}"#) == nil)
     }
 
+    /// A Plex chapter's own picture comes through as the chapter's image
+    /// tag, which the clip's card fetches by that path.
+    @Test func aPlexChapterKeepsItsPicture() throws {
+        let json = #"{"MediaContainer":{"Metadata":[{"ratingKey":"9","type":"episode","title":"E1","Chapter":[{"tag":"OP","index":1,"startTimeOffset":0,"endTimeOffset":90000,"thumb":"/library/media/12/chapterImages/1"},{"tag":"Part A","index":2,"startTimeOffset":90000}]}]}}"#
+        let item = PlexMapper.item(try JSONDecoder().decode(PlexReply.self, from: Data(json.utf8)).mediaContainer.metadata![0])
+        #expect(item.chapters?.map(\.imageTag) == ["/library/media/12/chapterImages/1", nil])
+    }
+
     /// Chapters named "Title" or "End" count when an episode has no "OP" or
     /// "ED" chapter; beside one, they're the cold open and the preview.
     @Test func looseChapterNamesStandInForMissingOnes() {

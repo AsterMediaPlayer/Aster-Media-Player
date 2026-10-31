@@ -371,6 +371,12 @@ nonisolated final class PlexClient: MediaServer {
         return try await titles("/library/metadata/\(seriesId)/allLeaves")
     }
 
+    /// The show's episodes with their chapters (and their pictures), which
+    /// the listing leaves out unless asked.
+    func episodesWithChapters(seriesId: String) async throws -> [BaseItem] {
+        try await titles("/library/metadata/\(seriesId)/allLeaves", query: ["includeChapters": "1"])
+    }
+
     func similar(to id: String, limit: Int) async throws -> [BaseItem] {
         try await titles("/library/metadata/\(id)/similar", query: ["count": String(limit)])
     }

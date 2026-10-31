@@ -89,6 +89,7 @@ struct DetailSectionBar: View {
             .buttonStyle(.bordered)
             .tint(selected ? .white : nil)
             .foregroundStyle(selected ? Color.black : Color.primary)
+            .alwaysActiveControl()
     }
     #endif
 }
@@ -293,7 +294,7 @@ struct ThemeMusicSection: View {
     }
 
     private func start(_ entry: OpeningEnding, in queue: [OpeningEnding]) {
-        guard let client = session.jellyfin else { return }
+        guard let client = session.client else { return }
         deck.showItem = show
         deck.artwork = fallbackArtwork
         deck.play(entry, in: queue, client: client)

@@ -639,6 +639,17 @@ final class AppSession {
         plexLink = nil
         phase = wasPlex ? .needsServer : .needsUser
     }
+
+    /// Forgets the server in use, even the last one: signed out of it, and
+    /// back to adding a server.
+    func removeCurrentServer() {
+        guard let id = currentServerID else { return }
+        TopShelfServers.setShown(true, for: id)
+        signOut()
+        serverURL = nil
+        serverName = nil
+        phase = .needsServer
+    }
 }
 
 /// User-adjustable preferences, stored in UserDefaults.

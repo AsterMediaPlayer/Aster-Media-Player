@@ -549,7 +549,7 @@ final class MusicPlayer {
     /// To the queue's song at `newIndex`: within the room's queue a jump,
     /// else the queue sent again from there.
     private func sonosGo(to newIndex: Int) {
-        guard let room = sonos, queue.indices.contains(newIndex) else { return }
+        guard sonos != nil, queue.indices.contains(newIndex) else { return }
         let position = newIndex - sonosStart
         guard sonosIds.indices.contains(position), sonosIds[position] == queue[newIndex].id else {
             finishCurrent()

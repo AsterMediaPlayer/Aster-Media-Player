@@ -55,12 +55,14 @@ struct MacSidebar: View {
 
     @Environment(AppSession.self) private var session
 
-    static let width: CGFloat = 220
+    /// Every size here is the Apple TV-sized original times this.
+    static let scale: CGFloat = 0.8
+    static let width: CGFloat = 220 * scale
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: 4 * Self.scale) {
                     ForEach(tabs, id: \.self) { item in
                         SidebarRow(
                             title: item.title, systemImage: item.systemImage,
@@ -69,10 +71,10 @@ struct MacSidebar: View {
                         ) { choose(item) }
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 14 * Self.scale)
                 // Below the window's buttons.
                 .padding(.top, 60)
-                .padding(.bottom, 12)
+                .padding(.bottom, 12 * Self.scale)
             }
             .scrollIndicators(.never)
             VStack(spacing: 0) {
@@ -85,8 +87,8 @@ struct MacSidebar: View {
                     isSelected: false, hasKeyboard: keyboardOnSettings, action: openSettings
                 )
                 .help("Settings (⌘,)")
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 14 * Self.scale)
+                .padding(.vertical, 12 * Self.scale)
             }
         }
         .frame(width: Self.width)
@@ -112,29 +114,29 @@ private struct SidebarRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
+            HStack(spacing: 14 * MacSidebar.scale) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 28)
+                    .font(.system(size: 18 * MacSidebar.scale, weight: .medium))
+                    .frame(width: 28 * MacSidebar.scale)
                 Text(title)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 17 * MacSidebar.scale, weight: .medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 14 * MacSidebar.scale)
+            .padding(.vertical, 11 * MacSidebar.scale)
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 14 * MacSidebar.scale, style: .continuous)
                     .fill(.white.opacity(isSelected ? 0.22 : (isHovered || hasKeyboard) ? 0.1 : 0))
             )
             .overlay {
                 if hasKeyboard {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white, lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 14 * MacSidebar.scale, style: .continuous)
+                        .strokeBorder(.white, lineWidth: 2.5 * MacSidebar.scale)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14 * MacSidebar.scale, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

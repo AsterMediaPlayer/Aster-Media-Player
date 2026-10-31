@@ -135,7 +135,9 @@ struct MacSettingsView: View {
             }
             .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 560)
+        // Wide enough for every pane's tab in the bar (eight on Jellyfin);
+        // at 560 the last ones fell off the end.
+        .frame(width: 720)
         .frame(minHeight: 380)
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }

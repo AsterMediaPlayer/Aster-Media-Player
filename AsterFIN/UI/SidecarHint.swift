@@ -54,6 +54,18 @@ final class SidecarHint {
             }
             return event
         }
+        // Scrolling itself, from the scroll views (a Sidecar two-finger
+        // scroll didn't reach an event monitor): a little adds up to learned.
+        for name in [NSScrollView.willStartLiveScrollNotification, NSScrollView.didLiveScrollNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, self.isShown, let scroll = note.object as? NSScrollView,
+                          scroll.window != nil else { return }
+                    self.scrolled += 4
+                    if self.scrolled >= 8 { self.learned() }
+                }
+            })
+        }
         // Turned off in Settings while showing: away at once.
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {

@@ -236,6 +236,8 @@ final class AppSession {
         #if os(iOS)
         NetworkPath.shared.start()
         #endif
+        // Before anything's read: a reinstall starts signed out.
+        Keychain.clearIfFreshInstall()
         restore()
         // 0.7's "Prefer full versions" becomes the Full Version choice.
         let defaults = UserDefaults.standard

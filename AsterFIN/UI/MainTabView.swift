@@ -226,7 +226,11 @@ struct MainTabView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($keyboardFocused)
-        .onAppear { claimKeyboard() }
+        .onAppear {
+            claimKeyboard()
+            // A finger on an iPad used as a display scrolls the page.
+            DragScroller.shared.install { WindowCovers.shared.covers.isEmpty }
+        }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
             // Away once a tab is chosen, however it was (a click, the

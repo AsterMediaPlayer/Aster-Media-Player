@@ -665,10 +665,8 @@ struct HeroCarousel: View {
     /// Follows the pointer while dragging, then pages on when the drag went
     /// a quarter of the way (or was flung that far), else springs back. Past
     /// the first or last page it gives a little, like a scroll view's edge.
-    ///
-    /// A drag that goes mostly up instead takes the page down to the shelves,
-    /// as a swipe does on a touch screen. A finger on an iPad used as a
-    /// display arrives as a mouse drag, which no Mac scroll view follows.
+    /// A mostly vertical drag isn't the banner's: the page scrolls with it
+    /// (see `DragScroller`).
     private func heroDrag(pageWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
@@ -682,12 +680,8 @@ struct HeroCarousel: View {
                 dragOffset = pastEdge ? distance / 3 : distance
             }
             .onEnded { value in
-                let up = -value.translation.height
-                if up > abs(value.translation.width) * 1.2, up > 40 || -value.predictedEndTranslation.height > 150 {
-                    withAnimation(.easeInOut(duration: 0.2)) { dragOffset = 0 }
-                    moveDown()
-                    return
-                }
+                // A vertical drag leaves the banner where it is.
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 let threshold = pageWidth / 4
                 let flung = value.predictedEndTranslation.width
                 var target = index

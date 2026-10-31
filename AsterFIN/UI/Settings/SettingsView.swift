@@ -1723,6 +1723,7 @@ private struct SavedServerPage: View {
     @State private var credentialRequest: ServerCredentialRequest?
     @State private var signingInToPlex = false
     @State private var showsOnTopShelf = true
+    @State private var confirmingRemoval = false
 
     var body: some View {
         if let server = session.savedServers.first(where: { $0.id == serverID }) {
@@ -1829,14 +1830,28 @@ private struct SavedServerPage: View {
                 }
             }
             #endif
-            if !isInUse {
-                Section {
-                    Button("Remove Server", role: .destructive) {
+            Section {
+                Button("Remove Server", role: .destructive) {
+                    if isInUse {
+                        confirmingRemoval = true
+                    } else {
                         session.removeServer(serverID)
                         dismiss()
                     }
                 }
+            } footer: {
+                if isInUse {
+                    SettingsNote("This is the server in use: removing it signs you out, and Aster goes back to adding a server.")
+                }
             }
+        }
+        .confirmationDialog("Remove this server?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("Remove and Sign Out", role: .destructive) {
+                session.removeCurrentServer()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll be signed out of \(server.session.serverName ?? "it"), and can add a server again.")
         }
         .savedServerSwitcher(request: $switchRequest)
         .serverCredentialCheck(request: $credentialRequest)

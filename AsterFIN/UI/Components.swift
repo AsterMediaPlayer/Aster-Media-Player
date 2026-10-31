@@ -909,6 +909,8 @@ extension View {
             .menuStyle(.button)
         #else
         buttonStyle(.borderedProminent)
+            // iOS draws these as capsules; the Mac's rounded rectangles looked square beside them.
+            .buttonBorderShape(.capsule)
             .tint(prominent ? .white : Color(white: 0.3))
             .foregroundStyle(prominent ? .black : .white)
         #endif

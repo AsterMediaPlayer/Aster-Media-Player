@@ -482,6 +482,11 @@ struct MainTabView: View {
                 tab(for: item)
             }
         }
+        #if os(macOS)
+        // The sidebar's icons and the keyboard's outline take this tint: the
+        // system's blue by default, where Apple TV's sidebar is white.
+        .tint(.primary)
+        #endif
     }
 
     private func tab(for item: AppTab) -> some TabContent<AppTab> {

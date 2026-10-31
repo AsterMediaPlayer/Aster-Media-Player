@@ -371,10 +371,35 @@ nonisolated final class PlexClient: MediaServer {
         return try await titles("/library/metadata/\(seriesId)/allLeaves")
     }
 
-    /// The show's episodes with their chapters (and their pictures), which
-    /// the listing leaves out unless asked.
+    /// The show's episodes with their chapters (and their pictures). Plex's
+    /// lists carry no chapters, only an episode's own metadata does, so the
+    /// episodes are asked for again by id, a batch to a request; should that
+    /// bring none either, the first few of each season are asked for one by
+    /// one (openings repeat from one episode to the next, so a sample does).
     func episodesWithChapters(seriesId: String) async throws -> [BaseItem] {
-        try await titles("/library/metadata/\(seriesId)/allLeaves", query: ["includeChapters": "1"])
+        let listed = try await titles("/library/metadata/\(seriesId)/allLeaves")
+        let ids = listed.map(\.id)
+        var byId: [String: BaseItem] = [:]
+        for chunk in stride(from: 0, to: ids.count, by: 40).map({ Array(ids[$0 ..< min($0 + 40, ids.count)]) }) {
+            let batch = (try? await titles("/library/metadata/\(chunk.joined(separator: ","))", query: ["includeChapters": "1"])) ?? []
+            for episode in batch { byId[episode.id] = episode }
+        }
+        if byId.values.contains(where: { !($0.chapters ?? []).isEmpty }) {
+            return listed.map { byId[$0.id] ?? $0 }
+        }
+        let sample = Set(Dictionary(grouping: listed.filter { ($0.parentIndexNumber ?? 0) > 0 }, by: { $0.parentIndexNumber ?? 0 })
+            .values.flatMap { $0.prefix(3) }.map(\.id))
+        let fetched = await withTaskGroup(of: BaseItem?.self) { group in
+            for id in sample {
+                group.addTask { try? await self.item(id) }
+            }
+            var found: [String: BaseItem] = [:]
+            for await episode in group {
+                if let episode { found[episode.id] = episode }
+            }
+            return found
+        }
+        return listed.map { fetched[$0.id] ?? $0 }
     }
 
     func similar(to id: String, limit: Int) async throws -> [BaseItem] {

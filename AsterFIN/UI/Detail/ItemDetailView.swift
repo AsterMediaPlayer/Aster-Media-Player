@@ -1402,10 +1402,7 @@ struct ItemDetailView: View {
                                     .font(.callout.weight(.semibold))
                                     .padding(.horizontal, 6)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(model.selectedSeasonId == season.id ? .white : Color(white: 0.3))
-                            .foregroundStyle(model.selectedSeasonId == season.id ? .black : .white)
-                            .alwaysActiveControl()
+                            .chipStyle(selected: model.selectedSeasonId == season.id)
                             .keyboardTarget {
                                 Task { if let client = session.client { await model.selectSeason(season.id, client: client) } }
                             }

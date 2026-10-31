@@ -922,8 +922,8 @@ extension View {
     }
 
     /// The Mac greys a tinted button out while its window isn't the active
-    /// one, which left Resume's black label on dark grey and made the
-    /// picked tab and season vanish. Drawn as in the active window instead.
+    /// one, which left Resume's black label on dark grey. Drawn as in the
+    /// active window instead.
     func alwaysActiveControl() -> some View {
         #if os(macOS)
         environment(\.controlActiveState, .key)
@@ -931,7 +931,37 @@ extension View {
         self
         #endif
     }
+
+    /// A row's pick, as a capsule: the chosen one white with black text,
+    /// the rest a faint white. On the Mac it's drawn here rather than by
+    /// the bordered style, which dropped the tint (and so the chosen one)
+    /// whenever the window wasn't the active one.
+    func chipStyle(selected: Bool) -> some View {
+        #if os(macOS)
+        buttonStyle(ChipButtonStyle(selected: selected))
+        #else
+        buttonStyle(.bordered)
+            .tint(selected ? .white : Color(white: 0.3))
+            .foregroundStyle(selected ? .black : .white)
+        #endif
+    }
 }
+
+#if os(macOS)
+private struct ChipButtonStyle: ButtonStyle {
+    var selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(selected ? Color.black : Color.white)
+            .background(Capsule().fill(selected ? Color.white : Color.white.opacity(0.14)))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(Capsule())
+    }
+}
+#endif
 
 #if os(tvOS)
 private struct TVActionButtonStyle: ButtonStyle {

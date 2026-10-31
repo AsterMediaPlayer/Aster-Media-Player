@@ -85,11 +85,14 @@ struct DetailSectionBar: View {
         // One style either way, the look changed by tint: two styles in an
         // if/else made the picked tab a new view, which lost focus to the
         // page's default (the Play button) before it could go anywhere.
+        #if os(macOS)
+        button.chipStyle(selected: selected)
+        #else
         button
             .buttonStyle(.bordered)
             .tint(selected ? .white : nil)
             .foregroundStyle(selected ? Color.black : Color.primary)
-            .alwaysActiveControl()
+        #endif
     }
     #endif
 }

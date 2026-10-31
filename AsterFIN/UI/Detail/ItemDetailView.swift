@@ -7,10 +7,6 @@
 //
 
 import SwiftUI
-#if DEBUG && os(macOS)
-import AppKit
-import os
-#endif
 
 @Observable
 final class DetailModel {
@@ -1380,9 +1376,6 @@ struct ItemDetailView: View {
     }
 
     private func play(fromBeginning: Bool) {
-        #if DEBUG && os(macOS)
-        sidebarDebugLog.notice("details play(fromBeginning: \(fromBeginning)) event=\(String(describing: NSApp.currentEvent?.type.rawValue), privacy: .public) stack=\(Thread.callStackSymbols.prefix(14).joined(separator: " <- "), privacy: .public)")
-        #endif
         if preferDiscMenu, model.discMenu != nil, !fromBeginning {
             showDiscMenu = true
             return

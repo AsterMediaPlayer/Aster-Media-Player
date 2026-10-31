@@ -149,9 +149,6 @@ final class KeyboardTargets {
         #endif
         if key == .select {
             guard let selected, let target = showing[selected] else { return .ignored }
-            #if DEBUG
-            sidebarDebugLog.notice("keyboard runs the selected target's action (Return) tab=\(tab.rawValue, privacy: .public)")
-            #endif
             target.action()
             return .handled
         }

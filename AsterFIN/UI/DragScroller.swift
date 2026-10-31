@@ -11,9 +11,6 @@
 
 #if os(macOS)
 import AppKit
-import os
-
-private let dragLog = Logger(subsystem: "app.asterfin.debug", category: "dragscroll")
 
 @MainActor
 final class DragScroller {
@@ -40,19 +37,6 @@ final class DragScroller {
     func install(isEnabled: @escaping () -> Bool) {
         self.isEnabled = isEnabled
         guard monitor == nil else { return }
-        #if DEBUG
-        dragLog.notice("installing the drag scroller")
-        // Temporary: what an iPad display's touches arrive as.
-        _ = NSEvent.addLocalMonitorForEvents(matching: .any) { event in
-            // Everything but the pointer merely moving.
-            switch event.type {
-            case .mouseMoved, .cursorUpdate, .periodic, .flagsChanged, .mouseEntered, .mouseExited: break
-            default:
-                dragLog.notice("event type=\(event.type.rawValue) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.window != nil) desc=\(String(describing: event).prefix(160), privacy: .public)")
-            }
-            return event
-        }
-        #endif
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             self?.handle(event) ?? event
         }
@@ -71,9 +55,6 @@ final class DragScroller {
             // No AppKit scroll view to move directly (SwiftUI draws its own):
             // the drag becomes wheel events, which the page already follows.
             state = isEnabled() && window != nil ? .undecided : .notOurs
-            #if DEBUG
-            dragLog.notice("down enabled=\(self.isEnabled()) appkitScrollView=\(self.scrollView != nil) window=\(self.window != nil)")
-            #endif
             return event
 
         case .leftMouseDragged:
@@ -164,9 +145,6 @@ final class DragScroller {
         cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
         cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         guard let event = NSEvent(cgEvent: cgEvent) else { return }
-        #if DEBUG
-        dragLog.notice("wheel delta=\(deltaY) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.windowNumber)")
-        #endif
         window.sendEvent(event)
     }
 

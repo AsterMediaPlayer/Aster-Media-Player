@@ -228,8 +228,10 @@ struct MainTabView: View {
         .focused($keyboardFocused)
         .onAppear {
             claimKeyboard()
-            // A finger on an iPad used as a display scrolls the page.
+            // A pen on an iPad used as a display scrolls the page; a finger
+            // can't, and the page says to use two.
             DragScroller.shared.install { WindowCovers.shared.covers.isEmpty }
+            SidecarHint.shared.install()
         }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
@@ -413,6 +415,14 @@ struct MainTabView: View {
                     .onHover { inside in
                         if inside, WindowCovers.shared.covers.isEmpty { sidebar.show(byMouse: true) }
                     }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if SidecarHint.shared.isShown, WindowCovers.shared.covers.isEmpty {
+                SidecarScrollHintView()
+                    .padding(.bottom, 28)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
             }
         }
         .toolbar {

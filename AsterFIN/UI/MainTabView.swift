@@ -259,10 +259,17 @@ struct MainTabView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($keyboardFocused)
-        .onAppear { claimKeyboard() }
+        .onAppear {
+            claimKeyboard()
+            // Out when the mouse reaches the window's left edge, as the sidebar is on Apple TV.
+            WindowSidebar.installMouseReveal { WindowCovers.shared.covers.isEmpty }
+        }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
-            claimKeyboard()
+            // Away once a tab is chosen, however it was (a click, the
+            // keyboard, a link), then the page gets the keyboard back.
+            WindowSidebar.setShown(false)
+            restoreKeyboardFocus()
         }
         .onKeyPress(.upArrow) { routeKey(.up) }
         .onKeyPress(.downArrow) { routeKey(.down) }

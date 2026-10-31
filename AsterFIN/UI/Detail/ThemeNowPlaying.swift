@@ -122,6 +122,10 @@ final class ThemeDeck {
                 // Just the clip: the episode's stream, from the clip's start
                 // to its end, where it counts as played through.
                 item.forwardPlaybackEndTime = CMTime(value: clip.endTicks, timescale: 10_000_000)
+                #if DEBUG
+                print("DEBUG theme: deck plays clip \(clip.id) from \(stream.url.absoluteString.prefix(120))")
+                ThemePlayer.watch(item, label: "deck clip \(clip.id)")
+                #endif
                 self.start(item, at: CMTime(value: clip.startTicks, timescale: 10_000_000))
             }
         }

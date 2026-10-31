@@ -1237,7 +1237,14 @@ struct ItemDetailView: View {
     /// plugin's opening for the selected season, then one found in that
     /// season's chapters, then the show's first opening of either kind.
     private func showOpening(client: any MediaServer) async {
-        guard themeVideos, detail.kind == .series, !model.openingsEndings.isEmpty else { return }
+        guard themeVideos, detail.kind == .series, !model.openingsEndings.isEmpty else {
+            #if DEBUG
+            if detail.kind == .series {
+                print("DEBUG theme: no opening behind \(detail.displayTitle): themeVideos=\(themeVideos) entries=\(model.openingsEndings.count)")
+            }
+            #endif
+            return
+        }
         let themes = model.openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
         let clips = model.openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == .opening }
         // The plugin's themes are Jellyfin's.

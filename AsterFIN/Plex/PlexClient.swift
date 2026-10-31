@@ -65,6 +65,20 @@ nonisolated enum PlexDevice {
         return headers
     }
 
+    /// The platform the transcoder is told. Plex picks a conversion profile
+    /// by it and has none for a Mac app, answering a bare 400 to every
+    /// conversion asked for as "macOS"; the Apple TV's profile (HLS, H.264
+    /// and HEVC, AAC and Dolby) fits what the Mac plays, so the Mac
+    /// converts as one. The header outranks the query parameter, so both
+    /// say it (see `PlexClient.request`).
+    static var transcodePlatform: String {
+        #if os(macOS)
+        "tvOS"
+        #else
+        platform
+        #endif
+    }
+
     static var platform: String {
         #if os(tvOS)
         "tvOS"
@@ -116,6 +130,10 @@ nonisolated final class PlexClient: MediaServer {
         request.httpMethod = method
         for (name, value) in PlexDevice.headers(token: accessToken) {
             request.setValue(value, forHTTPHeaderField: name)
+        }
+        // The transcoder goes by the header's platform over the query's.
+        if url.path().hasPrefix("/video/:/transcode/") {
+            request.setValue(PlexDevice.transcodePlatform, forHTTPHeaderField: "X-Plex-Platform")
         }
         return request
     }

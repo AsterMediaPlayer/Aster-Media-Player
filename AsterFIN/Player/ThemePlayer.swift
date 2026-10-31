@@ -130,13 +130,21 @@ final class ThemePlayer {
         let themeKey = item.seriesId ?? item.id
         Task { [weak self] in
             await self?.loadTask?.value
-            guard let self, self.key == themeKey, self.canShowFallback(id) else { return }
+            guard let self, self.key == themeKey, self.canShowFallback(id) else {
+                #if DEBUG
+                print("DEBUG theme: opening \(id) not shown: key=\(self?.key ?? "nil") wanted=\(themeKey) canShow=\(self?.canShowFallback(id) ?? false)")
+                #endif
+                return
+            }
             guard let stream = await resolve() else {
                 #if DEBUG
                 print("DEBUG theme: no stream for opening \(id)")
                 #endif
                 return
             }
+            #if DEBUG
+            print("DEBUG theme: opening \(id) stream \(stream.url.absoluteString.prefix(120))")
+            #endif
             guard self.key == themeKey, self.canShowFallback(id) else { return }
             if self.videoPlayer != nil {
                 // Swapping one opening for another.
@@ -236,14 +244,53 @@ final class ThemePlayer {
             startTicks: client.kind == .plex ? 0 : clip.startTicks,
             maxBitrate: AppSettings.maxBitrate,
             subtitleStreamIndex: -1
-        ), let source = info.mediaSources.first else { return nil }
+        ), let source = info.mediaSources.first else {
+            #if DEBUG
+            print("DEBUG theme: no playback info for clip \(clip.id)")
+            #endif
+            return nil
+        }
         let container = (source.container ?? "").lowercased()
         if source.supportsDirectPlay == true, ["mp4", "m4v", "mov"].contains(where: { container.contains($0) }) {
             return (client.directStreamURL(itemId: clip.episode.id, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container), nil)
         }
-        guard let path = source.transcodingUrl, let url = client.absoluteURL(serverRelative: path) else { return nil }
+        guard let path = source.transcodingUrl, let url = client.absoluteURL(serverRelative: path) else {
+            #if DEBUG
+            print("DEBUG theme: clip \(clip.id) is \(container) with no transcode offered")
+            #endif
+            return nil
+        }
         return (url, info.playSessionId)
     }
+
+    #if DEBUG
+    /// Says how a player item fares: ready, or failed and why, and any
+    /// error the stream logs. Debug builds only.
+    static func watch(_ item: AVPlayerItem, label: String) {
+        Task {
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.newErrorLogEntryNotification, object: item) {
+                if let event = item.errorLog()?.events.last {
+                    print("DEBUG theme: \(label) stream error \(event.errorStatusCode) \(event.errorComment ?? "") at \(event.uri ?? "")")
+                }
+            }
+        }
+        Task {
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.failedToPlayToEndTimeNotification, object: item) {
+                print("DEBUG theme: \(label) failed to play to the end: \(item.error?.localizedDescription ?? "unknown")")
+            }
+        }
+        Task {
+            while item.status == .unknown {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            switch item.status {
+            case .readyToPlay: print("DEBUG theme: \(label) ready, \(item.duration.seconds.isFinite ? "\(Int(item.duration.seconds)) s" : "no duration")")
+            case .failed: print("DEBUG theme: \(label) failed: \(item.error?.localizedDescription ?? "unknown") \(item.error.map { String(describing: $0) } ?? "")")
+            default: break
+            }
+        }
+    }
+    #endif
 
     /// Title pages showing each theme (by series or item id). The Mac can
     /// build a page twice and drop the spare at once; counting means that
@@ -355,6 +402,10 @@ final class ThemePlayer {
         if !muted { player.player.volume = volume }
         videoPlayer = player
         if !suspended { player.play() }
+        #if DEBUG
+        print("DEBUG theme: video \(id) started\(suspended ? " (suspended)" : "")")
+        if let item = player.player.currentItem { Self.watch(item, label: "opening \(id)") }
+        #endif
     }
 
     private func fade(_ player: AVQueuePlayer, to target: Float, over seconds: Double, completion: (() -> Void)? = nil) {

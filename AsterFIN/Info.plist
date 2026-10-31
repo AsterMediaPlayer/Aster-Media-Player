@@ -21,6 +21,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sonos._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Aster finds Sonos speakers on your network so music and audiobooks can play on them, and reaches media servers at home.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

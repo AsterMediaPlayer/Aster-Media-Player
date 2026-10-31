@@ -1257,10 +1257,16 @@ struct NowPlayingView: View {
     @ViewBuilder
     private var airPlayRow: some View {
         #if os(iOS)
-        AirPlayRoutePicker()
-            .frame(width: 30, height: 30)
-            .frame(maxWidth: .infinity)
-            .accessibilityLabel("AirPlay")
+        VStack(spacing: 8) {
+            HStack(spacing: 28) {
+                AirPlayRoutePicker()
+                    .frame(width: 30, height: 30)
+                    .accessibilityLabel("AirPlay")
+                SonosControl(target: .music, size: 34)
+            }
+            SonosPlayingLabel(target: .music)
+        }
+        .frame(maxWidth: .infinity)
         #endif
     }
 

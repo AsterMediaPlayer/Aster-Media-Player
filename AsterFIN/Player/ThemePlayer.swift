@@ -36,7 +36,7 @@ final class ThemePlayer {
 
     /// Starts the theme for a title. Pages pass their own toggles; music that
     /// the viewer is already listening to always wins.
-    func show(item: BaseItem, client: JellyfinClient, music wantsMusic: Bool, video wantsVideo: Bool, musicPlaying: Bool) {
+    func show(item: BaseItem, client: any MediaServer, music wantsMusic: Bool, video wantsVideo: Bool, musicPlaying: Bool) {
         guard wantsMusic || wantsVideo, !musicPlaying else {
             hide()
             return
@@ -50,6 +50,9 @@ final class ThemePlayer {
         }
         release()
         key = themeKey
+        // Theme songs and videos are Jellyfin's and Emby's; on Plex only an
+        // opening can stand in (see `showOpeningIfNoVideo`), for this page.
+        guard let client = client as? JellyfinClient else { return }
         loadTask = Task { [weak self] in
             let song = wantsMusic ? (try? await client.themeSongs(itemId: item.id))?.first : nil
             let video = wantsVideo ? (try? await client.themeVideos(itemId: item.id))?.first : nil
@@ -227,7 +230,10 @@ final class ThemePlayer {
     static func stream(for clip: ThemeClip, client: any MediaServer) async -> (url: URL, playSessionId: String?)? {
         guard let info = try? await client.playbackInfo(
             itemId: clip.episode.id,
-            startTicks: clip.startTicks,
+            // Jellyfin's stream keeps the episode's own clock when started
+            // partway; Plex's starts its clock over, so it's started at the
+            // beginning and the player seeks to the clip.
+            startTicks: client.kind == .plex ? 0 : clip.startTicks,
             maxBitrate: AppSettings.maxBitrate,
             subtitleStreamIndex: -1
         ), let source = info.mediaSources.first else { return nil }

@@ -507,10 +507,8 @@ struct ItemDetailView: View {
         }
         .task(id: item.id) {
             guard let client = session.client else { return }
-            // Theme songs and videos, and openings and endings, are Jellyfin's.
-            if let jellyfin = session.jellyfin {
-                session.theme.show(item: item, client: jellyfin, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
-            }
+            // Theme songs and videos are Jellyfin's; an opening stands in on any server.
+            session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
             await model.load(item, client: client)
             // Opened from a hero's Play: play now, with this page behind.
             if session.playOnOpen == item.id {

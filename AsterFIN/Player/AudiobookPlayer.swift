@@ -57,7 +57,15 @@ final class AudiobookPlayer {
         return (chapter.start, max(end, chapter.start))
     }
 
-    private let player = AVPlayer()
+    /// The sound is decoded here and sent to an AirPlay speaker, never
+    /// fetched by the speaker itself: Listen Ahead serves the book from a
+    /// scheme of the app's own, which a speaker can't reach (it connected
+    /// and stayed silent).
+    private let player: AVPlayer = {
+        let player = AVPlayer()
+        player.allowsExternalPlayback = false
+        return player
+    }()
     private var client: JellyfinClient?
     private var playSessionId = UUID().uuidString
     /// Where to start once the part is ready.

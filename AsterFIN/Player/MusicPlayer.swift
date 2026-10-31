@@ -68,7 +68,14 @@ final class MusicPlayer {
     var hasNext: Bool { index + 1 < queue.count || repeatMode == .all }
     var hasPrevious: Bool { index > 0 || currentTime > 3 }
 
-    private let player = AVPlayer()
+    /// The sound is decoded here and sent to an AirPlay speaker, never
+    /// fetched by the speaker itself (a speaker reaching the server for the
+    /// song, with its token, isn't wanted; see `AudiobookPlayer` too).
+    private let player: AVPlayer = {
+        let player = AVPlayer()
+        player.allowsExternalPlayback = false
+        return player
+    }()
     private var client: JellyfinClient?
     /// The order songs were handed to us, kept so shuffle can be undone.
     private var originalOrder: [BaseItem] = []

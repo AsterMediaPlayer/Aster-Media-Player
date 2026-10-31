@@ -506,8 +506,9 @@ struct MainTabView: View {
             }
         }
         #if os(macOS)
-        // The sidebar's icons and the keyboard's outline take this tint: the
-        // system's blue by default, where Apple TV's sidebar is white.
+        // Apple TV's sidebar icons are plain white where the Mac's are the
+        // accent's colour: one neutral tone for the sidebar's rows.
+        .listItemTint(.monochrome)
         .tint(.primary)
         #endif
     }

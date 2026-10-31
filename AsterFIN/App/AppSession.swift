@@ -642,6 +642,9 @@ final class AppSession {
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// Mac: show how to scroll with two fingers while the window is on an
+    /// iPad used as a display (Sidecar), where one finger can't.
+    static let sidecarHintKey = "AsterFIN.sidecarHint"
     /// The saved servers (`SavedServer.id`) whose welcome screen was seen.
     static let welcomeSeenKey = "AsterFIN.welcomeSeen"
     /// Music video libraries (AMVs) shown in the Anime tab, by name, one per

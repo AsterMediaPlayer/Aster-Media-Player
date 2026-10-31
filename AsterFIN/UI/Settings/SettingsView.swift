@@ -409,6 +409,7 @@ private struct PlaybackSettingsView: View {
     #endif
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
+    @AppStorage(AppSettings.sidecarHintKey) private var sidecarHint = true
     #endif
 
     private let bitrates: [(String, Int)] = [
@@ -478,6 +479,8 @@ private struct PlaybackSettingsView: View {
             Section("Window") {
                 Toggle("Play videos full screen", isOn: $fullScreenPlayback)
                 SettingsNote("A video takes the whole screen as it starts, and the window comes back as it closes. Off, it plays inside the window.")
+                Toggle("Show the two-finger scroll tip on an iPad display", isOn: $sidecarHint)
+                SettingsNote("On an iPad used as a display (Sidecar), one finger doesn't move the page; two do. The tip shows once each time the app opens there, until you've scrolled that way.")
             }
             #endif
             Section("Episodes") {

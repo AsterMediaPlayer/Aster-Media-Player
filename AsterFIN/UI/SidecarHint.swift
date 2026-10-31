@@ -25,8 +25,15 @@ final class SidecarHint {
     /// Scroll seen while the hint shows; a little adds up to learned.
     private var scrolled: CGFloat = 0
     private var learnedKey: String { "sidecarScrollHintLearned" }
+    /// Shown at most once a launch, however the window moves about after.
+    private var shownThisLaunch = false
     /// How long the hint stays if nothing's scrolled.
     private static let timeout: Duration = .seconds(12)
+
+    /// Settings › Playback turns it off altogether.
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: AppSettings.sidecarHintKey) as? Bool ?? true
+    }
 
     /// Starts watching which display the window is on.
     func install() {
@@ -47,31 +54,44 @@ final class SidecarHint {
             }
             return event
         }
+        // Turned off in Settings while showing: away at once.
+        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if self?.isShown == true, !Self.isEnabled { self?.hide() }
+            }
+        })
         windowChanged(NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     private func windowChanged(_ window: NSWindow?) {
-        guard !UserDefaults.standard.bool(forKey: learnedKey), let window, window.isVisible else { return }
+        guard let window, window.isVisible else { return }
         let onSidecar = Self.isSidecar(window.screen)
-        if onSidecar != isShown {
-            withAnimation(.easeInOut(duration: 0.3)) { isShown = onSidecar }
-            hideTask?.cancel()
-            if onSidecar {
-                scrolled = 0
-                // Not forever: away by itself, and back on the next visit.
-                hideTask = Task { [weak self] in
-                    try? await Task.sleep(for: Self.timeout)
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.easeInOut(duration: 0.3)) { self?.isShown = false }
-                }
-            }
+        if isShown {
+            // Off the iPad: away, and not again this launch.
+            if !onSidecar { hide() }
+            return
+        }
+        guard onSidecar, !shownThisLaunch, Self.isEnabled, !UserDefaults.standard.bool(forKey: learnedKey) else { return }
+        shownThisLaunch = true
+        scrolled = 0
+        withAnimation(.easeInOut(duration: 0.3)) { isShown = true }
+        // Not forever: away by itself, and back on the next launch.
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.timeout)
+            guard !Task.isCancelled else { return }
+            self?.hide()
         }
     }
 
-    private func learned() {
+    private func hide() {
         hideTask?.cancel()
-        UserDefaults.standard.set(true, forKey: learnedKey)
+        hideTask = nil
         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
+    }
+
+    private func learned() {
+        UserDefaults.standard.set(true, forKey: learnedKey)
+        hide()
     }
 
     /// Whether `screen` is an iPad used as a display. macOS names a Sidecar

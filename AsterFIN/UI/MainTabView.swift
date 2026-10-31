@@ -28,13 +28,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "Music"
         case .audiobooks: "Audiobooks"
         case .liveTV: "Live TV"
-        // Still in beta. An iPhone's tab bar has no room for the tag, so
-        // there it's on the page title instead.
-        #if os(iOS)
-        case .channels: UIDevice.current.userInterfaceIdiom == .phone ? "Channels" : "Channels (Beta)"
-        #else
-        case .channels: "Channels (Beta)"
-        #endif
+        case .channels: "Channels"
         case .library: "Library"
         case .downloads: "Downloads"
         case .settings: "Settings"

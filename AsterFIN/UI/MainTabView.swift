@@ -91,6 +91,7 @@ struct MainTabView: View {
     @State private var keyboard = KeyboardNavigation()
     @FocusState private var keyboardFocused: Bool
     @Environment(\.openSettings) private var openSettings
+    private var sidebar: MacSidebarState { MacSidebarState.shared }
     #endif
 
     /// The tabs to show, in order: tvOS's fixed sidebar, or on iPhone and
@@ -113,7 +114,6 @@ struct MainTabView: View {
         @Bindable var player = session.music
         @Bindable var audiobooks = session.audiobooks
         tabView
-        .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
         // The song or book playing, under the tab bar on every tab.
         .tabViewBottomAccessory(isEnabled: session.isAudioLoaded) {
@@ -137,33 +137,6 @@ struct MainTabView: View {
                 session.focusThemePanel()
             }
             .allowsHitTesting(false)
-        }
-        #endif
-        #if os(macOS)
-        // Settings lives in its own window on the Mac (⌘,); this opens it
-        // from the foot of the sidebar too, under the song or book playing.
-        .tabViewSidebarBottomBar {
-            if session.isAudioLoaded {
-                AudioAccessory()
-                Divider()
-            }
-            Button {
-                openSettings()
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .help("Settings (⌘,)")
-            // Where it is, for the keyboard's outline (below the last tab).
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                keyboard.settingsButtonFrame = frame
-                #if DEBUG
-                sidebarDebugLog.notice("settings button frame=\(String(describing: frame), privacy: .public)")
-                #endif
-            }
         }
         #endif
         // A tab hidden while showing hands over to Home.
@@ -253,21 +226,13 @@ struct MainTabView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($keyboardFocused)
-        .onAppear {
-            claimKeyboard()
-            // Out when the mouse reaches the window's left edge, as the sidebar is on Apple TV.
-            WindowSidebar.installMouseReveal { WindowCovers.shared.covers.isEmpty }
-        }
+        .onAppear { claimKeyboard() }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
             // Away once a tab is chosen, however it was (a click, the
             // keyboard, a link), then the page gets the keyboard back.
-            WindowSidebar.setShown(false)
-            // A tab picked with the mouse leaves the keyboard's place in the sidebar behind.
-            keyboard.inSidebar = false
-            keyboard.sidebarHighlight = nil
-            keyboard.settingsHighlighted = false
-            keyboard.highlightFrame = nil
+            sidebar.hide()
+            clearKeyboardInSidebar()
             restoreKeyboardFocus()
         }
         .onKeyPress(.upArrow) { routeKey(.up) }
@@ -292,57 +257,14 @@ struct MainTabView: View {
             openSettings()
             return .handled
         }
-        .overlay {
-            // The keyboard's tab in the sidebar, before Return opens it,
-            // measured from the window's top left, so it ignores the safe area.
-            ZStack(alignment: .topLeading) {
-                if let frame = keyboard.highlightFrame {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(.white, lineWidth: 2.5)
-                        .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
-                        .frame(width: frame.width, height: frame.height)
-                        .offset(x: frame.minX, y: frame.minY)
-                        .animation(.easeOut(duration: 0.15), value: frame)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            // The sidebar closing some other way (its own hide button) while the keyboard is in it.
-            .task(id: keyboard.inSidebar) { await watchSidebar() }
-        }
         #endif
     }
 
     #if os(macOS)
-    /// While the keyboard is in the sidebar, notices the sidebar has gone
-    /// (closed with the mouse, say) and takes the keyboard out of it, so
-    /// the arrows go to the page and no outline is left behind.
-    private func watchSidebar() async {
-        guard keyboard.inSidebar else { return }
-        // It's still sliding out at first.
-        try? await Task.sleep(for: .milliseconds(900))
-        while keyboard.inSidebar, !Task.isCancelled {
-            if WindowSidebar.isShown == false {
-                leaveSidebar()
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(200))
-        }
-    }
-
     /// Takes the keyboard once the view is in its window (set as it
     /// appears, focus doesn't take), so no click is needed first.
     private func claimKeyboard() {
         Task { keyboardFocused = true }
-        #if DEBUG
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            sidebarDebugLog.notice("window at launch tabs=\(shownTabs.map(\.rawValue).joined(separator: ","), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
-            let appMenu = NSApp.mainMenu?.items.first?.submenu?.items.map { "\($0.title)[\($0.keyEquivalent)|\($0.keyEquivalentModifierMask.rawValue)|enabled=\($0.isEnabled)]" } ?? []
-            sidebarDebugLog.notice("app menu: \(appMenu.joined(separator: "  "), privacy: .public)")
-        }
-        #endif
     }
 
     /// The page showing gets the key first. Left past its leading edge, or
@@ -375,7 +297,6 @@ struct MainTabView: View {
                         keyboard.sidebarHighlight = tabs[key == .up ? max(current - 1, 0) : min(current + 1, tabs.count - 1)]
                     }
                 }
-                measureHighlight()
             case .select:
                 if keyboard.settingsHighlighted {
                     openSettings()
@@ -414,56 +335,31 @@ struct MainTabView: View {
     }
 
     private func enterSidebar() {
-        #if DEBUG
-        sidebarDebugLog.notice("enterSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
-        #endif
         keyboard.inSidebar = true
         keyboard.sidebarHighlight = tab
-        // Slides out if hidden; it's put away again on the way out.
-        WindowSidebar.setShown(true)
-        measureHighlight()
-        // Again once the sidebar has slid out.
-        Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            measureHighlight()
-        }
-    }
-
-    /// Where the keyboard's tab sits in the sidebar, for drawing its outline.
-    /// The system draws the sidebar's rows itself and ignores styling on
-    /// our tab labels, so the outline is drawn over the row instead.
-    private func measureHighlight() {
-        if keyboard.inSidebar, keyboard.settingsHighlighted {
-            keyboard.highlightFrame = keyboard.settingsButtonFrame
-            return
-        }
-        guard keyboard.inSidebar, let highlight = keyboard.sidebarHighlight,
-              let index = shownTabs.firstIndex(of: highlight) else {
-            keyboard.highlightFrame = nil
-            return
-        }
-        keyboard.highlightFrame = WindowSidebar.rowFrame(index)
+        // Slides out if it's away; it's put away again on the way out.
+        sidebar.show()
     }
 
     private func leaveSidebar() {
-        #if DEBUG
-        sidebarDebugLog.notice("leaveSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)")
-        #endif
-        keyboard.inSidebar = false
-        keyboard.sidebarHighlight = nil
-        keyboard.settingsHighlighted = false
-        keyboard.highlightFrame = nil
+        clearKeyboardInSidebar()
         // As on Apple TV, the sidebar goes away once the keyboard leaves it,
-        // however it came to be open. Collapsing it takes the window's key
-        // focus with it, so the content is given it back, now and again
-        // once the slide is over.
-        WindowSidebar.setShown(false)
+        // however it came to be open.
+        sidebar.hide()
         restoreKeyboardFocus()
     }
 
+    /// The keyboard is no longer in the sidebar (it left, a tab was picked
+    /// with the mouse, or the sidebar was closed another way).
+    private func clearKeyboardInSidebar() {
+        keyboard.inSidebar = false
+        keyboard.sidebarHighlight = nil
+        keyboard.settingsHighlighted = false
+    }
+
     /// Gives the keyboard back to the page after something took the window's
-    /// key focus with it (the sidebar collapsing, a page closing): now, and
-    /// again once the animation is over.
+    /// key focus with it (a page closing): now, and again once the
+    /// animation is over.
     private func restoreKeyboardFocus() {
         WindowSidebar.returnKeyboardToContent()
         claimKeyboard()
@@ -471,9 +367,59 @@ struct MainTabView: View {
             try? await Task.sleep(for: .milliseconds(400))
             WindowSidebar.returnKeyboardToContent()
             claimKeyboard()
-            #if DEBUG
-            sidebarDebugLog.notice("restoreKeyboardFocus firstResponder=\(String(describing: (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder.map { type(of: $0) }), privacy: .public)")
-            #endif
+        }
+    }
+
+    /// The window on the Mac: the tab showing, with the sidebar sliding out
+    /// over it from the left (Apple TV's, drawn here: see `MacSidebar`).
+    /// Only the tab showing is kept; Home's place is held in `homePath`.
+    private var macTabs: some View {
+        ZStack(alignment: .leading) {
+            content(for: tab)
+                .environment(\.keyboardTab, tab)
+                .id(tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if sidebar.isShown {
+                MacSidebar(
+                    tabs: shownTabs, selected: tab,
+                    keyboardTab: keyboard.inSidebar ? keyboard.sidebarHighlight : nil,
+                    keyboardOnSettings: keyboard.inSidebar && keyboard.settingsHighlighted,
+                    choose: { tab = $0 },
+                    openSettings: { openSettings() }
+                )
+                // Back in when the mouse leaves it, if the mouse brought it out.
+                .onHover { inside in
+                    if !inside, sidebar.revealedByMouse { sidebar.hide() }
+                }
+                .transition(.move(edge: .leading))
+                .zIndex(1)
+            } else {
+                // The mouse reaching the window's left edge brings it out.
+                Color.clear
+                    .frame(width: 6)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside, WindowCovers.shared.covers.isEmpty { sidebar.show(byMouse: true) }
+                    }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    sidebar.toggle()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help("Show or hide the sidebar (⌃⌘S)")
+            }
+        }
+        // Closed by its own button or the menu while the keyboard was in it.
+        .onChange(of: sidebar.isShown) { _, shown in
+            if !shown, keyboard.inSidebar {
+                clearKeyboardInSidebar()
+                restoreKeyboardFocus()
+            }
         }
     }
     #endif
@@ -494,19 +440,19 @@ struct MainTabView: View {
     /// The tabs themselves, apart from the modifiers below so the compiler
     /// can type-check the body in reasonable time.
     private var tabView: some View {
+        #if os(macOS)
+        macTabs
+        #else
         TabView(selection: $tab) {
             ForEach(shownTabs, id: \.self) { item in
                 tab(for: item)
             }
         }
-        #if os(macOS)
-        // Apple TV's sidebar icons are plain white where the Mac's are the
-        // accent's colour: one neutral tone for the sidebar's rows.
-        .listItemTint(.monochrome)
-        .tint(.primary)
+        .tabViewStyle(.sidebarAdaptable)
         #endif
     }
 
+    #if !os(macOS)
     private func tab(for item: AppTab) -> some TabContent<AppTab> {
         let role: TabRole? = item == .search ? .search : nil
         #if os(iOS)
@@ -515,17 +461,13 @@ struct MainTabView: View {
             content(for: item)
         }
         .badge(badgeCount(for: item))
-        #elseif os(macOS)
-        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
-            content(for: item)
-                .environment(\.keyboardTab, item)
-        }
         #else
         return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
             content(for: item)
         }
         #endif
     }
+    #endif
 
     /// Downloads in progress, on the Downloads tab (and so on More when it's
     /// there). Zero shows no badge.
@@ -754,12 +696,8 @@ final class KeyboardNavigation {
     var inSidebar = false
     /// The tab the keyboard is on in the sidebar, opened with Return.
     var sidebarHighlight: AppTab?
-    /// Where the highlighted tab's row is, in the window from its top left.
-    var highlightFrame: CGRect?
     /// The Settings button under the tabs is highlighted instead of a tab.
     var settingsHighlighted = false
-    /// Where that button is, for its outline.
-    @ObservationIgnored var settingsButtonFrame: CGRect?
 
     @ObservationIgnored private var handlers: [AppTab: (Key) -> KeyPress.Result] = [:]
 

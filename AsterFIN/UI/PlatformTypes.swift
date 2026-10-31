@@ -127,128 +127,17 @@ extension VideoLayerView: NSViewRepresentable {
 #endif
 
 #if os(macOS)
-/// The window's sidebar, shown, hidden and pointed at for the keyboard.
-/// SwiftUI has no binding for a sidebar-style tab view's sidebar on the Mac.
-/// Underneath it's an AppKit split view (sidebar, then content), which says
-/// whether the sidebar shows, and the sidebar answers the same toggle action
-/// as View › Show Sidebar. Its rows are a table, which says where a row is.
+/// The window, for the keyboard.
 @MainActor
 enum WindowSidebar {
-    private static var window: NSWindow? { NSApp.keyWindow ?? NSApp.mainWindow }
-
-    private static var splitView: NSSplitView? {
-        first(NSSplitView.self, in: window?.contentView)
-    }
-
-    /// Whether the sidebar is showing; nil when it can't be found.
-    static var isShown: Bool? {
-        guard let split = splitView, let sidebar = split.arrangedSubviews.first else { return nil }
-        return !(split.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1)
-    }
-
-    /// What the last slide was asked to do, and when. The slide takes a
-    /// moment, during which `isShown` still reads the old state, so a second
-    /// ask for the same state (a tab chosen with the keyboard asks twice)
-    /// mustn't toggle it straight back.
-    private static var lastAsk: (shown: Bool, at: Date)?
-    /// The sidebar was brought out by the mouse reaching the window's edge,
-    /// so it's put away again when the mouse leaves it.
-    private static var revealedByMouse = false
-    private static var mouseMonitor: Any?
-    private static var sidebarWidth: CGFloat = 220
-
-    /// Slides the sidebar in or out.
-    static func setShown(_ shown: Bool) {
-        if !shown { revealedByMouse = false }
-        if let last = lastAsk, last.shown == shown, Date().timeIntervalSince(last.at) < 0.6 { return }
-        guard let current = isShown, current != shown else { return }
-        lastAsk = (shown, Date())
-        NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
-    }
-
-    /// The sidebar slides out when the mouse reaches the window's left edge
-    /// (while `isEnabled`, which a player covering the window turns off), and
-    /// back in once the mouse moves away from it, if that's what brought it out.
-    static func installMouseReveal(isEnabled: @escaping () -> Bool) {
-        guard mouseMonitor == nil else { return }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
-            handleMouseMoved(event, isEnabled: isEnabled)
-            return event
-        }
-        // Windows only report the mouse's movement when asked.
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            for window in NSApp.windows where first(NSSplitView.self, in: window.contentView) != nil {
-                window.acceptsMouseMovedEvents = true
-            }
-        }
-    }
-
-    private static func handleMouseMoved(_ event: NSEvent, isEnabled: () -> Bool) {
-        guard let window = event.window, let content = window.contentView,
-              let split = first(NSSplitView.self, in: content), let sidebar = split.arrangedSubviews.first,
-              window === NSApp.keyWindow || window === NSApp.mainWindow else { return }
-        let shown = !(split.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width < 1)
-        if shown { sidebarWidth = max(sidebar.frame.width, 100) }
-        let x = event.locationInWindow.x
-        if !shown, x <= 4, isEnabled() {
-            setShown(true)
-            revealedByMouse = true
-        } else if shown, revealedByMouse, x > sidebarWidth + 24 {
-            setShown(false)
-            returnKeyboardToContent()
-        }
-    }
-
-    /// Gives the keyboard back to the window's content. Collapsing the
-    /// sidebar can leave the window with no first responder, and then no
-    /// key reaches the app until something is clicked.
+    /// Gives the keyboard back to the window's content. Something closing
+    /// (a page, a cover) can leave the window with no first responder, and
+    /// then no key reaches the app until something is clicked.
     static func returnKeyboardToContent() {
-        guard let window, let content = window.contentView else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow, let content = window.contentView else { return }
         if window.firstResponder !== content {
             window.makeFirstResponder(content)
         }
     }
-
-    /// Where sidebar row `index` is, in the window's content from its top
-    /// left (as a full-window SwiftUI overlay measures); nil if not found.
-    static func rowFrame(_ index: Int) -> CGRect? {
-        guard let content = window?.contentView,
-              let sidebar = splitView?.arrangedSubviews.first,
-              let table = first(NSTableView.self, in: sidebar),
-              index >= 0, index < table.numberOfRows else { return nil }
-        var frame = table.convert(table.rect(ofRow: index), to: content)
-        if !content.isFlipped {
-            frame.origin.y = content.bounds.height - frame.maxY
-        }
-        return frame
-    }
-
-    private static func first<View: NSView>(_ type: View.Type, in view: NSView?) -> View? {
-        guard let view else { return nil }
-        if let match = view as? View { return match }
-        for subview in view.subviews {
-            if let match = first(type, in: subview) { return match }
-        }
-        return nil
-    }
-
-    #if DEBUG
-    /// Temporary: what the window is made of, to find the sidebar.
-    static func debugDescribeWindow() -> String {
-        var lines: [String] = ["isShown=\(String(describing: isShown))"]
-        if let sidebar = splitView?.arrangedSubviews.first, let table = first(NSTableView.self, in: sidebar) {
-            lines.append("table \(type(of: table)) rows=\(table.numberOfRows)")
-            for row in 0..<table.numberOfRows {
-                let view = table.view(atColumn: 0, row: row, makeIfNecessary: false)
-                let label = view?.accessibilityLabel() ?? view.map { first(NSTextField.self, in: $0)?.stringValue ?? "?" } ?? "nil"
-                lines.append("row \(row) y=\(Int(rowFrame(row)?.minY ?? -1)) label=\(label) cell=\(view.map { String(describing: type(of: $0)) } ?? "nil")")
-            }
-        } else {
-            lines.append("no sidebar table")
-        }
-        return lines.joined(separator: " | ")
-    }
-    #endif
 }
 #endif

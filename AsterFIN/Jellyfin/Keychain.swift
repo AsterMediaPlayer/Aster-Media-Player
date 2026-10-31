@@ -45,6 +45,27 @@ nonisolated enum Keychain {
         SecItemDelete(query(account: account, shared: false) as CFDictionary)
     }
 
+    /// Everything the app keeps here: the session, saved servers, PINs.
+    static func deleteAll() {
+        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
+        var shared = base
+        shared[kSecAttrAccessGroup as String] = accessGroup
+        SecItemDelete(shared as CFDictionary)
+        SecItemDelete(base as CFDictionary)
+    }
+
+    /// The Keychain outlives the app: deleting Aster and installing it again
+    /// found the old sign-ins still there, so a fresh install opened signed
+    /// in. On a fresh install's first launch (the app's settings are gone
+    /// with it, where an update keeps them) they're cleared, once.
+    static func clearIfFreshInstall(defaults: UserDefaults = .standard) {
+        let marker = "AsterFIN.installed"
+        guard !defaults.bool(forKey: marker) else { return }
+        let updating = defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("AsterFIN.") }
+        if !updating { deleteAll() }
+        defaults.set(true, forKey: marker)
+    }
+
     private static func query(account: String, shared: Bool) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

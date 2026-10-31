@@ -139,7 +139,7 @@ final class DetailModel {
             async let similarItems = client.similar(to: full.id, limit: 20)
             // Openings and endings come from Jellyfin's OP/ED plugin and chapters.
             let jellyfin = client as? JellyfinClient
-            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime && jellyfin != nil
+            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind) && jellyfin != nil
                 ? Self.openingsEndings(for: full, client: jellyfin!)
                 : []
 
@@ -1328,7 +1328,7 @@ struct ItemDetailView: View {
 
     /// Whether this page's show is anime, for finding OPs in chapters.
     private var isAnimeShow: Bool {
-        detail.kind == .series ? detail.isAnime : session.animeItemIds.contains(detail.seriesId ?? "")
+        detail.kind == .series ? detail.isAnime(on: session.client?.kind ?? .jellyfin) : session.animeItemIds.contains(detail.seriesId ?? "")
     }
 
     /// Plays an OP/ED plugin theme: its MP4, or audio tvOS can play.

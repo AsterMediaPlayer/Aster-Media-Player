@@ -596,10 +596,10 @@ final class PlaybackCoordinator {
 
     static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
         guard item.kind == .episode, let seriesName = item.seriesName,
-              item.isAnime || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
+              item.isAnime(on: client.kind) || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
         var season: BaseItem?
         if let seasonId = item.seasonId { season = try? await client.item(seasonId) }
-        let aniDB = season?.providerIds?["AniDB"]
+        let aniDB = season?.providerId("AniDB")
         let year = season?.productionYear
             ?? JellyfinDate.parse(season?.premiereDate).map { Calendar.current.component(.year, from: $0) }
             ?? JellyfinDate.parse(item.premiereDate).map { Calendar.current.component(.year, from: $0) }

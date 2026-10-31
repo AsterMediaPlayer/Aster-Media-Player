@@ -151,7 +151,10 @@ nonisolated enum PlexMapper {
         return all.isEmpty ? nil : all
     }
 
-    /// "tmdb://5439847" as Tmdb, and so on; Shoko's own id marks anime.
+    /// "tmdb://5439847" as Tmdb, and so on, the anime sites as Jellyfin
+    /// names them; Shoko's own id marks anime, and so does the AniDB entry
+    /// the HAMA agent writes into the guid itself
+    /// ("com.plexapp.agents.hama://anidb-1234?lang=en").
     private static func providerIds(_ metadata: PlexMetadata) -> [String: String]? {
         var ids: [String: String] = [:]
         for guid in metadata.guids ?? [] {
@@ -161,12 +164,20 @@ nonisolated enum PlexMapper {
             case "tmdb": "Tmdb"
             case "imdb": "Imdb"
             case "tvdb": "Tvdb"
+            case "anidb": "AniDB"
+            case "anilist": "AniList"
+            case "myanimelist": "MyAnimeList"
             default: parts[0].capitalized
             }
             ids[name] = parts[1]
         }
-        if let guid = metadata.guid, guid.contains(".shoko://") {
-            ids["Shoko"] = guid.components(separatedBy: "/").last
+        if let guid = metadata.guid {
+            if guid.contains(".shoko://") {
+                ids["Shoko"] = guid.components(separatedBy: "/").last
+            }
+            if ids["AniDB"] == nil, let match = guid.firstMatch(of: /anidb\d?-(\d+)/) {
+                ids["AniDB"] = String(match.1)
+            }
         }
         return ids.isEmpty ? nil : ids
     }

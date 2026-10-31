@@ -460,8 +460,9 @@ nonisolated final class JellyfinClient: MediaServer {
 
     /// The TV and movie libraries that hold anime. Reading a library's
     /// metadata settings needs an admin account, so instead a few titles in
-    /// each are sampled: when at least half were matched by Shoko/AniDB, the
-    /// library is anime. One stray anime title doesn't claim a library.
+    /// each are sampled: when at least half were matched by Shoko/AniDB (or,
+    /// on Emby, carry an anime id or the genre), or the library is named
+    /// for anime, it is anime. One stray anime title doesn't claim a library.
     func animeLibraries(among views: [BaseItem]) async -> [BaseItem] {
         let candidates = views.filter { $0.collectionType == "tvshows" || $0.collectionType == "movies" }
         let verdicts = await withTaskGroup(of: (String, Bool).self) { group in
@@ -472,10 +473,10 @@ nonisolated final class JellyfinClient: MediaServer {
                         "recursive": "true",
                         "includeItemTypes": "Series,Movie",
                         "limit": "5",
-                        "fields": "ProviderIds",
+                        "fields": "ProviderIds,Genres",
                     ]))?.items ?? []
-                    let anime = sample.filter(\.isAnime).count
-                    return (library.id, !sample.isEmpty && anime * 2 >= sample.count)
+                    let anime = sample.filter { $0.isAnime(on: self.kind) }.count
+                    return (library.id, !sample.isEmpty && (anime * 2 >= sample.count || library.isNamedForAnime))
                 }
             }
             var found: [String: Bool] = [:]

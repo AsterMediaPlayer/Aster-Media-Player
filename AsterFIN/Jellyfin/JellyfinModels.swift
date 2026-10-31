@@ -205,9 +205,38 @@ nonisolated struct UserItemData: Codable, Sendable, Hashable {
 nonisolated extension BaseItem {
     /// Matched by Shoko, which also records the AniDB id: how the app tells
     /// anime apart from other shows and films. Series and movies carry these.
+    /// Emby writes the provider's name in its own case ("anidb"), so case
+    /// doesn't count.
     var isAnime: Bool {
         guard let ids = providerIds else { return false }
-        return ids.keys.contains { $0 == "AniDB" || $0.hasPrefix("Shoko") }
+        return ids.keys.contains { key in
+            let lower = key.lowercased()
+            return lower == "anidb" || lower.hasPrefix("shoko")
+        }
+    }
+
+    /// Whether a title is anime on a server of `kind`. Jellyfin's Shoko
+    /// match is the sign; Emby and Plex may have no Shoko, and often have
+    /// only an AniList or MyAnimeList id, or just the genre.
+    func isAnime(on kind: ServerKind) -> Bool {
+        if isAnime { return true }
+        guard kind != .jellyfin else { return false }
+        let animeProviders: Set<String> = ["anidb", "anilist", "myanimelist"]
+        if providerIds?.keys.contains(where: { animeProviders.contains($0.lowercased()) }) == true { return true }
+        return genres?.contains { $0.caseInsensitiveCompare("Anime") == .orderedSame } == true
+    }
+
+    /// A provider's id whatever case the server writes its name in
+    /// ("AniDB" on Jellyfin, "anidb" on Emby).
+    func providerId(_ name: String) -> String? {
+        providerIds?.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
+    /// A library called "Anime", "Anime Movies" and the like: libraries
+    /// without Shoko matches (and Plex's patchy genre tags) are still often
+    /// named for what they hold.
+    var isNamedForAnime: Bool {
+        name?.range(of: "anime", options: .caseInsensitive) != nil
     }
 }
 

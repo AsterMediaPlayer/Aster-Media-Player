@@ -404,14 +404,32 @@ nonisolated final class PlexClient: MediaServer {
 
     // MARK: Anime
 
-    /// Libraries matched by an anime agent: Shoko, HAMA or AniDB.
+    /// Libraries matched by an anime agent (Shoko, HAMA or AniDB), and
+    /// without one (Plex's own agent), those where at least half of a few
+    /// sampled titles carry an anime genre or an AniDB, AniList or
+    /// MyAnimeList id, or that are named for anime.
     func animeLibraries(among libraries: [BaseItem]) async -> [BaseItem] {
         guard let sections = try? await sections() else { return [] }
-        let anime = Set(sections.filter { section in
+        let byAgent = Set(sections.filter { section in
             let agent = (section.agent ?? "").lowercased()
             return ["shoko", "hama", "anidb"].contains { agent.contains($0) }
         }.map(\.key))
-        return libraries.filter { anime.contains($0.id) }
+        let candidates = libraries.filter { library in
+            !byAgent.contains(library.id) && sections.contains { $0.key == library.id }
+        }
+        let sampled = await withTaskGroup(of: (String, Bool).self) { group in
+            for library in candidates {
+                group.addTask {
+                    let sample = (try? await self.titles("/library/sections/\(library.id)/all", query: ["includeGuids": "1"], size: 5)) ?? []
+                    let anime = sample.filter { $0.isAnime(on: .plex) }.count
+                    return (library.id, !sample.isEmpty && (anime * 2 >= sample.count || library.isNamedForAnime))
+                }
+            }
+            var found: Set<String> = []
+            for await (id, isAnime) in group where isAnime { found.insert(id) }
+            return found
+        }
+        return libraries.filter { byAgent.contains($0.id) || sampled.contains($0.id) }
     }
 
     func itemIds(inLibraries libraryIds: [String], types: String) async -> Set<String> {

@@ -380,6 +380,13 @@ struct MainTabView: View {
                 .id(tab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if sidebar.isShown {
+                // While the sidebar's out, a click on the page only puts it
+                // away; it never reaches what's under it (a Play button, say).
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { sidebar.hide() }
+                    .transition(.opacity)
                 MacSidebar(
                     tabs: shownTabs, selected: tab,
                     keyboardTab: keyboard.inSidebar ? keyboard.sidebarHighlight : nil,

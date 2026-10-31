@@ -728,7 +728,7 @@ nonisolated struct PlaylistCreationResult: Codable, Sendable {
 
 extension BaseItem {
     /// Who performs a song or album, for display.
-    var artistText: String? {
+    nonisolated var artistText: String? {
         if let artists, !artists.isEmpty { return artists.joined(separator: ", ") }
         if let albumArtist, !albumArtist.isEmpty { return albumArtist }
         return albumArtists?.compactMap(\.name).first

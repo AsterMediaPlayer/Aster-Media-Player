@@ -1197,8 +1197,11 @@ struct NowPlayingView: View {
 
     // MARK: Pieces shared by the TV and phone layouts
 
-    private func artwork(_ track: BaseItem, size: CGFloat) -> some View {
-        RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 800), systemImage: "music.note")
+    private func artwork(_ track: BaseItem, size proposed: CGFloat) -> some View {
+        // The screen's size is zero for a moment as the player opens, which
+        // made the size from it negative.
+        let size = proposed.isFinite ? max(proposed, 0) : 0
+        return RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 800), systemImage: "music.note")
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: size > 300 ? 20 : 14))
             .shadow(color: .black.opacity(0.6), radius: size > 300 ? 40 : 20, y: size > 300 ? 16 : 8)

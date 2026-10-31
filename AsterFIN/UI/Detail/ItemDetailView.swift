@@ -112,13 +112,23 @@ final class DetailModel {
     static func openingsEndings(for series: BaseItem, client: any MediaServer) async -> [OpeningEnding] {
         let themes = (await (client as? JellyfinClient)?.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
         if !themes.isEmpty { return themes.map(OpeningEnding.theme) }
-        let episodes = (try? await client.episodesWithChapters(seriesId: series.id)) ?? []
-        let clips = OpeningsEndings.find(in: episodes)
+        // The clips as last read, while the show has as many episodes; else
+        // read from the chapters and kept. A failed read isn't kept.
+        let server = AnimeThemesLookup.serverKey(client)
+        let version = series.recursiveItemCount ?? series.childCount
+        let clips: [ThemeClip]
+        if let kept = await SongThemeCache.shared.clips(server: server, seriesId: series.id, version: version) {
+            clips = kept
+        } else {
+            guard let episodes = try? await client.episodesWithChapters(seriesId: series.id) else { return [] }
+            clips = OpeningsEndings.find(in: episodes)
+            await SongThemeCache.shared.putClips(server: server, seriesId: series.id, version: version, clips: clips)
+        }
         // Their songs, from AnimeThemes, asked once a season (as it lists
         // each season apart); a few seasons, each asked once per launch.
         var known: [Int: [KnownTheme]] = [:]
         for clip in clips where known[clip.season] == nil {
-            known[clip.season] = await PlaybackCoordinator.knownThemes(for: clip.episode, client: client)
+            known[clip.season] = await PlaybackCoordinator.knownThemes(for: clip.episode, client: client, isAnime: true)
         }
         return clips.map { clip in
             var named = clip

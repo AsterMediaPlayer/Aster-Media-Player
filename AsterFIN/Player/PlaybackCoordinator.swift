@@ -594,9 +594,11 @@ final class PlaybackCoordinator {
         return (plugin, known)
     }
 
-    static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
-        guard item.kind == .episode, let seriesName = item.seriesName,
-              item.isAnime(on: client.kind) || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
+    /// `isAnime` says the show is known to be anime already (a kept clip's
+    /// episode, read without its chapters), so that isn't checked again.
+    static func knownThemes(for item: BaseItem, client: any MediaServer, isAnime: Bool = false) async -> [KnownTheme] {
+        guard AppSettings.songLookups, item.kind == .episode, let seriesName = item.seriesName,
+              isAnime || item.isAnime(on: client.kind) || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
         var season: BaseItem?
         if let seasonId = item.seasonId { season = try? await client.item(seasonId) }
         let aniDB = season?.providerId("AniDB")
@@ -604,7 +606,7 @@ final class PlaybackCoordinator {
             ?? JellyfinDate.parse(season?.premiereDate).map { Calendar.current.component(.year, from: $0) }
             ?? JellyfinDate.parse(item.premiereDate).map { Calendar.current.component(.year, from: $0) }
             ?? item.productionYear
-        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year)
+        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year, server: AnimeThemesLookup.serverKey(client))
     }
 
     /// A music video is one song from start to finish, so its card covers

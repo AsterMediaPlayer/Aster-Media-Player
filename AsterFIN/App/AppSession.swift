@@ -227,6 +227,8 @@ final class AppSession {
         let ids = await client.itemIds(inLibraries: libraries.map(\.id), types: "Series,Movie")
         animeLibraries = libraries
         animeItemIds = ids
+        // Their shows' songs, from AnimeThemes, got ready in the background.
+        SongWarmer.shared.warmInBackground(client: client, libraries: libraries)
     }
 
     /// The one session, shared with scenes outside SwiftUI (CarPlay).
@@ -668,6 +670,10 @@ enum AppSettings {
     static let openingSoundKey = "AsterFIN.openingSound"
     /// The song card as an episode's opening or ending plays. On by default.
     static let themeCardsKey = "AsterFIN.themeCards"
+    /// Whether song names may be asked of AnimeThemes, on a server without
+    /// the OP/ED plugin (see `AnimeThemesLookup`). On by default; kept on
+    /// the device.
+    static let songLookupsKey = "AsterFIN.songLookups"
     /// Openings and endings picked on a show's Music tab play in the Now
     /// Playing panel (and keep playing, slim, while browsing); off, they
     /// play full screen. On by default.
@@ -736,6 +742,10 @@ enum AppSettings {
 
     static var themeCards: Bool {
         UserDefaults.standard.object(forKey: themeCardsKey) as? Bool ?? true
+    }
+
+    static var songLookups: Bool {
+        UserDefaults.standard.object(forKey: songLookupsKey) as? Bool ?? true
     }
 
     static var styledSubtitles: Bool {

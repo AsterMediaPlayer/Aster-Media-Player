@@ -12,8 +12,8 @@
 import AVFoundation
 import SwiftUI
 
-nonisolated struct ThemeClip: Identifiable, Hashable, Sendable {
-    enum Kind: String, Sendable {
+nonisolated struct ThemeClip: Identifiable, Hashable, Sendable, Codable {
+    enum Kind: String, Sendable, Codable {
         case opening = "Opening"
         case ending = "Ending"
     }

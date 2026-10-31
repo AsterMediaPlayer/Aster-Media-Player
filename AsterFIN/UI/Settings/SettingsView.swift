@@ -403,6 +403,7 @@ private struct PlaybackSettingsView: View {
     @AppStorage(AppSettings.autoplayNextKey) private var autoplayNext = true
     @AppStorage(AppSettings.autoSkipIntroKey) private var autoSkipIntro = false
     @AppStorage(AppSettings.themeCardsKey) private var themeCards = true
+    @AppStorage(AppSettings.songLookupsKey) private var songLookups = true
     @AppStorage(AppSettings.themePanelKey) private var themePanel = true
     @AppStorage(AppSettings.themeCutKey) private var themeCut: ThemeCut = .tvSize
     @AppStorage(AppSettings.useSystemPlayerKey) private var useSystemPlayer = false
@@ -493,6 +494,25 @@ private struct PlaybackSettingsView: View {
             Section("Anime") {
                 Toggle("Song card at openings and endings", isOn: $themeCards)
                 SettingsNote("As an episode's opening or ending starts, and again as it finishes, the song and artist show in the corner, like a music channel. Found from the episode's OP and ED chapters, with the song named by the OP/ED plugin when the server has it. Music videos get the card too, as they start and end.")
+                Toggle("Look up song names", isOn: $songLookups)
+                    .onChange(of: songLookups) { _, on in
+                        if on, let client = session.client { SongWarmer.shared.warmInBackground(client: client) }
+                    }
+                SettingsNote("Without the OP/ED plugin, the songs of a show's openings and endings are asked of AnimeThemes (animethemes.moe): in the background for every show in your anime libraries, and kept on this device so a show is looked up once. Off, Aster doesn't contact AnimeThemes, and clips are named by their season.")
+                HStack {
+                    Button("Refresh Songs") {
+                        Task { _ = await SongWarmer.shared.refreshSongs() }
+                    }
+                    .disabled(!songLookups || SongWarmer.shared.refresh == .refreshing)
+                    Spacer()
+                    switch SongWarmer.shared.refresh {
+                    case .idle: EmptyView()
+                    case .refreshing: Text("Refreshing…").foregroundStyle(.secondary)
+                    case .done: Text("Done").foregroundStyle(.secondary)
+                    case .failed: Text("Couldn't reach AnimeThemes").foregroundStyle(.secondary)
+                    }
+                }
+                SettingsNote("Forgets what's kept for this server and asks AnimeThemes again for every show, for songs it has named since.")
                 Toggle("Now Playing panel", isOn: $themePanel)
                     .onChange(of: themePanel) { _, on in
                         if !on { session.themeDeck.stop() }

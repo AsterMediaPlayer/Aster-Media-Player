@@ -42,7 +42,7 @@ struct SettingsView: View {
                 }
                 if session.isJellyfin {
                     NavigationLink(value: SettingsDestination.channels) {
-                        Label("Channels (Beta)", systemImage: "tv.and.mediabox")
+                        Label("Channels", systemImage: "tv.and.mediabox")
                     }
                     NavigationLink(value: SettingsDestination.serverPlugins) {
                         Label("Server Plugins", systemImage: "puzzlepiece.extension")
@@ -121,7 +121,7 @@ struct MacSettingsView: View {
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
             ChannelSettingsView()
-                .tabItem { Label("Channels (Beta)", systemImage: "tv.and.mediabox") }
+                .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
             if session.isJellyfin {
                 ServerPluginsSettingsView()
                     .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
@@ -768,7 +768,7 @@ struct ChannelSettingsView: View {
     }
 
     private var everything: some View {
-        SettingsPage(title: "Channels (Beta)") {
+        SettingsPage(title: "Channels") {
             Section {
                 SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once there is one.")
             }

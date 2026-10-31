@@ -17,7 +17,7 @@ struct ChannelsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Channels (Beta)")
+                Text("Channels")
                     .font(.largeTitle.weight(.bold))
                 Spacer()
                 Button {

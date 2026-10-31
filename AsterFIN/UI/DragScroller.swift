@@ -44,12 +44,11 @@ final class DragScroller {
         dragLog.notice("installing the drag scroller")
         // Temporary: what an iPad display's touches arrive as.
         _ = NSEvent.addLocalMonitorForEvents(matching: .any) { event in
+            // Everything but the pointer merely moving.
             switch event.type {
-            case .leftMouseDown, .leftMouseDragged, .leftMouseUp, .otherMouseDown, .otherMouseDragged, .otherMouseUp,
-                 .rightMouseDown, .rightMouseDragged, .rightMouseUp, .tabletPoint, .tabletProximity, .directTouch,
-                 .gesture, .magnify, .swipe, .rotate, .beginGesture, .endGesture, .pressure, .scrollWheel:
-                dragLog.notice("event type=\(event.type.rawValue) subtype=\(event.subtype.rawValue) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.window != nil)")
-            default: break
+            case .mouseMoved, .cursorUpdate, .periodic, .flagsChanged, .mouseEntered, .mouseExited: break
+            default:
+                dragLog.notice("event type=\(event.type.rawValue) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.window != nil) desc=\(String(describing: event).prefix(160), privacy: .public)")
             }
             return event
         }

@@ -11,6 +11,9 @@
 
 #if os(macOS)
 import AppKit
+import os
+
+private let dragLog = Logger(subsystem: "app.asterfin.debug", category: "dragscroll")
 
 @MainActor
 final class DragScroller {
@@ -22,6 +25,7 @@ final class DragScroller {
     private var isEnabled: () -> Bool = { true }
     private var state = State.idle
     private var scrollView: NSScrollView?
+    private weak var window: NSWindow?
     /// Where the press began, and where the pointer was last, in window
     /// coordinates (y up).
     private var start = CGPoint.zero
@@ -49,8 +53,14 @@ final class DragScroller {
             last = start
             lastTime = event.timestamp
             velocity = 0
-            scrollView = isEnabled() ? verticalScrollView(under: event) : nil
-            state = scrollView == nil ? .notOurs : .undecided
+            window = event.window
+            scrollView = verticalScrollView(under: event)
+            // No AppKit scroll view to move directly (SwiftUI draws its own):
+            // the drag becomes wheel events, which the page already follows.
+            state = isEnabled() && window != nil ? .undecided : .notOurs
+            #if DEBUG
+            dragLog.notice("down enabled=\(self.isEnabled()) appkitScrollView=\(self.scrollView != nil) window=\(self.window != nil)")
+            #endif
             return event
 
         case .leftMouseDragged:
@@ -93,7 +103,10 @@ final class DragScroller {
     /// Moves what's shown by `delta` points, a finger moving up showing what's
     /// below, held inside the page's ends.
     private func scroll(by delta: CGFloat) {
-        guard let scrollView, let document = scrollView.documentView else { return }
+        guard let scrollView, let document = scrollView.documentView else {
+            sendWheel(deltaY: delta)
+            return
+        }
         let clip = scrollView.contentView
         var origin = clip.bounds.origin
         origin.y += document.isFlipped ? delta : -delta
@@ -120,6 +133,28 @@ final class DragScroller {
     private func stopCoasting() {
         coast?.invalidate()
         coast = nil
+    }
+
+    /// A scroll wheel turn of `deltaY` points at where the drag began, sent
+    /// straight to the window, as a wheel or trackpad would (so no system-wide
+    /// event posting, which needs the accessibility permission). A finger
+    /// moving up is a negative delta: the content below comes into view.
+    private func sendWheel(deltaY: CGFloat) {
+        guard let window, abs(deltaY) >= 0.5,
+              let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                    wheel1: Int32(deltaY.rounded()), wheel2: 0, wheel3: 0) else { return }
+        // The event's place: the press's point, in the screen's coordinates
+        // as Core Graphics has them (y down from the top of the main screen).
+        let onScreen = window.convertPoint(toScreen: start)
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        cgEvent.location = CGPoint(x: onScreen.x, y: mainHeight - onScreen.y)
+        cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        guard let event = NSEvent(cgEvent: cgEvent) else { return }
+        #if DEBUG
+        dragLog.notice("wheel delta=\(deltaY) at=\(String(describing: event.locationInWindow), privacy: .public) window=\(event.windowNumber)")
+        #endif
+        window.sendEvent(event)
     }
 
     // MARK: What's under the pointer

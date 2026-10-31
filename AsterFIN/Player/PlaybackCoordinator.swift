@@ -213,6 +213,10 @@ final class PlaybackCoordinator {
             return
         }
         player.allowsExternalPlayback = true
+        #if !os(macOS)
+        // A video's sound, after a song may have set the session up for audio.
+        AudioSessionUse.prepare(.video)
+        #endif
         pauseObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

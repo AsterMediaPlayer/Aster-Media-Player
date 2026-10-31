@@ -350,10 +350,12 @@ final class AudiobookPlayer {
         return Int64(seconds * 10_000_000)
     }
 
-    /// As in `MusicPlayer`: off the main thread, since it can block.
+    /// As in `MusicPlayer`: off the main thread, since it can block, and
+    /// set up as long-form audio first, for AirPlay 2 speakers.
     private static func activateAudioSession() {
         #if !os(macOS)
         Task.detached(priority: .userInitiated) {
+            AudioSessionUse.prepare(.longFormAudio)
             try? AVAudioSession.sharedInstance().setActive(true)
         }
         #endif

@@ -285,9 +285,12 @@ final class MusicPlayer {
 
     /// Activating the session can block, so it is done off the main thread;
     /// AVPlayer activates it implicitly anyway, this just makes it explicit.
+    /// Set up as long-form audio first, so AirPlay 2 speakers and groups
+    /// are offered and the song is handed to them (see `AudioSessionUse`).
     private static func activateAudioSession() {
         #if !os(macOS)
         Task.detached(priority: .userInitiated) {
+            AudioSessionUse.prepare(.longFormAudio)
             try? AVAudioSession.sharedInstance().setActive(true)
         }
         #endif

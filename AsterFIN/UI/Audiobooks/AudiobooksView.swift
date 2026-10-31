@@ -1036,6 +1036,10 @@ struct AudiobookNowPlayingView: View {
             }
             .focused($focusedControl, equals: "chapters")
         }
+        #if os(iOS)
+        // AirPlay 2: a Sonos room, a HomePod, a TV.
+        AirPlayControl()
+        #endif
         #if os(tvOS)
         // No close button on the TV: Stop ends it (its place saved), and
         // Back just hides it.

@@ -1346,6 +1346,10 @@ struct NowPlayingView: View {
                 player.cycleRepeat()
             }
             .focused($focusedControl, equals: "repeat")
+            #if os(iOS)
+            // AirPlay 2: a Sonos room, a HomePod, a TV.
+            AirPlayControl()
+            #endif
             if player.lyrics != nil {
                 PlayerControl(systemImage: "quote.bubble", label: "Lyrics", active: showLyrics) {
                     showLyrics.toggle()

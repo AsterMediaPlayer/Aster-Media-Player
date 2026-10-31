@@ -21,7 +21,12 @@ final class SidecarHint {
     private(set) var isShown = false
     private var observers: [Any] = []
     private var scrollMonitor: Any?
+    private var hideTask: Task<Void, Never>?
+    /// Scroll seen while the hint shows; a little adds up to learned.
+    private var scrolled: CGFloat = 0
     private var learnedKey: String { "sidecarScrollHintLearned" }
+    /// How long the hint stays if nothing's scrolled.
+    private static let timeout: Duration = .seconds(12)
 
     /// Starts watching which display the window is on.
     func install() {
@@ -35,7 +40,10 @@ final class SidecarHint {
         // The hint goes once the viewer scrolls the way it shows.
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             MainActor.assumeIsolated {
-                if self?.isShown == true, abs(event.scrollingDeltaY) > 2 { self?.learned() }
+                guard let self, self.isShown else { return }
+                // Precise scrolling comes as many small steps; any add up.
+                self.scrolled += max(abs(event.scrollingDeltaY), abs(event.deltaY))
+                if self.scrolled >= 8 { self.learned() }
             }
             return event
         }
@@ -47,10 +55,21 @@ final class SidecarHint {
         let onSidecar = Self.isSidecar(window.screen)
         if onSidecar != isShown {
             withAnimation(.easeInOut(duration: 0.3)) { isShown = onSidecar }
+            hideTask?.cancel()
+            if onSidecar {
+                scrolled = 0
+                // Not forever: away by itself, and back on the next visit.
+                hideTask = Task { [weak self] in
+                    try? await Task.sleep(for: Self.timeout)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) { self?.isShown = false }
+                }
+            }
         }
     }
 
     private func learned() {
+        hideTask?.cancel()
         UserDefaults.standard.set(true, forKey: learnedKey)
         withAnimation(.easeInOut(duration: 0.3)) { isShown = false }
     }

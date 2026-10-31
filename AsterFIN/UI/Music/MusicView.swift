@@ -1252,6 +1252,18 @@ struct NowPlayingView: View {
     /// Whether the lyrics are on screen (turned on, and the song has some).
     private var lyricsShowing: Bool { showLyrics && player.lyrics != nil }
 
+    /// AirPlay 2 (a Sonos room, a HomePod, a TV), centred under the
+    /// controls as in Music: the row is full on a phone held upright.
+    @ViewBuilder
+    private var airPlayRow: some View {
+        #if os(iOS)
+        AirPlayRoutePicker()
+            .frame(width: 30, height: 30)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("AirPlay")
+        #endif
+    }
+
     /// Lyrics when they're turned on, else what's coming up. `lyricsHeight`
     /// overrides the panel's usual height.
     @ViewBuilder
@@ -1293,6 +1305,7 @@ struct NowPlayingView: View {
                             progress
                             controls
                                 .frame(maxWidth: .infinity)
+                            airPlayRow
                             errorText
                         }
                         .padding(.horizontal, 24)
@@ -1303,6 +1316,7 @@ struct NowPlayingView: View {
                                 trackInfo(track, titleSize: 22)
                                 progress
                                 controls
+                                airPlayRow
                                 errorText
                             }
                         }
@@ -1346,10 +1360,6 @@ struct NowPlayingView: View {
                 player.cycleRepeat()
             }
             .focused($focusedControl, equals: "repeat")
-            #if os(iOS)
-            // AirPlay 2: a Sonos room, a HomePod, a TV.
-            AirPlayControl()
-            #endif
             if player.lyrics != nil {
                 PlayerControl(systemImage: "quote.bubble", label: "Lyrics", active: showLyrics) {
                     showLyrics.toggle()

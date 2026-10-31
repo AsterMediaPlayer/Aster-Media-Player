@@ -55,7 +55,7 @@ struct MacSidebar: View {
 
     @Environment(AppSession.self) private var session
 
-    static let width: CGFloat = 270
+    static let width: CGFloat = 220
 
     var body: some View {
         VStack(spacing: 0) {

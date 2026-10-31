@@ -206,11 +206,15 @@ extension EnvironmentValues {
 extension View {
     /// A lockup's artwork as the keyboard's selection: outlined and lifted,
     /// like a focused card on Apple TV.
-    func keyboardSelectionHighlight(_ selected: Bool) -> some View {
+    func keyboardSelectionHighlight(_ selected: Bool, capsule: Bool = false) -> some View {
         overlay {
             if selected {
-                Rectangle()
-                    .strokeBorder(.white, lineWidth: 3)
+                // A button's outline follows its capsule; a card's is square.
+                if capsule {
+                    Capsule().strokeBorder(.white, lineWidth: 3)
+                } else {
+                    Rectangle().strokeBorder(.white, lineWidth: 3)
+                }
             }
         }
         .scaleEffect(selected ? 1.05 : 1)
@@ -840,7 +844,7 @@ struct ActionButton: View {
         .optionallyFocused(focus, equals: focusID)
         // The prominent button is the page's main action (Play), where the
         // keyboard starts.
-        .keyboardTarget(isDefault: prominent, action: action)
+        .keyboardTarget(isDefault: prominent, capsule: true, action: action)
     }
 }
 
@@ -894,7 +898,7 @@ struct IconButton: View {
         .actionButtonStyle()
         .accessibilityLabel(accessibilityLabel)
         .optionallyFocused(focus, equals: focusID)
-        .keyboardTarget(action: action)
+        .keyboardTarget(capsule: true, action: action)
     }
 }
 
@@ -913,6 +917,11 @@ extension View {
             .buttonBorderShape(.capsule)
             .tint(prominent ? .white : Color(white: 0.3))
             .foregroundStyle(prominent ? .black : .white)
+            #if os(macOS)
+            // The Mac greys a prominent button out while its window isn't the
+            // active one, which left Resume's black label on dark grey.
+            .environment(\.controlActiveState, .key)
+            #endif
         #endif
     }
 }

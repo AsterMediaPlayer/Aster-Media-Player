@@ -24,9 +24,9 @@ extension View {
     /// A default stop (a page's Play button) takes the selection as it
     /// appears, so a page opened with the keyboard starts there.
     @ViewBuilder
-    func keyboardTarget(isDefault: Bool = false, action: @escaping () -> Void) -> some View {
+    func keyboardTarget(isDefault: Bool = false, capsule: Bool = false, action: @escaping () -> Void) -> some View {
         #if os(macOS)
-        modifier(KeyboardTargetModifier(isDefault: isDefault, action: action))
+        modifier(KeyboardTargetModifier(isDefault: isDefault, capsule: capsule, action: action))
         #else
         self
         #endif
@@ -319,6 +319,7 @@ private struct KeyboardLinkTargetModifier<Value: Hashable>: ViewModifier {
 /// Registers a view as an arrow-key stop and draws the selection on it.
 private struct KeyboardTargetModifier: ViewModifier {
     var isDefault = false
+    var capsule = false
     let action: () -> Void
 
     /// Missing in covers drawn above the tab view (Now Playing, say).
@@ -331,7 +332,7 @@ private struct KeyboardTargetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .keyboardSelectionHighlight(targets.selected == id && keyboard?.inSidebar != true)
+            .keyboardSelectionHighlight(targets.selected == id && keyboard?.inSidebar != true, capsule: capsule)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
                 targets.update(id, frame: frame, tab: tab, page: page, action: action)
             }

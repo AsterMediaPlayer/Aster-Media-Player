@@ -175,6 +175,9 @@ private struct DiscoverRows: View {
             guard sliders.isEmpty, let account = seerrAccount() else { return }
             do {
                 sliders = try await SeerrClient.sliders(account: account)
+                #if DEBUG
+                print("DEBUG seerr: \(sliders.count) Discover rows")
+                #endif
             } catch {
                 noteSeerrFailure(error, "Discover rows")
                 problem = "Seerr didn't send its Discover page (\((error as? LocalizedError)?.errorDescription ?? error.localizedDescription))."
@@ -197,7 +200,9 @@ private struct SliderRow: View {
     private var kind: SeerrFilter.Kind { slider.type == 6 || slider.type == 8 ? .movie : .tv }
 
     var body: some View {
-        Group {
+        // A stack, not a Group: a Group hands its modifiers to what it holds,
+        // and an empty row holds nothing, so its load never ran.
+        VStack(alignment: .leading, spacing: 0) {
             switch slider.type {
             case 6, 10:
                 Shelf(title: title, items: genres) { genre in
@@ -218,6 +223,7 @@ private struct SliderRow: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task { await load() }
     }
 

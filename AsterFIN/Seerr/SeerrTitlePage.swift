@@ -43,14 +43,25 @@ nonisolated struct SeerrDetails: Decodable, Sendable {
     struct Named: Decodable, Sendable, Hashable { var name: String }
     struct Credits: Decodable, Sendable { var cast: [Person]?; var crew: [Crew]? }
     struct Crew: Decodable, Sendable, Hashable { var name: String; var job: String? }
-    struct Video: Decodable, Sendable, Hashable { var type: String?; var site: String?; var url: String?; var name: String? }
+    struct Video: Decodable, Sendable, Hashable { var type: String?; var site: String?; var url: String?; var key: String?; var name: String? }
 
     /// Its own title, in its own language, when that's not the one shown.
     var original: String? { originalName ?? originalTitle }
 
-    /// The first trailer, to watch on its site.
-    var trailerURL: URL? {
-        (relatedVideos ?? []).first { $0.type == "Trailer" }?.url.flatMap(URL.init(string:))
+    /// The first trailer, else teaser: new anime often have only a teaser.
+    private var trailer: Video? {
+        let videos = relatedVideos ?? []
+        return videos.first { $0.type == "Trailer" } ?? videos.first { $0.type == "Teaser" }
+    }
+
+    /// The trailer, to watch on its site.
+    var trailerURL: URL? { trailer?.url.flatMap(URL.init(string:)) }
+
+    /// The trailer in the YouTube app, which is how an Apple TV can play it.
+    var trailerAppURL: URL? {
+        guard let trailer, trailer.site == nil || trailer.site == "YouTube" else { return nil }
+        let id = trailer.key ?? trailer.url.flatMap { URLComponents(string: $0)?.queryItems?.first { $0.name == "v" }?.value }
+        return id.flatMap { URL(string: "youtube://watch/\($0)") }
     }
 
     /// A film's directors, else a show's creators.
@@ -100,6 +111,9 @@ struct SeerrTitlePage: View {
 
     private let accounts = TrackerAccounts.shared
     @State private var details: SeerrDetails?
+    @Environment(\.openURL) private var openURL
+    /// The trailer couldn't open: the YouTube app isn't installed.
+    @State private var noYouTube = false
     /// AniList's description and studios, for anime TMDB knows little of.
     @State private var aniList: (description: String?, studios: [String])?
     @State private var status: SeerrStatus
@@ -161,6 +175,11 @@ struct SeerrTitlePage: View {
         }
         .ignoresSafeArea()
         .task { await load() }
+        .alert("YouTube Needed", isPresented: $noYouTube) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The trailer plays in the YouTube app. Install it from the App Store, then try again.")
+        }
     }
 
     // MARK: Pieces
@@ -269,7 +288,16 @@ struct SeerrTitlePage: View {
                     .font(.headline)
                     .padding(.vertical, 10)
             }
-            #if !os(tvOS)
+            #if os(tvOS)
+            // The TV has no browser: the trailer opens in the YouTube app.
+            if let trailer = details?.trailerAppURL {
+                ActionButton(title: "Trailer", systemImage: "play.rectangle") {
+                    openURL(trailer) { opened in
+                        if !opened { noYouTube = true }
+                    }
+                }
+            }
+            #else
             if let trailer = details?.trailerURL {
                 Link(destination: trailer) {
                     Label("Trailer", systemImage: "play.rectangle")

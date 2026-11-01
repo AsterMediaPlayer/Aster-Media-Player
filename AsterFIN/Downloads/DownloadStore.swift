@@ -169,8 +169,19 @@ final class DownloadStore: NSObject {
             #if os(iOS)
             DownloadsActivity.sync(records)
             #endif
+            // Only when they change: the tab bar reads these, and rebuilding
+            // it on every progress tick, with a tab under iPhone's More
+            // showing, had More push that tab a second time and crash.
+            let downloading = records.filter { $0.state == .downloading }.count
+            if downloading != downloadingCount { downloadingCount = downloading }
+            let failed = records.contains { $0.state == .failed }
+            if failed != hasFailed { hasFailed = failed }
         }
     }
+
+    /// Downloads running now, and whether any has failed, for the tab bar.
+    private(set) var downloadingCount = 0
+    private(set) var hasFailed = false
 
     @ObservationIgnored private var wifiSession: AVAssetDownloadURLSession?
     @ObservationIgnored private var cellularSession: AVAssetDownloadURLSession?

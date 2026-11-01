@@ -460,9 +460,10 @@ struct MainTabView: View {
     private var moreTabDownloadState: MoreTabDownloadIndicator.State {
         let tabs = shownTabs
         guard tabs.count > 5, let position = tabs.firstIndex(of: .downloads), position >= 4 else { return .idle }
-        let records = DownloadStore.shared.records
-        if records.contains(where: { $0.state == .failed }) { return .failed }
-        if records.contains(where: { $0.state == .downloading }) { return .downloading }
+        // The counts, not the records: see `DownloadStore.downloadingCount`.
+        let store = DownloadStore.shared
+        if store.hasFailed { return .failed }
+        if store.downloadingCount > 0 { return .downloading }
         return .idle
     }
     #endif
@@ -501,7 +502,7 @@ struct MainTabView: View {
     /// there). Zero shows no badge.
     #if os(iOS)
     private func badgeCount(for tab: AppTab) -> Int {
-        tab == .downloads ? DownloadStore.shared.records.filter { $0.state == .downloading }.count : 0
+        tab == .downloads ? DownloadStore.shared.downloadingCount : 0
     }
     #endif
 

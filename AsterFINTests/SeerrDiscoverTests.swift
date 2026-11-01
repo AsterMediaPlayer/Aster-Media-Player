@@ -76,6 +76,25 @@ struct SeerrDiscoverTests {
         #expect(SeerrClient.titlesPath(for: SeerrSlider(type: SeerrClient.inTheatersType)) == nil)
     }
 
+    /// A requested film arrives on its first home release still ahead;
+    /// once one's past it's out, and with only a cinema date, that.
+    @Test func whenARequestedFilmArrives() throws {
+        func releases(_ json: String) throws -> SeerrReleases {
+            try JSONDecoder().decode(SeerrReleases.self, from: Data(json.utf8))
+        }
+        let now = try #require(SeerrReleases.date("2026-11-01T12:00:00.000Z"))
+        let streetFighter = try releases(#"{"results": [{"iso_3166_1": "US", "release_dates": [{"type": 3, "release_date": "2026-10-16T00:00:00.000Z"}, {"type": 4, "release_date": "2026-12-01T00:00:00.000Z"}]}]}"#)
+        let arrival = try #require(streetFighter.arrival(region: "US", now: now))
+        #expect(arrival.how == "Digital Release")
+        #expect(arrival.date == SeerrReleases.date("2026-12-01T00:00:00.000Z"))
+        // Out on digital already: not upcoming, whatever the disc's date.
+        let coyote = try releases(#"{"results": [{"iso_3166_1": "US", "release_dates": [{"type": 4, "release_date": "2026-09-29T00:00:00.000Z"}, {"type": 5, "release_date": "2026-12-01T00:00:00.000Z"}]}]}"#)
+        #expect(coyote.arrival(region: "US", now: now) == nil)
+        // Only a cinema date, ahead; and another region falls back to the US.
+        let cinema = try releases(#"{"results": [{"iso_3166_1": "US", "release_dates": [{"type": 3, "release_date": "2027-03-05T00:00:00.000Z"}]}]}"#)
+        #expect(cinema.arrival(region: "GB", now: now)?.how == "In Theaters")
+    }
+
     @Test func requestsAreRead() throws {
         struct Reply: Decodable { var results: [SeerrRequest] }
         let reply = try JSONDecoder().decode(Reply.self, from: Data(#"{"pageInfo": {"pages": 2, "pageSize": 3, "results": 6, "page": 1}, "results": [{"id": 12, "status": 1, "createdAt": "2026-11-01T12:31:29.000Z", "type": "tv", "is4k": false, "media": {"id": 261, "mediaType": "tv", "tmdbId": 35106, "status": 2}, "seasons": [{"id": 19, "seasonNumber": 1, "status": 1}], "requestedBy": {"id": 1, "displayName": "peppy", "permissions": 2}}, {"id": 9, "status": 2, "type": "movie", "media": {"tmdbId": 693134, "mediaType": "movie", "status": 5}}]}"#.utf8))

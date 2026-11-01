@@ -16,46 +16,74 @@ struct UpcomingAgenda: View {
     /// Room left above for Discover's sections.
     var topInset: CGFloat = 0
 
+    /// One thing on a day: an episode, or a film the viewer asked for.
+    enum Entry: Identifiable, Hashable {
+        case episode(BaseItem)
+        case film(SeerrComingFilm)
+
+        var id: String {
+            switch self {
+            case .episode(let episode): episode.id
+            case .film(let film): "film-\(film.id)"
+            }
+        }
+    }
+
     @Environment(AppSession.self) private var session
     @State private var model = UpcomingModel()
-    /// The episode with focus, whose show's picture fills the page.
+    /// Films the viewer asked for (with Seerr), approved, not out yet.
+    @State private var films: [SeerrComingFilm] = []
+    /// What has focus, whose picture fills the page.
     @FocusState private var focused: String?
-    @State private var backdropEpisode: BaseItem?
-    /// Which kinds of show to list; either can be turned off at the top.
+    @State private var backdropEntry: Entry?
+    /// Which kinds to list; each can be turned off at the top.
     @AppStorage("AsterFIN.upcomingAnime") private var showsAnime = true
     @AppStorage("AsterFIN.upcomingShows") private var showsTV = true
+    @AppStorage("AsterFIN.upcomingFilms") private var showsFilms = true
 
     /// Whether an episode's show is anime (from the anime libraries found).
     private func isAnime(_ episode: BaseItem) -> Bool {
         session.animeItemIds.contains(episode.seriesId ?? "")
     }
 
-    /// The days, less the kinds turned off, and days left empty by that.
-    private var days: [(day: Date, episodes: [BaseItem])] {
-        model.days.compactMap { entry in
-            let kept = entry.episodes.filter { isAnime($0) ? showsAnime : showsTV }
-            return kept.isEmpty ? nil : (entry.day, kept)
+    /// The days with their episodes and films, less the kinds turned off,
+    /// and days left empty by that.
+    private var days: [(day: Date, entries: [Entry])] {
+        let calendar = Calendar.current
+        var byDay: [Date: [Entry]] = [:]
+        for entry in model.days {
+            byDay[entry.day, default: []] += entry.episodes
+                .filter { isAnime($0) ? showsAnime : showsTV }
+                .map(Entry.episode)
         }
+        if showsFilms {
+            for film in films {
+                byDay[calendar.startOfDay(for: film.date), default: []].append(.film(film))
+            }
+        }
+        return byDay.filter { !$0.value.isEmpty }.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
-    /// The library has both kinds of show, so the switches are worth
+    /// The library has both kinds of show, so their switches are worth
     /// showing (even when only one kind has episodes coming this week).
     private var hasBothKinds: Bool {
         let anime = Set(session.animeLibraries.map(\.id))
         return !anime.isEmpty && session.showLibraries.contains { !anime.contains($0.id) }
     }
 
+    private var hasAnything: Bool { !model.days.isEmpty || !films.isEmpty }
+
     var body: some View {
         ZStack {
             backdrop
-            if !model.days.isEmpty {
+            if hasAnything {
                 agenda
             } else if let error = model.errorMessage {
                 MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error) {
                     Task { await reload() }
                 }
             } else if model.hasLoaded {
-                MessageView(systemImage: "calendar", title: "Nothing coming up", detail: "Episodes of shows in your library that air soon show up here.")
+                MessageView(systemImage: "calendar", title: "Nothing coming up", detail: "Episodes of shows in your library that air soon show up here, and films you've asked for until they're out.")
             } else {
                 ProgressView()
             }
@@ -64,28 +92,28 @@ struct UpcomingAgenda: View {
             await reload()
             #if DEBUG
             let all = model.days.flatMap(\.episodes)
-            print("DEBUG upcoming: \(all.count) episodes, \(all.filter(isAnime).count) anime; anime libraries \(session.animeLibraries.count), TV libraries \(session.showLibraries.count)")
+            print("DEBUG upcoming: \(all.count) episodes, \(all.filter(isAnime).count) anime, \(films.count) requested films; anime libraries \(session.animeLibraries.count), TV libraries \(session.showLibraries.count)")
             #endif
         }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await reload() }
         }
         .onChange(of: focused) { _, id in
-            guard let id, let episode = days.lazy.flatMap(\.episodes).first(where: { $0.id == id }) else { return }
-            withAnimation(.easeInOut(duration: 0.6)) { backdropEpisode = episode }
+            guard let id, let entry = days.lazy.flatMap(\.entries).first(where: { $0.id == id }) else { return }
+            withAnimation(.easeInOut(duration: 0.6)) { backdropEntry = entry }
         }
     }
 
-    /// The focused show's picture, blurred and darkened, behind the page.
+    /// The focused picture, blurred and darkened, behind the page.
     private var backdrop: some View {
         ZStack {
             Color.black
-            if let episode = backdropEpisode ?? days.first?.episodes.first {
-                RemoteImage(url: session.jellyfin?.backdropURL(for: episode, width: 1280)) { Color.black }
+            if let entry = backdropEntry ?? days.first?.entries.first {
+                RemoteImage(url: backdropURL(entry)) { Color.black }
                     .blur(radius: 50)
                     .scaleEffect(1.15)
                     .opacity(0.55)
-                    .id(episode.seriesId ?? episode.id)
+                    .id(backdropKey(entry))
                     .transition(.opacity)
             }
             LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
@@ -94,22 +122,36 @@ struct UpcomingAgenda: View {
         .allowsHitTesting(false)
     }
 
+    private func backdropURL(_ entry: Entry) -> URL? {
+        switch entry {
+        case .episode(let episode): session.jellyfin?.backdropURL(for: episode, width: 1280)
+        case .film(let film): SeerrClient.image(film.title.backdropPath, width: "w1280")
+        }
+    }
+
+    /// Episodes of one show share a picture, so moving between them doesn't
+    /// fade it out and in again.
+    private func backdropKey(_ entry: Entry) -> String {
+        switch entry {
+        case .episode(let episode): episode.seriesId ?? episode.id
+        case .film(let film): "film-\(film.id)"
+        }
+    }
+
     private var agenda: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: Self.daySpacing) {
-                if hasBothKinds {
+                if hasBothKinds || !films.isEmpty {
                     kindSwitches
                 }
                 if days.isEmpty {
-                    Text(showsAnime && showsTV ? "Nothing coming up." : !showsAnime && !showsTV
-                         ? "Turn on Anime or TV Shows above to see what's coming."
-                         : "No \(showsAnime ? "anime" : "TV show") episodes coming up.")
+                    Text("Everything's turned off above. Turn something on to see what's coming.")
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, Lockup.screenPadding)
                         .padding(.vertical, 60)
                 }
-                ForEach(Array(days.enumerated()), id: \.element.day) { _, entry in
-                    day(entry.day, entry.episodes)
+                ForEach(days, id: \.day) { entry in
+                    day(entry.day, entry.entries)
                 }
             }
             .padding(.top, topInset + Lockup.pageTopPadding)
@@ -118,11 +160,16 @@ struct UpcomingAgenda: View {
         .scrollClipDisabled()
     }
 
-    /// Anime and TV Shows, each on or off.
+    /// Anime, TV Shows and Movies, each on or off.
     private var kindSwitches: some View {
         HStack(spacing: 16) {
-            kindSwitch("Anime", systemImage: "sparkles", isOn: $showsAnime)
-            kindSwitch("TV Shows", systemImage: "tv", isOn: $showsTV)
+            if hasBothKinds {
+                kindSwitch("Anime", systemImage: "sparkles", isOn: $showsAnime)
+                kindSwitch("TV Shows", systemImage: "tv", isOn: $showsTV)
+            }
+            if !films.isEmpty {
+                kindSwitch("Movies", systemImage: "film", isOn: $showsFilms)
+            }
         }
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.bottom, 8)
@@ -138,16 +185,21 @@ struct UpcomingAgenda: View {
         .accessibilityValue(isOn.wrappedValue ? "Shown" : "Hidden")
     }
 
-    private func day(_ day: Date, _ episodes: [BaseItem]) -> some View {
+    private func day(_ day: Date, _ entries: [Entry]) -> some View {
         HStack(alignment: .center, spacing: 0) {
             DayStamp(day: day)
                 .frame(width: Self.stampWidth, alignment: .leading)
                 .padding(.leading, Lockup.screenPadding)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: Lockup.shelfSpacing) {
-                    ForEach(episodes) { episode in
-                        AgendaCard(episode: episode)
-                            .focused($focused, equals: episode.id)
+                    ForEach(entries) { entry in
+                        Group {
+                            switch entry {
+                            case .episode(let episode): AgendaCard(episode: episode)
+                            case .film(let film): AgendaFilmCard(film: film)
+                            }
+                        }
+                        .focused($focused, equals: entry.id)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -160,8 +212,25 @@ struct UpcomingAgenda: View {
     }
 
     private func reload() async {
-        guard let client = session.jellyfin else { return }
-        await model.load(client: client)
+        async let comingFilms: [SeerrComingFilm] = loadFilms()
+        if let client = session.jellyfin {
+            await model.load(client: client)
+        }
+        films = await comingFilms
+    }
+
+    /// The viewer's approved film requests not out yet, with Seerr set up.
+    private func loadFilms() async -> [SeerrComingFilm] {
+        let accounts = TrackerAccounts.shared
+        guard let account = accounts.secrets.seerr, !accounts.needsSignIn.contains("Seerr") else { return [] }
+        do {
+            return try await SeerrClient.comingFilms(account: account)
+        } catch {
+            #if DEBUG
+            print("DEBUG upcoming: requested films failed: \(error)")
+            #endif
+            return films
+        }
     }
 
     #if os(tvOS)
@@ -171,6 +240,41 @@ struct UpcomingAgenda: View {
     private static let stampWidth: CGFloat = 96
     private static let daySpacing: CGFloat = 4
     #endif
+}
+
+/// A film the viewer asked for, on the day it arrives: its picture, its
+/// name, and how ("Digital Release", "In Theaters"). Opens its Seerr page.
+private struct AgendaFilmCard: View {
+    let film: SeerrComingFilm
+
+    var body: some View {
+        NavigationLink(value: film.title) {
+            ZStack(alignment: .bottomLeading) {
+                RemoteImage(url: SeerrClient.image(film.title.backdropPath, width: "w780") ?? film.title.posterURL, systemImage: "film")
+                LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: UnitPoint(x: 0.5, y: 0.4), endPoint: .bottom)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(film.title.displayTitle)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+                    Text(film.how)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .padding(AgendaCard.inset)
+            }
+            .frame(width: AgendaCard.width, height: AgendaCard.height)
+            .overlay(alignment: .topTrailing) {
+                Label("Requested", systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(14)
+            }
+        }
+        .cardButtonStyle()
+        .accessibilityLabel("\(film.title.displayTitle), \(film.how), requested")
+    }
 }
 
 /// A day as a desk calendar shows it: "THU", "14", "November", "Tomorrow".
@@ -254,10 +358,10 @@ private struct AgendaCard: View {
     #if os(tvOS)
     static let width: CGFloat = 560
     static let height: CGFloat = 315
-    private static let inset: CGFloat = 22
+    static let inset: CGFloat = 22
     #else
     static let width: CGFloat = 260
     static let height: CGFloat = 146
-    private static let inset: CGFloat = 12
+    static let inset: CGFloat = 12
     #endif
 }

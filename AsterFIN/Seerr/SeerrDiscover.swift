@@ -456,3 +456,86 @@ nonisolated extension SeerrClient {
         }
     }
 }
+
+// MARK: - Requested films on the way
+
+/// A film the viewer asked for and got approved, not out yet: when it
+/// arrives and how (on digital or disc, else in cinemas).
+nonisolated struct SeerrComingFilm: Sendable, Hashable, Identifiable {
+    var title: SeerrTitle
+    var date: Date
+    /// "Digital Release", "On Disc", "In Theaters".
+    var how: String
+    var id: Int { title.id }
+}
+
+/// TMDB's release dates for a film, by country and kind.
+nonisolated struct SeerrReleases: Decodable, Sendable {
+    struct Country: Decodable, Sendable {
+        var iso_3166_1: String
+        var release_dates: [Release]
+    }
+    struct Release: Decodable, Sendable {
+        /// 1 premiere, 2 limited, 3 theatrical, 4 digital, 5 physical, 6 TV.
+        var type: Int
+        var release_date: String
+    }
+    var results: [Country]?
+
+    /// When it can be watched at home and how: the first digital or disc
+    /// release still ahead; nil once one's past (it's out). With none
+    /// known, its cinema release if that's ahead.
+    func arrival(region: String, now: Date = Date()) -> (date: Date, how: String)? {
+        let countries = results ?? []
+        let releases = (countries.first { $0.iso_3166_1 == region } ?? countries.first { $0.iso_3166_1 == "US" })?.release_dates ?? []
+        let dated = releases.compactMap { release -> (Int, Date)? in
+            Self.date(release.release_date).map { (release.type, $0) }
+        }
+        let home = dated.filter { $0.0 == 4 || $0.0 == 5 }
+        if home.contains(where: { $0.1 <= now }) { return nil }
+        if let next = home.filter({ $0.1 > now }).min(by: { $0.1 < $1.1 }) {
+            return (next.1, next.0 == 4 ? "Digital Release" : "On Disc")
+        }
+        if let cinema = dated.filter({ (1...3).contains($0.0) && $0.1 > now }).min(by: { $0.1 < $1.1 }) {
+            return (cinema.1, "In Theaters")
+        }
+        return nil
+    }
+
+    static func date(_ text: String) -> Date? {
+        let format = ISO8601DateFormatter()
+        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return format.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+}
+
+nonisolated extension SeerrClient {
+    /// The viewer's approved film requests not out yet, soonest first.
+    static func comingFilms(account: SeerrAccount, region: String = Locale.current.region?.identifier ?? "US", now: Date = Date()) async throws -> [SeerrComingFilm] {
+        struct Dated: Decodable, Sendable {
+            var title: SeerrTitle
+            var releases: SeerrReleases?
+            enum Keys: String, CodingKey { case releases }
+            init(from decoder: any Decoder) throws {
+                title = try SeerrTitle(from: decoder)
+                releases = try decoder.container(keyedBy: Keys.self).decodeIfPresent(SeerrReleases.self, forKey: .releases)
+            }
+        }
+        let requests = try await requests(.approved, mine: true, userId: account.userId, page: 1, account: account).results
+            .filter { $0.type == "movie" && $0.media.status != .available }
+        let films = await withTaskGroup(of: SeerrComingFilm?.self) { group in
+            for request in requests {
+                group.addTask {
+                    guard var dated = try? await get(Dated.self, account, "/movie/\(request.media.tmdbId)"),
+                          let arrival = dated.releases?.arrival(region: region, now: now) else { return nil }
+                    dated.title.mediaType = "movie"
+                    return SeerrComingFilm(title: dated.title, date: arrival.date, how: arrival.how)
+                }
+            }
+            var found: [SeerrComingFilm] = []
+            for await film in group { if let film { found.append(film) } }
+            return found
+        }
+        return films.sorted { $0.date < $1.date }
+    }
+}

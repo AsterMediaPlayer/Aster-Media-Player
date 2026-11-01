@@ -30,7 +30,8 @@ struct DiscoverView: View {
     /// when shows in the library have episodes coming.
     private var sections: [Section] {
         let seerr = accounts.secrets.seerr != nil
-        return Section.allCases.filter { $0.isSeerr ? seerr : session.hasUpcoming }
+        // Upcoming holds films asked for through Seerr too.
+        return Section.allCases.filter { $0.isSeerr ? seerr : (session.hasUpcoming || seerr) }
     }
 
     private var shown: Section? {

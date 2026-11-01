@@ -142,7 +142,9 @@ struct SeerrSearchShelf: View {
     @State private var requesting: SeerrTitle?
 
     var body: some View {
-        Group {
+        // A stack, not a Group: a Group's modifiers go on its contents, and
+        // with no titles yet there are none, so the search never ran.
+        VStack(alignment: .leading, spacing: 0) {
             if !titles.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Request")
@@ -161,6 +163,7 @@ struct SeerrSearchShelf: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: query) {
             let term = query.trimmingCharacters(in: .whitespaces)
             guard !term.isEmpty, let account = accounts.secrets.seerr, !accounts.needsSignIn.contains("Seerr") else {
@@ -176,6 +179,9 @@ struct SeerrSearchShelf: View {
                 accounts.seerrSignedOut()
                 titles = []
             } catch {
+                #if DEBUG
+                print("DEBUG seerr: search failed: \(error)")
+                #endif
                 titles = []
             }
         }

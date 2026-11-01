@@ -142,11 +142,11 @@ nonisolated final class PlexClient: MediaServer {
     /// nothing answering becomes `PlexError.unreachable`, whose message
     /// says why that usually happens.
     @discardableResult
-    func perform(_ request: URLRequest) async throws -> Data {
+    func perform(_ request: URLRequest, on session: URLSession? = nil) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await (session ?? self.session).data(for: request)
         } catch let error as URLError where PlexError.meansUnreachable(error) {
             throw PlexError.unreachable(serverName)
         }
@@ -156,10 +156,15 @@ nonisolated final class PlexClient: MediaServer {
         return data
     }
 
+    /// Pictures and other files, through the same disk cache as Jellyfin's
+    /// (they were fetched again on every launch before).
     func data(from url: URL, fresh: Bool) async throws -> Data {
         var request = request(url)
-        if fresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
-        return try await perform(request)
+        if fresh {
+            JellyfinClient.imageSession.configuration.urlCache?.removeCachedResponse(for: request)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
+        return try await perform(request, on: JellyfinClient.imageSession)
     }
 
     /// Whether this session reaches the server through Plex's relay.
@@ -193,7 +198,9 @@ nonisolated final class PlexClient: MediaServer {
             "width": ref.maxWidth.map(String.init) ?? ref.maxHeight.map { String($0 * 3) },
             "height": ref.maxHeight.map(String.init) ?? ref.maxWidth.map { String($0 * 3) },
             "minSize": "0",
-            "upscale": "1",
+            // Enlarging costs the server about 2.5 times the work and the
+            // bytes (Plezy measured it); the picture's scaled to fit here.
+            "upscale": "0",
             "quality": String(ref.quality),
             "format": ref.kind == .logo ? "png" : nil,
             "X-Plex-Token": accessToken,

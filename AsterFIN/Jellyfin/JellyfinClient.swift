@@ -54,6 +54,9 @@ nonisolated final class JellyfinClient: MediaServer {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 512 * 1024 * 1024)
         configuration.requestCachePolicy = .returnCacheDataElseLoad
+        // Twice the usual six at once: a page of posters arrives two to four
+        // times as fast (as Plezy measured).
+        configuration.httpMaximumConnectionsPerHost = 12
         return URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }()
 

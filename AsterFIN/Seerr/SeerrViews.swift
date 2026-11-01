@@ -3,7 +3,8 @@
 //  AsterFIN
 //
 //  Settings › Requests (the Seerr address and sign-in), the Request shelf
-//  under Search's results, and the sheet that asks for a film or seasons.
+//  under Search's results, and Discover's rows; each title opens its page
+//  (SeerrTitlePage).
 //
 
 import SwiftUI
@@ -133,13 +134,12 @@ struct SeerrSettingsView: View {
 
 // MARK: - Search
 
-/// Titles Seerr knows that the server hasn't got: each opens the request sheet.
+/// Titles Seerr knows that the server hasn't got: each opens its title page.
 struct SeerrSearchShelf: View {
     let query: String
 
     private let accounts = TrackerAccounts.shared
     @State private var titles: [SeerrTitle] = []
-    @State private var requesting: SeerrTitle?
 
     var body: some View {
         // A stack, not a Group: a Group's modifiers go on its contents, and
@@ -153,7 +153,7 @@ struct SeerrSearchShelf: View {
                     ScrollView(.horizontal) {
                         LazyHStack(alignment: .top, spacing: Lockup.shelfSpacing) {
                             ForEach(titles) { title in
-                                SeerrTitleLockup(title: title) { requesting = title }
+                                SeerrTitleLockup(title: title)
                             }
                         }
                         .padding(.horizontal, Lockup.screenPadding)
@@ -185,21 +185,16 @@ struct SeerrSearchShelf: View {
                 titles = []
             }
         }
-        .sheet(item: $requesting) { title in
-            SeerrRequestSheet(title: title) { updated in
-                if let index = titles.firstIndex(where: { $0.id == updated.id }) { titles[index] = updated }
-            }
-        }
     }
 }
 
+/// A title to request, as a library item looks; it opens its title page.
 struct SeerrTitleLockup: View {
     let title: SeerrTitle
-    let action: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(action: action) {
+            NavigationLink(value: title) {
                 ZStack(alignment: .topTrailing) {
                     RemoteImage(url: title.posterURL, systemImage: title.isMovie ? "film" : "tv")
                         .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
@@ -215,7 +210,6 @@ struct SeerrTitleLockup: View {
                 .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
             }
             .cardButtonStyle()
-            .keyboardTarget(action: action)
             .accessibilityLabel([title.displayTitle, title.year, title.status.label].compactMap { $0 }.joined(separator: ", "))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.displayTitle).font(.callout.weight(.medium)).lineLimit(1)
@@ -227,116 +221,10 @@ struct SeerrTitleLockup: View {
     }
 }
 
-// MARK: - Requesting
-
-struct SeerrRequestSheet: View {
-    let title: SeerrTitle
-    /// The title as it stands after a request.
-    var requested: (SeerrTitle) -> Void = { _ in }
-
-    @Environment(\.dismiss) private var dismiss
-    private let accounts = TrackerAccounts.shared
-    @State private var seasons: [(number: Int, episodes: Int?, status: SeerrStatus)] = []
-    @State private var chosen: Set<Int> = []
-    @State private var working = false
-    @State private var problem: String?
-    @State private var done = false
-
-    /// Seasons nobody's asked for yet, which can be.
-    private var open: [Int] { seasons.filter { $0.status == .unknown || $0.status == .deleted }.map(\.number) }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack(alignment: .top, spacing: 16) {
-                        RemoteImage(url: title.posterURL, systemImage: title.isMovie ? "film" : "tv")
-                            .frame(width: 90, height: 135)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(title.displayTitle).font(.headline)
-                            if let year = title.year { Text(year).foregroundStyle(.secondary) }
-                            if let overview = title.overview {
-                                Text(overview).font(.caption).foregroundStyle(.secondary).lineLimit(6)
-                            }
-                        }
-                    }
-                }
-                if !title.isMovie {
-                    Section("Seasons") {
-                        if seasons.isEmpty {
-                            ProgressView()
-                        }
-                        ForEach(seasons, id: \.number) { season in
-                            let free = open.contains(season.number)
-                            Toggle(isOn: Binding(get: { chosen.contains(season.number) || !free },
-                                                 set: { on in if on { chosen.insert(season.number) } else { chosen.remove(season.number) } })) {
-                                VStack(alignment: .leading) {
-                                    Text("Season \(season.number)")
-                                    Text([season.episodes.map { "\($0) episodes" }, season.status.label].compactMap { $0 }.joined(separator: " · "))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            .disabled(!free)
-                        }
-                    }
-                }
-                Section {
-                    if done {
-                        Label("Requested", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Button(title.isMovie ? "Request Film" : chosen.count == open.count && !open.isEmpty ? "Request All Seasons" : "Request \(chosen.count) Season\(chosen.count == 1 ? "" : "s")") {
-                            Task { await request() }
-                        }
-                        .disabled(working || (!title.isMovie && chosen.isEmpty) || !title.status.canRequest && title.isMovie)
-                    }
-                    if let problem { Text(problem).foregroundStyle(.red) }
-                } footer: {
-                    if title.isMovie, let label = title.status.label, !title.status.canRequest {
-                        Text("Already \(label.lowercased()).")
-                    }
-                }
-            }
-            .navigationTitle("Request")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(done ? "Done" : "Cancel") { dismiss() } }
-            }
-        }
-        .task {
-            guard !title.isMovie, let account = accounts.secrets.seerr,
-                  let show = try? await SeerrClient.show(title.id, account: account) else { return }
-            seasons = show.seasonStatus()
-            chosen = Set(open)
-        }
-    }
-
-    private func request() async {
-        guard let account = accounts.secrets.seerr else { return }
-        working = true
-        defer { working = false }
-        do {
-            try await SeerrClient.request(title, seasons: chosen.sorted(), account: account)
-            var updated = title
-            updated.mediaInfo = SeerrTitle.MediaInfo(status: .pending)
-            requested(updated)
-            done = true
-            problem = nil
-        } catch SeerrError.signedOut {
-            accounts.seerrSignedOut()
-            problem = SeerrError.signedOut.localizedDescription
-        } catch {
-            problem = error.localizedDescription
-        }
-    }
-}
-
 // MARK: - Discover
 
 /// A row of titles from Seerr to request, as library items look: Upcoming
-/// Anime on the Anime tab. Each opens the request sheet (details, seasons,
+/// Anime on the Anime tab. Each opens its title page (details, seasons,
 /// Request). Nothing shows without a Seerr sign-in, or with nothing found.
 struct SeerrDiscoverShelf: View {
     let title: String
@@ -344,12 +232,11 @@ struct SeerrDiscoverShelf: View {
 
     private let accounts = TrackerAccounts.shared
     @State private var titles: [SeerrTitle] = []
-    @State private var requesting: SeerrTitle?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Shelf(title: title, items: titles) { item in
-                SeerrTitleLockup(title: item) { requesting = item }
+                SeerrTitleLockup(title: item)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -366,11 +253,6 @@ struct SeerrDiscoverShelf: View {
                 #if DEBUG
                 print("DEBUG seerr: \(title) failed: \(error)")
                 #endif
-            }
-        }
-        .sheet(item: $requesting) { item in
-            SeerrRequestSheet(title: item) { updated in
-                if let index = titles.firstIndex(where: { $0.id == updated.id }) { titles[index] = updated }
             }
         }
     }

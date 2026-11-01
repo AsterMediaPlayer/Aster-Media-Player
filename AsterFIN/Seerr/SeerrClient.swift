@@ -156,7 +156,7 @@ nonisolated enum SeerrClient {
         return (data, http)
     }
 
-    private static func get<T: Decodable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
+    static func get<T: Decodable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
         let (data, response) = try await send(account.url, path, cookie: account.cookie)
         if response.statusCode == 401 || response.statusCode == 403 { throw SeerrError.signedOut }
         guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }

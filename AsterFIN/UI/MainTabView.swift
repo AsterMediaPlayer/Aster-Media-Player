@@ -834,6 +834,10 @@ struct BrowseStack<Root: View>: View {
             .navigationDestination(for: AudiobookShelf.self) { shelf in
                 pushed(AudiobookShelfView(shelf: shelf))
             }
+            // A title to request from Seerr, pushed as a library title's page is.
+            .navigationDestination(for: SeerrTitle.self) { title in
+                pushed(SeerrTitlePage(title: title))
+            }
     }
 
     /// A page pushed on the stack. Pushed pages don't inherit what's set on

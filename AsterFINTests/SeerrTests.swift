@@ -62,6 +62,20 @@ struct SeerrTests {
         #expect(!title.isMovie)
     }
 
+    /// A film's page from its details (trimmed from Dune: Part Two's).
+    @Test func aFilmsDetails() throws {
+        let details = try JSONDecoder().decode(SeerrDetails.self, from: Data(#"{"title": "Dune: Part Two", "tagline": "Long live the fighters.", "overview": "Follow the mythic journey of Paul Atreides as he unites with Chani and the Freme", "backdropPath": "/eZ239CUp1d6OryZEBPnO2n87gMG.jpg", "posterPath": "/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg", "releaseDate": "2024-02-27", "status": "Released", "runtime": 167, "mediaInfo": null, "genres": [{"name": "Science Fiction"}, {"name": "Adventure"}], "credits": {"cast": [{"id": 1190668, "name": "Timoth\u00e9e Chalamet", "character": "Paul Atreides", "profilePath": "/dFxpwRpmzpVfP1zjluH68DeQhyj.jpg"}, {"id": 505710, "name": "Zendaya", "character": "Chani", "profilePath": "/qGkBlyn1AwQpuFnRARMRwj0iHZp.jpg"}]}}"#.utf8))
+        #expect(details.title == "Dune: Part Two")
+        #expect(details.tagline == "Long live the fighters.")
+        #expect(details.runtime == 167)
+        #expect(details.genres?.map(\.name) == ["Science Fiction", "Adventure"])
+        #expect(details.credits?.cast?.first?.name == "Timothée Chalamet")
+        #expect(details.credits?.cast?.first?.photoURL?.absoluteString.hasPrefix("https://image.tmdb.org/t/p/w185/") == true)
+        #expect(SeerrClient.image(details.backdropPath, width: "w1280")?.absoluteString == "https://image.tmdb.org/t/p/w1280/eZ239CUp1d6OryZEBPnO2n87gMG.jpg")
+        #expect(details.date != nil)
+        #expect(SeerrClient.image(nil, width: "w1280") == nil)
+    }
+
     @Test func addressesAreRead() {
         #expect(SeerrClient.address("192.168.1.240:5055")?.absoluteString == "http://192.168.1.240:5055")
         #expect(SeerrClient.address(" https://requests.example.com/ ")?.absoluteString == "https://requests.example.com")

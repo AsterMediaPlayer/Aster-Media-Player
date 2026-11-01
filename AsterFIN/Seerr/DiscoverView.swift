@@ -596,6 +596,9 @@ private struct SeerrFilterBar: View {
                             Spacer()
                             if filter.company?.id == company.id { Image(systemName: "checkmark") }
                         }
+                        // The row's own colour, which turns dark on a focused
+                        // TV row; a button's tint stayed white on white.
+                        .foregroundStyle(.primary)
                     }
                 }
             }

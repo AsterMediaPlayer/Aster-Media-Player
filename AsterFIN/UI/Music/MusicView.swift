@@ -815,9 +815,9 @@ struct AlbumView: View {
                             .font(Lockup.iconButtonFont)
                             .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(white: 0.3))
-                    .foregroundStyle(.white)
+                    // As its neighbours: on the TV the system style washed
+                    // its white symbol out when focused.
+                    .actionButtonStyle()
                     .accessibilityLabel("More")
                 }
                 .disabled(tracks.isEmpty)
@@ -1471,11 +1471,10 @@ struct PlayerControl: View {
             .font(.system(size: prominent ? Self.iconSize.prominent : Self.iconSize.regular, weight: .semibold))
             .frame(width: diameter, height: diameter)
         #if os(tvOS)
+        // Its own style: the system's turned white when focused under a
+        // symbol set white.
         Button(action: action) { icon }
-            .buttonStyle(.borderedProminent)
-            .tint(fill)
-            .foregroundStyle(prominent ? .black : .white)
-            .clipShape(Circle())
+            .buttonStyle(TVRoundButtonStyle(fill: fill, prominent: prominent))
             .accessibilityLabel(label)
         #else
         // The system's filled style pads the button out past its circle,

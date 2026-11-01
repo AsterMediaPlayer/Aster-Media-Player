@@ -308,6 +308,9 @@ struct SeerrQuickConnect: View {
             } label: {
                 Label(session.jellyfin == nil ? "Sign In with Quick Connect" : "Sign In with Jellyfin", systemImage: "bolt.horizontal.circle")
             }
+            #if os(tvOS)
+            .actionButtonStyle(prominent: true)
+            #endif
             .disabled(working)
             if working, code == nil {
                 ProgressView()
@@ -451,15 +454,21 @@ struct SeerrDestinationSheet: View {
                 if let problem {
                     Text(problem).foregroundStyle(.red)
                 }
-                #if os(tvOS)
-                // A TV sheet shows no toolbar: its buttons are here instead.
-                Section {
-                    Button(confirmTitle) { Task { await finish() } }
-                        .disabled(loading || working)
-                    Button("Cancel", role: .cancel) { dismiss() }
-                }
-                #endif
             }
+            #if os(tvOS)
+            // A TV sheet shows no toolbar, so its buttons sit below, in the
+            // app's own style (a list row's focus read white on white).
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 40) {
+                    ActionButton(title: confirmTitle, systemImage: "checkmark", prominent: true) {
+                        Task { await finish() }
+                    }
+                    .disabled(loading || working)
+                    ActionButton(title: "Cancel", systemImage: "xmark") { dismiss() }
+                }
+                .padding(.vertical, 24)
+            }
+            #endif
             #if os(macOS)
             .formStyle(.grouped)
             #endif

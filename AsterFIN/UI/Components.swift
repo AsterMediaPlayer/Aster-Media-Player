@@ -935,6 +935,11 @@ extension View {
     func chipStyle(selected: Bool) -> some View {
         #if os(macOS)
         buttonStyle(ChipButtonStyle(selected: selected))
+        #elseif os(tvOS)
+        // Drawn here: the system's focused chip turned white under a label
+        // set white, so an unpicked chip with focus read white on white.
+        buttonStyle(TVChipButtonStyle(selected: selected))
+            .menuStyle(.button)
         #else
         buttonStyle(.bordered)
             .tint(selected ? .white : Color(white: 0.3))
@@ -960,6 +965,65 @@ private struct ChipButtonStyle: ButtonStyle {
 #endif
 
 #if os(tvOS)
+/// A chip on the TV: white with black text when picked or focused (and
+/// lifted when focused), else a faint white with white text.
+private struct TVChipButtonStyle: ButtonStyle {
+    var selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, selected: selected)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let selected: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            let lit = isFocused || selected
+            configuration.label
+                .foregroundStyle(lit ? Color.black : Color.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(lit ? Color.white : Color.white.opacity(0.16)))
+                .scaleEffect(isFocused && !configuration.isPressed ? 1.08 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: isFocused)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+
+/// A round button on the TV (the players' transport controls): white with
+/// a black symbol when focused, else its own fill.
+struct TVRoundButtonStyle: ButtonStyle {
+    var fill: Color
+    var prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, fill: fill, prominent: prominent)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let fill: Color
+        let prominent: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            let lit = isFocused || prominent
+            configuration.label
+                .foregroundStyle(lit ? Color.black : Color.white)
+                .background(Circle().fill(isFocused ? Color.white : fill))
+                .contentShape(Circle())
+                .scaleEffect(isFocused && !configuration.isPressed ? 1.12 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: isFocused)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+
 private struct TVActionButtonStyle: ButtonStyle {
     var prominent: Bool
 

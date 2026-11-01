@@ -85,7 +85,9 @@ struct DetailSectionBar: View {
         // One style either way, the look changed by tint: two styles in an
         // if/else made the picked tab a new view, which lost focus to the
         // page's default (the Play button) before it could go anywhere.
-        #if os(macOS)
+        #if os(macOS) || os(tvOS)
+        // On the TV, drawn by the chip style: the system's focused tab turned
+        // white under a label set to the (white) primary colour.
         button.chipStyle(selected: selected)
         #else
         button

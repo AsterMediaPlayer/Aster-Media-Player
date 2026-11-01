@@ -57,11 +57,15 @@ nonisolated struct SeerrDetails: Decodable, Sendable {
     /// The trailer, to watch on its site.
     var trailerURL: URL? { trailer?.url.flatMap(URL.init(string:)) }
 
+    /// The trailer's YouTube id, when it's on YouTube.
+    var trailerYouTubeID: String? {
+        guard let trailer, trailer.site == nil || trailer.site == "YouTube" else { return nil }
+        return trailer.key ?? trailer.url.flatMap { URLComponents(string: $0)?.queryItems?.first { $0.name == "v" }?.value }
+    }
+
     /// The trailer in the YouTube app, which is how an Apple TV can play it.
     var trailerAppURL: URL? {
-        guard let trailer, trailer.site == nil || trailer.site == "YouTube" else { return nil }
-        let id = trailer.key ?? trailer.url.flatMap { URLComponents(string: $0)?.queryItems?.first { $0.name == "v" }?.value }
-        return id.flatMap { URL(string: "youtube://watch/\($0)") }
+        trailerYouTubeID.flatMap { URL(string: "youtube://watch/\($0)") }
     }
 
     /// A film's directors, else a show's creators.
@@ -114,6 +118,10 @@ struct SeerrTitlePage: View {
     @Environment(\.openURL) private var openURL
     /// The trailer couldn't open: the YouTube app isn't installed.
     @State private var noYouTube = false
+    #if !os(tvOS)
+    /// The trailer playing in its sheet.
+    @State private var playingTrailer: TrailerPlayer.Video?
+    #endif
     /// AniList's description and studios, for anime TMDB knows little of.
     @State private var aniList: (description: String?, studios: [String])?
     @State private var status: SeerrStatus
@@ -180,6 +188,11 @@ struct SeerrTitlePage: View {
         } message: {
             Text("The trailer plays in the YouTube app. Install it from the App Store, then try again.")
         }
+        #if !os(tvOS)
+        .sheet(item: $playingTrailer) { video in
+            TrailerPlayer(video: video)
+        }
+        #endif
     }
 
     // MARK: Pieces
@@ -298,7 +311,15 @@ struct SeerrTitlePage: View {
                 }
             }
             #else
-            if let trailer = details?.trailerURL {
+            // Played here, in YouTube's own embedded player.
+            if let id = details?.trailerYouTubeID {
+                Button {
+                    playingTrailer = TrailerPlayer.Video(id: id, title: details?.title ?? details?.name ?? title.displayTitle)
+                } label: {
+                    Label("Trailer", systemImage: "play.rectangle")
+                }
+                .actionButtonStyle()
+            } else if let trailer = details?.trailerURL {
                 Link(destination: trailer) {
                     Label("Trailer", systemImage: "play.rectangle")
                 }

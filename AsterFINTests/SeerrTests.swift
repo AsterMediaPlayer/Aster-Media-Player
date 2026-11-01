@@ -86,6 +86,7 @@ struct SeerrTests {
         #expect(details.makers == ["Akiyuki Shinbo"])
         #expect(details.trailerURL?.absoluteString == "https://www.youtube.com/watch?v=b")
         #expect(details.trailerAppURL?.absoluteString == "youtube://watch/b")
+        #expect(details.trailerYouTubeID == "b")
         // Only a teaser: that, then.
         let teased = try JSONDecoder().decode(SeerrDetails.self, from: Data(#"{"name": "PSYREN", "relatedVideos": [{"type": "Teaser", "site": "YouTube", "key": "WS2spKg_z8M", "url": "https://www.youtube.com/watch?v=WS2spKg_z8M"}]}"#.utf8))
         #expect(teased.trailerAppURL?.absoluteString == "youtube://watch/WS2spKg_z8M")

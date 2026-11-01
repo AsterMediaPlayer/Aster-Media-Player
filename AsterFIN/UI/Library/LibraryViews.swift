@@ -609,9 +609,25 @@ struct TypeGridView: View {
         sections = sort == .name && !model.hasMore ? LibraryIndex.sections(model.items) : []
     }
 
+    /// The hero and Recently Added as last shown, kept on disk.
+    nonisolated private struct HeroSnapshot: Codable, Sendable {
+        var featured: [BaseItem]
+        var recent: [BaseItem]
+    }
+
+    private var heroSnapshotName: String { kind == .movie ? "movies-hero" : "shows-hero" }
+
     /// Recently Added, and from it and what's in progress, the hero.
     private func loadHero() async {
         guard let client = session.client, session.animeDetected else { return }
+        // As last time at once, rather than a spinner, while it's asked for.
+        if !heroLoaded, let userId = session.userId,
+           let kept = await ResponseCache.load(HeroSnapshot.self, heroSnapshotName, server: client.baseURL, user: userId)?.value,
+           !heroLoaded {
+            recent = kept.recent
+            featured = kept.featured
+            heroLoaded = true
+        }
         let anime = session.animeItemIds
         // Ask for extra, as anime ones are taken out.
         async let latest = client.latest(parentId: nil, limit: 40, kinds: [kind])
@@ -635,9 +651,14 @@ struct TypeGridView: View {
         for item in inProgress.prefix(kind == .movie ? 4 : 3) + upNext.prefix(3) + newest.prefix(5) where !picks.contains(where: { $0.id == item.id }) {
             picks.append(item)
         }
-        recent = newest
-        featured = Array(picks.prefix(8))
+        // Only what changed is replaced, so focus stays where it is.
+        if recent != newest { recent = newest }
+        let hero = Array(picks.prefix(8))
+        if featured != hero { featured = hero }
         heroLoaded = true
+        if let userId = session.userId, !Task.isCancelled {
+            ResponseCache.save(HeroSnapshot(featured: featured, recent: recent), heroSnapshotName, server: client.baseURL, user: userId)
+        }
     }
 }
 

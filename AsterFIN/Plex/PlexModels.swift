@@ -224,6 +224,10 @@ nonisolated struct PlexMetadata: Decodable, Sendable {
     var chapter: [PlexChapter]?
     var marker: [PlexMarker]?
     var media: [PlexMedia]?
+    /// Its scores, on title pages only: `image` names the site
+    /// ("imdb://image.rating", "rottentomatoes://image.rating.ripe",
+    /// "themoviedb://image.rating"), `type` critic or audience.
+    var ratings: [PlexRating]?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey, key, type, subtype, title, titleSort, originalTitle, summary, tagline, year, duration
@@ -239,5 +243,12 @@ nonisolated struct PlexMetadata: Decodable, Sendable {
         case chapter = "Chapter"
         case marker = "Marker"
         case media = "Media"
+        case ratings = "Rating"
     }
+}
+
+nonisolated struct PlexRating: Decodable, Sendable {
+    var image: String?
+    var type: String?
+    var value: Double?
 }

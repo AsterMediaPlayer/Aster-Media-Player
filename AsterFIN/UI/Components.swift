@@ -709,6 +709,8 @@ struct MetadataLine: View {
     let item: BaseItem
     /// A show's page: how many episodes are left to watch, after the years.
     var showsUnwatched = false
+    /// Scores found beyond the server's (MDBList's), which take their sites' place.
+    var addedScores: [TitleScore] = []
 
     private var parts: [String] {
         var parts = item.metadataLine
@@ -726,13 +728,7 @@ struct MetadataLine: View {
             } else if item.isHD {
                 Badge(text: "HD")
             }
-            if let rating = item.communityRating {
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill").font(.caption).accessibilityHidden(true)
-                    Text(String(format: "%.1f", rating))
-                }
-                .accessibilityLabel("Rated \(String(format: "%.1f", rating)) out of 10")
-            }
+            TitleScoreRow(scores: TitleScore.merged(item.serverScores, addedScores))
         }
         .font(.callout)
         .foregroundStyle(.secondary)

@@ -21,6 +21,8 @@ final class DetailModel {
     private(set) var extras: [BaseItem] = []
     private(set) var cast: [PersonInfo] = []
     private(set) var similar: [BaseItem] = []
+    /// The title's scores from MDBList, with a key in Settings.
+    private(set) var addedScores: [TitleScore] = []
     private(set) var nextEpisode: BaseItem?
     private(set) var discMenu: DiscMenuDocument?
     /// The item the disc menu belongs to: the page's own, or for a show
@@ -149,6 +151,7 @@ final class DetailModel {
             isLoading = false
 
             async let similarItems = client.similar(to: full.id, limit: 20)
+            async let mdbScores = MDBList.scores(for: full)
             // Openings and endings come from Jellyfin's OP/ED plugin, else
             // from the episodes' chapters on any server.
             async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind)
@@ -181,6 +184,7 @@ final class DetailModel {
                 extras = (try? await client.specialFeatures(of: full.id)) ?? []
             }
             similar = (try? await similarItems) ?? []
+            addedScores = await mdbScores
             await loadDiscMenu(client: client)
             openingsEndings = await themes
         } catch {
@@ -856,7 +860,7 @@ struct ItemDetailView: View {
                 Text(code).font(.headline).foregroundStyle(.secondary)
             }
 
-            MetadataLine(item: detail, showsUnwatched: true)
+            MetadataLine(item: detail, showsUnwatched: true, addedScores: model.addedScores)
 
             if let tagline = detail.taglines?.first {
                 Text(tagline)

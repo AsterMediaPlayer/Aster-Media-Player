@@ -554,6 +554,9 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     var officialRating: String?
     var communityRating: Double?
     var criticRating: Double?
+    /// Scores attributed to their sites, where the server says which (Plex);
+    /// nil leaves `serverScores` to read the two above.
+    var scores: [TitleScore]? = nil
     var runTimeTicks: Int64?
     var indexNumber: Int?
     var parentIndexNumber: Int?

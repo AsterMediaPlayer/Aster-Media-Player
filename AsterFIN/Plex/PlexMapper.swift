@@ -55,6 +55,7 @@ nonisolated enum PlexMapper {
         item.dateCreated = metadata.addedAt.map { isoDate(TimeInterval($0)) }
         item.officialRating = metadata.contentRating
         item.communityRating = metadata.audienceRating ?? metadata.rating
+        item.scores = scores(metadata.ratings)
         item.runTimeTicks = metadata.duration.map { Int64($0) * ticksPerMillisecond }
         item.indexNumber = metadata.index
         item.genres = metadata.genre?.map(\.tag)
@@ -149,6 +150,30 @@ nonisolated enum PlexMapper {
             + (metadata.director ?? []).map { person($0, type: "Director") }
             + (metadata.writer ?? []).map { person($0, type: "Writer") }
         return all.isEmpty ? nil : all
+    }
+
+    /// The scores a title page carries, attributed by their pictures' names;
+    /// nil when there are none (lists), leaving the plain rating.
+    static func scores(_ ratings: [PlexRating]?) -> [TitleScore]? {
+        guard let ratings, !ratings.isEmpty else { return nil }
+        var found: [TitleScore.Source: TitleScore] = [:]
+        for rating in ratings {
+            let image = (rating.image ?? "").lowercased()
+            let critic = rating.type?.lowercased() == "critic"
+            let source: TitleScore.Source? = if image.hasPrefix("imdb://") {
+                .imdb
+            } else if image.hasPrefix("rottentomatoes://") {
+                critic ? .tomatometer : .popcorn
+            } else if image.hasPrefix("themoviedb://") || image.hasPrefix("tmdb://") {
+                .tmdb
+            } else {
+                nil
+            }
+            // Plex writes every score out of ten.
+            guard let source, found[source] == nil, let score = TitleScore(source, rating.value, outOf: 10) else { continue }
+            found[source] = score
+        }
+        return found.isEmpty ? nil : TitleScore.ordered(Array(found.values))
     }
 
     /// "tmdb://5439847" as Tmdb, and so on, the anime sites as Jellyfin

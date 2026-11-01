@@ -1528,6 +1528,8 @@ private struct TitlePageSettingsView: View {
     @AppStorage(AppSettings.themeVideosKey) private var themeVideos = false
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
     @AppStorage(AppSettings.songLookupsKey) private var songLookups = true
+    /// Kept in the Keychain, not in settings.
+    @State private var mdbListKey = ""
 
     var body: some View {
         SettingsPage(title: "Title Pages") {
@@ -1560,7 +1562,21 @@ private struct TitlePageSettingsView: View {
                 }
                 SettingsNote("Forgets what's kept for this server and asks AnimeThemes again for every show, for songs it has named since.")
             }
+            Section("Ratings") {
+                SecureField("MDBList API key", text: $mdbListKey)
+                    .textContentType(.password)
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                    .onSubmit { MDBList.apiKey = mdbListKey }
+                    .onChange(of: mdbListKey) { _, key in MDBList.apiKey = key }
+                SettingsNote(mdbListKey.isEmpty
+                    ? "Title pages show the scores your server has. With a free MDBList key (from mdblist.com, under Preferences › API Access), films and shows also get IMDb, Rotten Tomatoes (critics and audience), Metacritic, Letterboxd and TMDB scores. The key stays on this device."
+                    : "Films and shows get IMDb, Rotten Tomatoes, Metacritic, Letterboxd and TMDB scores from MDBList. Clear the key to stop asking it.")
+            }
         }
+        .onAppear { mdbListKey = MDBList.apiKey ?? "" }
     }
 }
 

@@ -119,6 +119,9 @@ final class UpcomingModel {
 }
 
 struct UpcomingView: View {
+    /// The tab it's shown in, for the Mac keyboard: Discover's.
+    var keyboardTab: AppTab = .discover
+
     @Environment(AppSession.self) private var session
     @State private var model = UpcomingModel()
     /// Where focus goes on pressing down from the hero: the first card.
@@ -206,9 +209,9 @@ struct UpcomingView: View {
         }
         .onAppear {
             keyboardOnHero = atTop
-            keyboard.register(.upcoming) { key in handleKey(key) }
+            keyboard.register(keyboardTab) { key in handleKey(key) }
         }
-        .onDisappear { keyboard.unregister(.upcoming) }
+        .onDisappear { keyboard.unregister(keyboardTab) }
         #endif
     }
 
@@ -229,7 +232,7 @@ struct UpcomingView: View {
         if key == .exit { return .ignored }
         let featured = model.featured
         guard keyboardOnHero, !featured.isEmpty else {
-            let result = KeyboardTargets.shared.handle(key, on: .upcoming)
+            let result = KeyboardTargets.shared.handle(key, on: keyboardTab)
             if result == .ignored, key == .up, !featured.isEmpty {
                 keyboardOnHero = true
                 KeyboardTargets.shared.clearSelection()
@@ -267,7 +270,7 @@ struct UpcomingView: View {
         }
         Task {
             try? await Task.sleep(for: .milliseconds(350))
-            _ = KeyboardTargets.shared.handle(.down, on: .upcoming)
+            _ = KeyboardTargets.shared.handle(.down, on: keyboardTab)
         }
     }
     #endif

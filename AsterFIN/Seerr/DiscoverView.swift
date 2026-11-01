@@ -2,32 +2,81 @@
 //  DiscoverView.swift
 //  AsterFIN
 //
-//  The Discover tab: Seerr's own Discover page, the films and shows to
-//  browse with filters, and the requests (with Approve and Decline for
-//  whoever manages them). Shown only with a Seerr sign-in.
+//  The Discover tab: the library's Upcoming episodes, and with a Seerr
+//  sign-in its own Discover page, the films and shows to browse with
+//  filters, and the requests (with Approve and Decline for whoever
+//  manages them).
 //
 
 import SwiftUI
 
 struct DiscoverView: View {
     enum Section: String, CaseIterable, Identifiable {
-        case discover = "Discover", movies = "Movies", series = "Series", requests = "Requests"
+        case discover = "Discover", upcoming = "Upcoming", movies = "Movies", series = "Series", requests = "Requests"
         var id: Self { self }
+
+        /// Seerr's own; Upcoming is the library's (new episodes on the way).
+        var isSeerr: Bool { self != .upcoming }
     }
 
-    @State private var section: Section = .discover
+    @Environment(AppSession.self) private var session
+    @State private var section: Section?
     @State private var movieFilter = SeerrFilter(kind: .movie)
     @State private var seriesFilter = SeerrFilter(kind: .tv)
 
     private let accounts = TrackerAccounts.shared
 
-    var body: some View {
-        if let account = accounts.secrets.seerr, accounts.needsSignIn.contains("Seerr") {
-            signInAgain(account)
-        } else {
-            discover
-        }
+    /// What there is: Seerr's sections once signed in to it, and Upcoming
+    /// when shows in the library have episodes coming.
+    private var sections: [Section] {
+        let seerr = accounts.secrets.seerr != nil
+        return Section.allCases.filter { $0.isSeerr ? seerr : session.hasUpcoming }
     }
+
+    private var shown: Section? {
+        section.flatMap { sections.contains($0) ? $0 : nil } ?? sections.first
+    }
+
+    var body: some View {
+        // The sections sit over the page (over Upcoming's full-screen
+        // picture, as the TV app's own tabs do), so each page keeps its look.
+        ZStack(alignment: .top) {
+            switch shown {
+            case .upcoming:
+                UpcomingView(keyboardTab: .discover)
+            case let seerr?:
+                if let account = accounts.secrets.seerr, accounts.needsSignIn.contains("Seerr") {
+                    signInAgain(account)
+                } else {
+                    seerrPage(seerr)
+                }
+            case nil:
+                MessageView(systemImage: "safari", title: "Nothing to discover yet",
+                            detail: "Upcoming episodes show here, and with Seerr set up in Settings › Requests, films and shows to request.")
+            }
+            if sections.count > 1 {
+                sectionPicker
+            }
+        }
+        #if !os(tvOS)
+        .navigationTitle("Discover")
+        #endif
+    }
+
+    private var sectionPicker: some View {
+        Picker("Section", selection: Binding(get: { shown ?? .discover }, set: { section = $0 })) {
+            ForEach(sections) { section in
+                Text(section.rawValue).tag(section)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: Self.pickerWidth)
+        .padding(.horizontal, Lockup.screenPadding)
+        .padding(.top, Lockup.pageTopPadding)
+    }
+
+    /// Room above a page for the sections.
+    private var pickerRoom: CGFloat { sections.count > 1 ? Self.pickerHeight : 0 }
 
     /// Seerr's session ran out: sign in again right here.
     private func signInAgain(_ account: SeerrAccount) -> some View {
@@ -45,45 +94,36 @@ struct DiscoverView: View {
         }
         .frame(maxWidth: 1000, alignment: .leading)
         .padding(Lockup.screenPadding)
+        .padding(.top, pickerRoom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var discover: some View {
+    private func seerrPage(_ section: Section) -> some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 24) {
-                Picker("Section", selection: $section) {
-                    ForEach(Section.allCases) { section in
-                        Text(section.rawValue).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: Self.pickerWidth)
-                .padding(.horizontal, Lockup.screenPadding)
-                .padding(.top, Lockup.pageTopPadding)
-
                 switch section {
-                case .discover:
-                    DiscoverRows()
                 case .movies:
                     DiscoverGrid(filter: $movieFilter)
                 case .series:
                     DiscoverGrid(filter: $seriesFilter)
                 case .requests:
                     SeerrRequestsList()
+                default:
+                    DiscoverRows()
                 }
             }
+            .padding(.top, pickerRoom + Lockup.pageTopPadding)
             .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
-        #if !os(tvOS)
-        .navigationTitle("Discover")
-        #endif
     }
 
     #if os(tvOS)
     private static let pickerWidth: CGFloat = 1100
+    private static let pickerHeight: CGFloat = 90
     #else
-    private static let pickerWidth: CGFloat = 520
+    private static let pickerWidth: CGFloat = 560
+    private static let pickerHeight: CGFloat = 44
     #endif
 }
 
@@ -129,7 +169,9 @@ private struct DiscoverRows: View {
                 SliderRow(slider: slider)
             }
         }
-        .task {
+        // Again once the account's here: on the TV it comes from the media
+        // server a moment after launch, and a first look found none.
+        .task(id: TrackerAccounts.shared.secrets.seerr?.cookie) {
             guard sliders.isEmpty, let account = seerrAccount() else { return }
             do {
                 sliders = try await SeerrClient.sliders(account: account)

@@ -184,11 +184,12 @@ final class AppSession {
         case .music: hasMusic
         case .liveTV: hasLiveTV
         case .audiobooks: !bookLibraries.isEmpty
-        case .upcoming: hasUpcoming
+        // Upcoming is a section of Discover now.
+        case .upcoming: false
         case .channels: hasChannels
         // Seerr's, once signed in to it (Settings › Requests).
         // (Signed out since, it stays, to sign in again from the tab.)
-        case .discover: TrackerAccounts.shared.secrets.seerr != nil
+        case .discover: hasUpcoming || TrackerAccounts.shared.secrets.seerr != nil
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false

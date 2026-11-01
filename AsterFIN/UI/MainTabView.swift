@@ -187,12 +187,18 @@ struct MainTabView: View {
         }
         .task {
             guard let client = session.client else { return }
-            await session.refreshUserConfiguration()
+            // The anime libraries as last found, so Movies and TV Shows can
+            // load at once rather than wait for the look-up below.
+            await session.restoreAnimeDetection()
+            // Side by side: only anime detection needs the libraries, and
+            // Movies, TV Shows and Anime wait on it.
+            async let configuration: Void = session.refreshUserConfiguration()
+            async let upcoming: Void = session.refreshUpcoming()
             let views = (try? await client.libraries()) ?? []
             session.noteLibraries(views)
-            await session.refreshUpcoming()
-            await session.detectAnimeLibraries(among: views)
-            await session.detectAnimeMusic(among: views)
+            async let anime: Void = session.detectAnimeLibraries(among: views)
+            async let animeMusic: Void = session.detectAnimeMusic(among: views)
+            _ = await (configuration, upcoming, anime, animeMusic)
             await followPendingLinks()
         }
         // Back from the background: changes made on another device since.

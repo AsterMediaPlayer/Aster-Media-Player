@@ -226,12 +226,41 @@ final class AppSession {
         id.lowercased().replacingOccurrences(of: "-", with: "")
     }
 
+    /// Whether the anime libraries are known (found, or as last found), so
+    /// Movies and TV Shows can load once, with anime already left out.
+    private(set) var animeDetected = false
+
+    nonisolated private struct AnimeDetection: Codable, Sendable {
+        var libraries: [BaseItem]
+        var ids: [String]
+    }
+
+    /// The anime libraries as last found on this server, at once, while
+    /// they're looked for again.
+    func restoreAnimeDetection() async {
+        guard !animeDetected, let server = client?.baseURL, let userId,
+              let kept = await ResponseCache.load(AnimeDetection.self, "anime-detection", server: server, user: userId) else { return }
+        // Not if the look-up finished first.
+        guard !animeDetected else { return }
+        animeLibraries = kept.value.libraries
+        animeItemIds = Set(kept.value.ids)
+        animeDetected = true
+    }
+
     func detectAnimeLibraries(among views: [BaseItem]) async {
-        guard let client else { return }
+        guard let client else {
+            animeDetected = true
+            return
+        }
         let libraries = await client.animeLibraries(among: views)
         let ids = await client.itemIds(inLibraries: libraries.map(\.id), types: "Series,Movie")
-        animeLibraries = libraries
-        animeItemIds = ids
+        // Unchanged, as it usually is: left alone, so nothing reloads.
+        if libraries.map(\.id) != animeLibraries.map(\.id) { animeLibraries = libraries }
+        if ids != animeItemIds { animeItemIds = ids }
+        animeDetected = true
+        if let userId {
+            ResponseCache.save(AnimeDetection(libraries: libraries, ids: Array(ids)), "anime-detection", server: client.baseURL, user: userId)
+        }
         // Their shows' songs, from AnimeThemes, got ready in the background.
         SongWarmer.shared.warmInBackground(client: client, libraries: libraries)
     }
@@ -545,6 +574,7 @@ final class AppSession {
     private func resetServerState() {
         animeLibraries = []
         animeItemIds = []
+        animeDetected = false
         hasMusic = false
         hasLiveTV = false
         bookLibraries = []
@@ -638,6 +668,8 @@ final class AppSession {
             SavedServers.save(savedServers)
         }
         StoredSession.clear()
+        // What its pages last showed goes too.
+        ResponseCache.clear()
         client = nil
         userId = nil
         userName = nil

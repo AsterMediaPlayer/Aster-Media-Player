@@ -346,6 +346,8 @@ struct LibraryGridView: View {
     @State private var loadedKey: String?
 
     private func reloadIfNeeded(for key: String) async {
+        // Once, with anime known and left out, not again when it's found.
+        guard session.animeDetected else { return }
         guard loadedKey != key || model.items.isEmpty else { return }
         await reload()
         guard !Task.isCancelled else { return }
@@ -449,9 +451,9 @@ struct TypeGridView: View {
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
+        .task(id: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
-        .task(id: session.animeItemIds.count) { await loadHero() }
+        .task(id: "\(session.animeDetected)|\(session.animeItemIds.count)") { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
         }
@@ -506,9 +508,9 @@ struct TypeGridView: View {
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
+        .task(id: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
-        .task(id: session.animeItemIds.count) { await loadHero() }
+        .task(id: "\(session.animeDetected)|\(session.animeItemIds.count)") { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
         }
@@ -609,7 +611,7 @@ struct TypeGridView: View {
 
     /// Recently Added, and from it and what's in progress, the hero.
     private func loadHero() async {
-        guard let client = session.client else { return }
+        guard let client = session.client, session.animeDetected else { return }
         let anime = session.animeItemIds
         // Ask for extra, as anime ones are taken out.
         async let latest = client.latest(parentId: nil, limit: 40, kinds: [kind])

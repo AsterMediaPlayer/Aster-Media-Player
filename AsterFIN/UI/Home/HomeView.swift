@@ -71,19 +71,26 @@ final class HomeModel {
             latestShows = (try? await shows) ?? []
             latestAnime = await anime
 
-            var shelves: [LibraryShelf] = []
-            for library in libraries where !["movies", "tvshows", "music", "playlists", "livetv", "books", "photos"].contains(library.collectionType ?? "") {
-                if let items = try? await client.latest(parentId: library.id, limit: 20), !items.isEmpty {
-                    shelves.append(LibraryShelf(library: library, items: items))
-                }
-            }
-            libraryShelves = shelves
-
+            // The hero as soon as its rows are in, not after every shelf.
             var picks: [BaseItem] = []
             for item in continueWatching.prefix(3) + nextUp.prefix(3) + latestMovies.prefix(4) + latestShows.prefix(3) where !picks.contains(where: { $0.id == item.id }) {
                 picks.append(item)
             }
             featured = Array(picks.prefix(8))
+
+            // The other libraries' shelves side by side, kept in library order.
+            let others = libraries.filter { !["movies", "tvshows", "music", "playlists", "livetv", "books", "photos"].contains($0.collectionType ?? "") }
+            libraryShelves = await withTaskGroup(of: (Int, LibraryShelf?).self) { group in
+                for (position, library) in others.enumerated() {
+                    group.addTask {
+                        let items = (try? await client.latest(parentId: library.id, limit: 20)) ?? []
+                        return (position, items.isEmpty ? nil : LibraryShelf(library: library, items: items))
+                    }
+                }
+                var found: [(Int, LibraryShelf?)] = []
+                for await shelf in group { found.append(shelf) }
+                return found.sorted { $0.0 < $1.0 }.compactMap(\.1)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

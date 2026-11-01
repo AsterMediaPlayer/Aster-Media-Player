@@ -317,13 +317,25 @@ nonisolated final class PlexClient: MediaServer {
             })
             wanted = sections.filter { types.isEmpty || $0.type.map(types.contains) == true }
         }
+        // Each library's size, asked of all of them at once.
+        let fixed = parameters
+        let sizes = try await withThrowingTaskGroup(of: (String, Int).self) { group in
+            for section in wanted {
+                group.addTask {
+                    (section.key, try await self.container("/library/sections/\(section.key)/all", query: fixed, start: 0, size: 0).totalSize ?? 0)
+                }
+            }
+            var sizes: [String: Int] = [:]
+            for try await (key, size) in group { sizes[key] = size }
+            return sizes
+        }
         var start = query.startIndex ?? 0
         var remaining = query.limit ?? Int.max
         var found: [BaseItem] = []
         var total = 0
         for section in wanted {
             let path = "/library/sections/\(section.key)/all"
-            let size = try await container(path, query: parameters, start: 0, size: 0).totalSize ?? 0
+            let size = sizes[section.key] ?? 0
             total += size
             guard remaining > 0, start < size else {
                 start = max(0, start - size)
@@ -345,14 +357,22 @@ nonisolated final class PlexClient: MediaServer {
             ?? sections.filter { section in
                 kinds.isEmpty || kinds.contains { kind in (kind == .movie) == (section.type == "movie") }
             }
-        var found: [BaseItem] = []
-        for section in wanted {
-            let isShows = section.type == "show"
-            found += try await titles("/library/sections/\(section.key)/all", query: [
-                "type": isShows ? "2" : "1",
-                "sort": isShows ? "episode.addedAt:desc" : "addedAt:desc",
-            ], start: 0, size: limit)
+        // Every library at once, kept in library order.
+        let pages = try await withThrowingTaskGroup(of: (Int, [BaseItem]).self) { group in
+            for (position, section) in wanted.enumerated() {
+                let isShows = section.type == "show"
+                group.addTask {
+                    (position, try await self.titles("/library/sections/\(section.key)/all", query: [
+                        "type": isShows ? "2" : "1",
+                        "sort": isShows ? "episode.addedAt:desc" : "addedAt:desc",
+                    ], start: 0, size: limit))
+                }
+            }
+            var pages: [(Int, [BaseItem])] = []
+            for try await page in group { pages.append(page) }
+            return pages
         }
+        let found = pages.sorted { $0.0 < $1.0 }.flatMap(\.1)
         return Array(found.prefix(limit))
     }
 

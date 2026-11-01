@@ -8,3 +8,6 @@ build/
 
 # macOS
 .DS_Store
+
+# Service secrets kept off the public repo (see TrackerKeys.swift)
+AsterFIN/Trackers/Secrets.plist

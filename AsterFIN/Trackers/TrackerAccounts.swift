@@ -43,6 +43,8 @@ nonisolated enum TrackerUpdate: Equatable, Sendable {
     case unchanged
     case progress(Int)
     case completed(Int)
+    /// Added to a history (Trakt, Simkl).
+    case watched
 }
 
 /// The accounts, as kept and synced.
@@ -58,8 +60,20 @@ nonisolated struct TrackerSecrets: Codable, Sendable, Equatable {
         var name: String
     }
 
+    struct TraktAccount: Codable, Sendable, Equatable {
+        var tokens: Trakt.Tokens
+        var name: String
+    }
+
+    struct SimklAccount: Codable, Sendable, Equatable {
+        var token: String
+        var name: String
+    }
+
     var aniList: AniListAccount?
     var myAnimeList: MyAnimeListAccount?
+    var trakt: TraktAccount?
+    var simkl: SimklAccount?
     /// When last changed anywhere: the newer copy wins.
     var updated: Date = .distantPast
 }
@@ -124,8 +138,10 @@ final class TrackerAccounts {
     /// What was sent lately, so an episode stopped twice is sent once.
     private var recent: [String: Date] = [:]
 
-    static var isAvailable: Bool { !TrackerKeys.aniListClientId.isEmpty || !TrackerKeys.myAnimeListClientId.isEmpty }
-    var isSignedIn: Bool { secrets.aniList != nil || secrets.myAnimeList != nil }
+    static var isAvailable: Bool {
+        !TrackerKeys.aniListClientId.isEmpty || !TrackerKeys.myAnimeListClientId.isEmpty || TrackerKeys.hasTrakt || TrackerKeys.hasSimkl
+    }
+    var isSignedIn: Bool { secrets.aniList != nil || secrets.myAnimeList != nil || secrets.trakt != nil || secrets.simkl != nil }
 
     // MARK: Keeping
 
@@ -200,6 +216,39 @@ final class TrackerAccounts {
         change { $0.myAnimeList = .init(tokens: tokens, name: name) }
     }
 
+    func signedInToTrakt(_ tokens: Trakt.Tokens) async throws {
+        let name = try await Trakt.userName(token: tokens.access)
+        needsSignIn.remove("Trakt")
+        change { $0.trakt = .init(tokens: tokens, name: name) }
+    }
+
+    func signedInToSimkl(token: String) async throws {
+        let name = try await Simkl.userName(token: token)
+        needsSignIn.remove("Simkl")
+        change { $0.simkl = .init(token: token, name: name) }
+    }
+
+    func signOutOfTrakt() {
+        needsSignIn.remove("Trakt")
+        change { $0.trakt = nil }
+    }
+
+    func signOutOfSimkl() {
+        needsSignIn.remove("Simkl")
+        change { $0.simkl = nil }
+    }
+
+    /// Trakt's token, refreshed when it has under a day left.
+    private func traktToken() async throws -> String? {
+        guard var account = secrets.trakt else { return nil }
+        if account.tokens.expires.timeIntervalSinceNow < 24 * 60 * 60 {
+            account.tokens = try await Trakt.refreshed(account.tokens)
+            let refreshed = account
+            change { $0.trakt = refreshed }
+        }
+        return account.tokens.access
+    }
+
     func signOutOfAniList() {
         needsSignIn.remove("AniList")
         change { $0.aniList = nil }
@@ -236,19 +285,38 @@ final class TrackerAccounts {
               let length = item.runTimeTicks, length > 0,
               Double(report.positionTicks) >= Double(length) * 0.85 else { return }
         if let sent = recent[item.id], Date().timeIntervalSince(sent) < 6 * 60 * 60 { return }
-        guard await isAnime(item, client: client), let entry = await AnimeIds.entry(for: item, client: client) else { return }
         recent[item.id] = Date()
-        let number = item.kind == .movie ? 1 : (item.indexNumber ?? 0)
-        guard number > 0 else { return }
         let title = item.seriesName ?? item.displayTitle
-        if let id = entry.aniList, let token = secrets.aniList?.token {
-            await note(title, number, "AniList") { try await AniList.watched(mediaId: id, episode: number, token: token) }
-        }
-        if let id = entry.myAnimeList, secrets.myAnimeList != nil {
-            await note(title, number, "MyAnimeList") {
-                guard let token = try await self.myAnimeListToken() else { return .unchanged }
-                return try await MyAnimeList.watched(animeId: id, episode: number, token: token)
+        let show = item.kind == .episode ? await item.seriesId.asyncMap { try? await client.item($0) } ?? nil : nil
+        let anime = await isAnime(item, show: show, client: client)
+        let entry = anime ? await AnimeIds.entry(for: item, client: client) : nil
+
+        // AniList and MyAnimeList: anime, by its season's entry.
+        if let entry {
+            let number = item.kind == .movie ? 1 : (item.indexNumber ?? 0)
+            if number > 0 {
+                if let id = entry.aniList, let token = secrets.aniList?.token {
+                    await note(title, number, "AniList") { try await AniList.watched(mediaId: id, episode: number, token: token) }
+                }
+                if let id = entry.myAnimeList, secrets.myAnimeList != nil {
+                    await note(title, number, "MyAnimeList") {
+                        guard let token = try await self.myAnimeListToken() else { return .unchanged }
+                        return try await MyAnimeList.watched(animeId: id, episode: number, token: token)
+                    }
+                }
             }
+        }
+        // Trakt and Simkl: everything, by the film's or show's ids.
+        guard secrets.trakt != nil || secrets.simkl != nil, let watched = WatchedTitle(item: item, show: show, anime: entry) else { return }
+        let number = item.indexNumber ?? 1
+        if secrets.trakt != nil {
+            await note(title, number, "Trakt") {
+                guard let token = try await self.traktToken() else { return .unchanged }
+                return try await Trakt.watched(watched, token: token)
+            }
+        }
+        if let token = secrets.simkl?.token {
+            await note(title, number, "Simkl") { try await Simkl.watched(watched, token: token) }
         }
     }
 
@@ -258,6 +326,7 @@ final class TrackerAccounts {
             case .unchanged: break
             case .progress(let count): lastUpdate = "\(title): episode \(count) on \(service)"
             case .completed: lastUpdate = "\(title): completed on \(service)"
+            case .watched: lastUpdate = "\(title)\(number > 0 ? ", episode \(number)" : ""): added to \(service)"
             }
         } catch TrackerError.signedOut {
             needsSignIn.insert(service)
@@ -269,11 +338,17 @@ final class TrackerAccounts {
     }
 
     /// Anime only: a title in the anime libraries, or one marked as anime.
-    private func isAnime(_ item: BaseItem, client: any MediaServer) async -> Bool {
-        let show = item.seriesId ?? item.id
-        if AppSession.shared.animeItemIds.contains(show) { return true }
+    private func isAnime(_ item: BaseItem, show: BaseItem?, client: any MediaServer) async -> Bool {
+        if AppSession.shared.animeItemIds.contains(item.seriesId ?? item.id) { return true }
         if item.isAnime(on: client.kind) { return true }
-        if let seriesId = item.seriesId, let series = try? await client.item(seriesId) { return series.isAnime(on: client.kind) }
-        return false
+        return show?.isAnime(on: client.kind) ?? false
+    }
+}
+
+nonisolated extension Optional {
+    /// `transform` of the value, when there's one.
+    func asyncMap<T>(_ transform: (Wrapped) async throws -> T) async rethrows -> T? {
+        guard let self else { return nil }
+        return try await transform(self)
     }
 }

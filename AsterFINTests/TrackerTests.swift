@@ -46,6 +46,41 @@ struct TrackerTests {
         #expect(MyAnimeList.code(fromRedirect: url, state: "S2") == nil)
     }
 
+    /// An episode goes by its show's ids with its season and number; a film
+    /// by its own; an anime episode to Simkl by its season's MyAnimeList id.
+    @Test func historyBodies() throws {
+        var show = BaseItem(id: "s")
+        show.type = ItemKind.series.rawValue
+        show.providerIds = ["Tvdb": "81189", "Tmdb": "1396", "Imdb": "tt0903747"]
+        var episode = BaseItem(id: "e")
+        episode.type = ItemKind.episode.rawValue
+        episode.parentIndexNumber = 2
+        episode.indexNumber = 5
+        let watched = try #require(WatchedTitle(item: episode, show: show))
+        let body = watched.historyBody(idTypes: ["tmdb", "imdb", "tvdb"])
+        let shows = try #require(body["shows"] as? [[String: Any]])
+        let ids = try #require(shows.first?["ids"] as? [String: Any])
+        #expect(ids["tvdb"] as? Int == 81189)
+        #expect(ids["imdb"] as? String == "tt0903747")
+        let seasons = try #require(shows.first?["seasons"] as? [[String: Any]])
+        #expect(seasons.first?["number"] as? Int == 2)
+        #expect((seasons.first?["episodes"] as? [[String: Any]])?.first?["number"] as? Int == 5)
+
+        var film = BaseItem(id: "f")
+        film.type = ItemKind.movie.rawValue
+        film.providerIds = ["Tmdb": "603"]
+        let movies = try #require(WatchedTitle(item: film, show: nil)?.historyBody(idTypes: ["tmdb"])["movies"] as? [[String: Any]])
+        #expect((movies.first?["ids"] as? [String: Any])?["tmdb"] as? Int == 603)
+
+        let anime = try #require(WatchedTitle(item: episode, show: show, anime: AnimeEntry(aniList: 1, myAnimeList: 37779)))
+        let simkl = try #require(anime.historyBody(idTypes: ["mal"], simklAnime: true)["shows"] as? [[String: Any]])
+        #expect((simkl.first?["ids"] as? [String: Any])?["mal"] as? Int == 37779)
+        #expect((simkl.first?["episodes"] as? [[String: Any]])?.first?["number"] as? Int == 5)
+        #expect(simkl.first?["seasons"] == nil)
+        // No ids at all: nothing to send.
+        #expect(WatchedTitle(item: episode, show: BaseItem(id: "x")) == nil)
+    }
+
     @Test func formsAreEncoded() {
         let body = MyAnimeList.formBody(["status": "watching", "num_watched_episodes": "5", "redirect_uri": "aster://mal-auth"])
         #expect(body == "num_watched_episodes=5&redirect_uri=aster%3A%2F%2Fmal-auth&status=watching")

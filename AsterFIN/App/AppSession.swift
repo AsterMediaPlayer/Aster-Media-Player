@@ -186,6 +186,8 @@ final class AppSession {
         case .audiobooks: !bookLibraries.isEmpty
         case .upcoming: hasUpcoming
         case .channels: hasChannels
+        // Seerr's, once signed in to it (Settings › Requests).
+        case .discover: TrackerAccounts.shared.secrets.seerr != nil && !TrackerAccounts.shared.needsSignIn.contains("Seerr")
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false

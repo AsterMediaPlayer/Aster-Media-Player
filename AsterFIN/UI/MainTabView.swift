@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, channels, library, downloads, settings, search
+    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, channels, library, downloads, discover, settings, search
 
     var title: String {
         switch self {
@@ -31,6 +31,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .channels: "Channels"
         case .library: "Library"
         case .downloads: "Downloads"
+        case .discover: "Discover"
         case .settings: "Settings"
         case .search: "Search"
         }
@@ -49,6 +50,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .channels: "tv.and.mediabox"
         case .library: "square.stack.fill"
         case .downloads: "arrow.down.circle.fill"
+        case .discover: "safari.fill"
         case .settings: "gearshape.fill"
         case .search: "magnifyingglass"
         }
@@ -539,6 +541,7 @@ struct MainTabView: View {
             #else
             EmptyView()
             #endif
+        case .discover: BrowseStack { DiscoverView() }
         case .settings: BrowseStack { SettingsView() }
         case .search: BrowseStack { SearchView() }
         }
@@ -843,6 +846,10 @@ struct BrowseStack<Root: View>: View {
             // A title to request from Seerr, pushed as a library title's page is.
             .navigationDestination(for: SeerrTitle.self) { title in
                 pushed(SeerrTitlePage(title: title))
+            }
+            // A genre's, studio's or network's titles from Seerr, with filters.
+            .navigationDestination(for: SeerrBrowse.self) { browse in
+                pushed(SeerrBrowsePage(browse: browse))
             }
     }
 

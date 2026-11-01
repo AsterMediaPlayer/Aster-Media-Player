@@ -32,7 +32,7 @@ struct SeerrDiscoverTests {
         filter.region = "US"
         let path = filter.path(page: 2)
         #expect(path.hasPrefix("/discover/tv?page=2&sortBy=first_air_date.desc"))
-        #expect(path.contains("genre=16,10759"))
+        #expect(path.contains("genre=16%2C10759"))
         #expect(path.contains("firstAirDateGte=2020-01-01&firstAirDateLte=2029-12-31"))
         #expect(path.contains("voteAverageGte=7&voteCountGte=50"))
         #expect(path.contains("withRuntimeGte=30&withRuntimeLte=60"))
@@ -56,6 +56,7 @@ struct SeerrDiscoverTests {
         #expect(path(7) == "/discover/movies/upcoming?page=1")
         #expect(path(11) == "/discover/tv/upcoming?page=1")
         #expect(path(14, "28") == "/discover/movies?page=1&genre=28")
+        #expect(path(13, "210024,6075") == "/discover/movies?page=1&keywords=210024%2C6075")
         #expect(path(19, "213") == "/discover/tv/network/213?page=1")
         #expect(path(21, "US,8|337") == "/discover/tv?page=1&watchRegion=US&watchProviders=8|337")
         // Genres and companies are rows of their own kind, not titles.

@@ -141,7 +141,7 @@ nonisolated enum SeerrClient {
         return url
     }
 
-    private static func send(_ base: URL, _ path: String, method: String = "GET", body: [String: Any]? = nil, cookie: String? = nil) async throws -> (Data, HTTPURLResponse) {
+    static func send(_ base: URL, _ path: String, method: String = "GET", body: [String: Any]? = nil, cookie: String? = nil) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: base.absoluteString + "/api/v1" + path) else { throw SeerrError.http(0) }
         var request = URLRequest(url: url)
         request.httpMethod = method

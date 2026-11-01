@@ -91,9 +91,12 @@ nonisolated struct SeerrRequest: Decodable, Sendable, Identifiable, Hashable {
         }
     }
 
+    /// "2026-11-01T12:31:29.000Z" as a date.
     var created: Date? {
-        createdAt.flatMap { try? Date($0, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true).timeZone(separator: .omitted)) }
-            ?? createdAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+        guard let createdAt else { return nil }
+        let format = ISO8601DateFormatter()
+        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return format.date(from: createdAt) ?? ISO8601DateFormatter().date(from: createdAt)
     }
 }
 
@@ -203,10 +206,11 @@ nonisolated struct SeerrFilter: Hashable, Sendable {
         if let keywords { items.append(.init(name: "keywords", value: keywords)) }
         var components = URLComponents()
         components.queryItems = items
-        // Seerr reads "|" and "," only as they are.
+        // Seerr turns away a bare "," (it wants "%2C", which TMDB reads as
+        // "and": every genre chosen); "|" ("or", for services) it takes.
         let query = (components.percentEncodedQuery ?? "")
+            .replacingOccurrences(of: ",", with: "%2C")
             .replacingOccurrences(of: "%7C", with: "|")
-            .replacingOccurrences(of: "%2C", with: ",")
         return "/discover/\(kind == .movie ? "movies" : "tv")?\(query)"
     }
 }
@@ -234,7 +238,7 @@ nonisolated enum SeerrRequestFilter: String, CaseIterable, Identifiable, Sendabl
     }
 }
 
-extension SeerrClient {
+nonisolated extension SeerrClient {
     // MARK: Discover rows
 
     /// The Discover rows, enabled ones only, in the admin's order.
@@ -268,7 +272,8 @@ extension SeerrClient {
 
     /// The titles in a row of titles; nil for a row of genres or companies.
     static func titlesPath(for slider: SeerrSlider) -> (path: String, kind: SeerrFilter.Kind?)? {
-        let data = slider.data ?? ""
+        // A list of ids ("28,12") needs its commas encoded for Seerr.
+        let data = (slider.data ?? "").replacingOccurrences(of: ",", with: "%2C")
         switch slider.type {
         case 3: return ("/discover/watchlist?page=1", nil)
         case 4: return ("/discover/trending?page=1", nil)
@@ -281,13 +286,13 @@ extension SeerrClient {
         case 15: return ("/discover/tv?page=1&keywords=\(data)", .tv)
         case 16: return ("/discover/tv?page=1&genre=\(data)", .tv)
         case 17:
-            let term = data.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? data
+            let term = (slider.data ?? "").addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
             return ("/search?query=\(term)&page=1", nil)
         case 18: return ("/discover/movies/studio/\(data)?page=1", .movie)
         case 19: return ("/discover/tv/network/\(data)?page=1", .tv)
         case 20, 21:
             // "US,8|337": the region, then the services.
-            let parts = data.split(separator: ",", maxSplits: 1).map(String.init)
+            let parts = (slider.data ?? "").split(separator: ",", maxSplits: 1).map(String.init)
             let region = parts.count == 2 ? parts[0] : "US"
             let services = parts.last ?? ""
             return slider.type == 20

@@ -113,9 +113,9 @@ nonisolated enum Trakt {
 
     /// The tokens once the code's been entered; nil while it hasn't.
     static func poll(_ code: DeviceCode) async throws -> Tokens? {
-        let (data, status) = try await request("/oauth/device/token", method: "POST", body: [
-            "code": code.pollCode, "client_id": TrackerKeys.traktClientId, "client_secret": TrackerKeys.traktClientSecret,
-        ])
+        let (data, status) = try await request("/oauth/device/token", method: "POST", body: withSecret([
+            "code": code.pollCode, "client_id": TrackerKeys.traktClientId,
+        ]))
         switch status {
         case 200: return try tokens(data)
         case 400, 429: return nil
@@ -123,11 +123,19 @@ nonisolated enum Trakt {
         }
     }
 
+    /// A request's fields, with the client secret when the app has one
+    /// (Trakt's PKCE apps have none, and need none).
+    private static func withSecret(_ body: [String: Any]) -> [String: Any] {
+        var body = body
+        if !TrackerKeys.traktClientSecret.isEmpty { body["client_secret"] = TrackerKeys.traktClientSecret }
+        return body
+    }
+
     static func refreshed(_ tokens: Tokens) async throws -> Tokens {
-        let (data, status) = try await request("/oauth/token", method: "POST", body: [
-            "refresh_token": tokens.refresh, "client_id": TrackerKeys.traktClientId, "client_secret": TrackerKeys.traktClientSecret,
+        let (data, status) = try await request("/oauth/token", method: "POST", body: withSecret([
+            "refresh_token": tokens.refresh, "client_id": TrackerKeys.traktClientId,
             "redirect_uri": "http://localhost", "grant_type": "refresh_token",
-        ])
+        ]))
         if status == 400 || status == 401 { throw TrackerError.signedOut }
         guard status == 200 else { throw TrackerError.http(status) }
         return try self.tokens(data)

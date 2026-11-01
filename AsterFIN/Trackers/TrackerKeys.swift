@@ -16,10 +16,10 @@
 //         lets in only the people added to it)
 //  Simkl: simkl.com/settings/developer, redirect URL aster://simkl-auth
 //
-//  Trakt's sign-in also takes its client secret, which stays off the public
-//  repo: in Secrets.plist beside this file (ignored by git), as
-//  TraktClientSecret. Xcode bundles it when it's there; without it Trakt
-//  doesn't show.
+//  Trakt's apps made since its 2026 developer site use PKCE and are given no
+//  client secret; its code sign-in works without one. An older app's secret
+//  would go in Secrets.plist beside this file (ignored by git), as
+//  TraktClientSecret, and is sent only when it's there.
 //
 
 import Foundation
@@ -27,7 +27,7 @@ import Foundation
 nonisolated enum TrackerKeys {
     static let aniListClientId = "55643"
     static let myAnimeListClientId = "fdd07f4f85274c4a1e8a466193bfe90c"
-    static let traktClientId = ""
+    static let traktClientId = "mBY-5_3dD7dFPaZG7ILI7x7QOW-bixeR2-LpCDP5Ks8"
     static let simklClientId = ""
 
     static var traktClientSecret: String {
@@ -41,6 +41,6 @@ nonisolated enum TrackerKeys {
         return values
     }()
 
-    static var hasTrakt: Bool { !traktClientId.isEmpty && !traktClientSecret.isEmpty }
+    static var hasTrakt: Bool { !traktClientId.isEmpty }
     static var hasSimkl: Bool { !simklClientId.isEmpty }
 }

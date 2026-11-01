@@ -731,6 +731,8 @@ private struct SeerrRequestsList: View {
     @State private var working: Int?
     @State private var problem: String?
     @State private var confirming: Confirm?
+    /// The pending request whose destination an admin is changing.
+    @State private var editing: SeerrRequest?
 
     struct Confirm: Identifiable {
         let request: SeerrRequest
@@ -781,6 +783,17 @@ private struct SeerrRequestsList: View {
             }
         }
         .task(id: "\(filter.rawValue)|\(mine)") { await load() }
+        .sheet(item: $editing) { request in
+            SeerrDestinationSheet(
+                kind: request.type == "movie" ? .movie : .tv,
+                current: request.serverId.map { SeerrRequestOptions(serverId: $0, profileId: request.profileId, rootFolder: request.rootFolder, languageProfileId: request.languageProfileId) },
+                confirmTitle: "Save"
+            ) { options in
+                guard let options, let account = seerrAccount() else { return }
+                try await SeerrClient.update(request, options: options, account: account)
+                await load()
+            }
+        }
         .confirmationDialog(confirming.map { $0.decline ? "Decline this request?" : "Cancel this request?" } ?? "",
                             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { confirm in
@@ -830,6 +843,9 @@ private struct SeerrRequestsList: View {
                     if manages {
                         ActionButton(title: "Approve", systemImage: "checkmark", prominent: true) {
                             Task { await act(request, .approve) }
+                        }
+                        ActionButton(title: "Edit", systemImage: "slider.horizontal.3") {
+                            editing = request
                         }
                         ActionButton(title: "Decline", systemImage: "xmark") {
                             confirming = Confirm(request: request, decline: true)

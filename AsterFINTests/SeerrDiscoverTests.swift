@@ -95,6 +95,32 @@ struct SeerrDiscoverTests {
         #expect(cinema.arrival(region: "GB", now: now)?.how == "In Theaters")
     }
 
+    /// A request starts on Seerr's defaults for the server, the anime ones
+    /// for an anime show; an empty anime folder falls back to the usual.
+    @Test func whereARequestGoesByDefault() throws {
+        let sonarr = try JSONDecoder().decode(SeerrService.self, from: Data(#"{"id": 0, "name": "Sonarr", "is4k": false, "isDefault": true, "activeProfileId": 4, "activeDirectory": "/data/tv", "activeLanguageProfileId": 1, "activeAnimeProfileId": 7, "activeAnimeDirectory": "/data/anime", "activeAnimeLanguageProfileId": 2}"#.utf8))
+        let show = SeerrRequestOptions(server: sonarr, anime: false)
+        #expect(show.rootFolder == "/data/tv")
+        #expect(show.profileId == 4)
+        let anime = SeerrRequestOptions(server: sonarr, anime: true)
+        #expect(anime.rootFolder == "/data/anime")
+        #expect(anime.profileId == 7)
+        #expect(anime.languageProfileId == 2)
+        let plain = try JSONDecoder().decode(SeerrService.self, from: Data(#"{"id": 1, "name": "Sonarr 2", "activeProfileId": 4, "activeDirectory": "/tv", "activeAnimeDirectory": ""}"#.utf8))
+        #expect(SeerrRequestOptions(server: plain, anime: true).rootFolder == "/tv")
+        var body: [String: Any] = [:]
+        anime.add(to: &body)
+        #expect(body["serverId"] as? Int == 0)
+        #expect(body["rootFolder"] as? String == "/data/anime")
+    }
+
+    @Test func aServersChoicesAreRead() throws {
+        let choices = try JSONDecoder().decode(SeerrServiceChoices.self, from: Data(#"{"server": {"id": 0, "name": "Sonarr"}, "profiles": [{"id": 4, "name": "HD-1080p"}], "rootFolders": [{"id": 1, "freeSpace": 2100000000000, "path": "/data/anime", "totalSpace": 4000000000000}], "languageProfiles": null, "tags": []}"#.utf8))
+        #expect(choices.profiles?.first?.name == "HD-1080p")
+        #expect(choices.rootFolders?.first?.path == "/data/anime")
+        #expect(choices.languageProfiles == nil)
+    }
+
     @Test func requestsAreRead() throws {
         struct Reply: Decodable { var results: [SeerrRequest] }
         let reply = try JSONDecoder().decode(Reply.self, from: Data(#"{"pageInfo": {"pages": 2, "pageSize": 3, "results": 6, "page": 1}, "results": [{"id": 12, "status": 1, "createdAt": "2026-11-01T12:31:29.000Z", "type": "tv", "is4k": false, "media": {"id": 261, "mediaType": "tv", "tmdbId": 35106, "status": 2}, "seasons": [{"id": 19, "seasonNumber": 1, "status": 1}], "requestedBy": {"id": 1, "displayName": "peppy", "permissions": 2}}, {"id": 9, "status": 2, "type": "movie", "media": {"tmdbId": 693134, "mediaType": "movie", "status": 5}}]}"#.utf8))

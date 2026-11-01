@@ -368,3 +368,157 @@ private extension View {
         #endif
     }
 }
+
+// MARK: - Where a request goes
+
+/// Whether the signed-in Seerr user manages requests (an admin), asked
+/// once per sign-in.
+@MainActor
+enum SeerrPermissions {
+    private static var known: [String: Bool] = [:]
+
+    static func managesRequests(_ account: SeerrAccount) async -> Bool {
+        if let answer = known[account.cookie] { return answer }
+        let answer = (try? await SeerrClient.me(account: account))?.managesRequests ?? false
+        known[account.cookie] = answer
+        return answer
+    }
+}
+
+/// An admin's choice of where a request goes, as Seerr's own Advanced
+/// panel offers it: which Sonarr or Radarr, the folder, the quality, and
+/// Sonarr's language. It starts on Seerr's defaults (its anime ones for an
+/// anime show), or on what a pending request already has.
+struct SeerrDestinationSheet: View {
+    let kind: SeerrFilter.Kind
+    /// Starts on the anime folder and profile.
+    var anime = false
+    /// What's set already, when changing a pending request.
+    var current: SeerrRequestOptions?
+    var confirmTitle = "Request"
+    /// Nil when Seerr has no server to choose (it then uses its default).
+    let confirm: (SeerrRequestOptions?) async throws -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    private let accounts = TrackerAccounts.shared
+    @State private var services: [SeerrService] = []
+    @State private var choices: [Int: SeerrServiceChoices] = [:]
+    @State private var options: SeerrRequestOptions?
+    @State private var loading = true
+    @State private var working = false
+    @State private var problem: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if loading {
+                    ProgressView()
+                } else if let options {
+                    if services.count > 1 {
+                        Picker("Server", selection: serverBinding) {
+                            ForEach(services) { Text($0.name).tag($0.id) }
+                        }
+                    }
+                    if let found = choices[options.serverId] {
+                        if let folders = found.rootFolders, !folders.isEmpty {
+                            Picker("Folder", selection: binding(\.rootFolder)) {
+                                ForEach(folders, id: \.path) { folder in
+                                    Text(folderLabel(folder)).tag(Optional(folder.path))
+                                }
+                            }
+                        }
+                        if let profiles = found.profiles, !profiles.isEmpty {
+                            Picker("Quality", selection: binding(\.profileId)) {
+                                ForEach(profiles) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                        }
+                        if let languages = found.languageProfiles, !languages.isEmpty {
+                            Picker("Language", selection: binding(\.languageProfileId)) {
+                                ForEach(languages) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                        }
+                    } else {
+                        ProgressView()
+                    }
+                } else {
+                    Text("Seerr has no \(kind == .tv ? "Sonarr" : "Radarr") server to choose; it uses its own setting.")
+                        .foregroundStyle(.secondary)
+                }
+                if let problem {
+                    Text(problem).foregroundStyle(.red)
+                }
+            }
+            #if os(macOS)
+            .formStyle(.grouped)
+            #endif
+            .navigationTitle(kind == .tv ? "Where the Series Goes" : "Where the Movie Goes")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(confirmTitle) { Task { await finish() } }
+                        .disabled(loading || working)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 460, minHeight: 300)
+        #endif
+        .task { await load() }
+    }
+
+    /// "/data/anime (2.1 TB free)".
+    private func folderLabel(_ folder: SeerrServiceChoices.Folder) -> String {
+        guard let free = folder.freeSpace else { return folder.path }
+        return "\(folder.path) (\(free.formatted(.byteCount(style: .file))) free)"
+    }
+
+    private var serverBinding: Binding<Int> {
+        Binding(get: { options?.serverId ?? 0 }, set: { id in
+            guard let server = services.first(where: { $0.id == id }) else { return }
+            options = SeerrRequestOptions(server: server, anime: anime)
+            Task { await loadChoices(for: id) }
+        })
+    }
+
+    private func binding<Value>(_ path: WritableKeyPath<SeerrRequestOptions, Value>) -> Binding<Value> {
+        Binding(get: { options![keyPath: path] }, set: { options?[keyPath: path] = $0 })
+    }
+
+    private func load() async {
+        defer { loading = false }
+        guard let account = accounts.secrets.seerr else { return }
+        do {
+            services = try await SeerrClient.services(kind, account: account)
+        } catch {
+            problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+        let start = current.flatMap { current in services.first { $0.id == current.serverId } }
+            ?? services.first { $0.isDefault == true } ?? services.first
+        guard let start else { return }
+        options = current?.serverId == start.id ? current : SeerrRequestOptions(server: start, anime: anime)
+        await loadChoices(for: start.id)
+    }
+
+    private func loadChoices(for server: Int) async {
+        guard choices[server] == nil, let account = accounts.secrets.seerr else { return }
+        do {
+            choices[server] = try await SeerrClient.serviceChoices(kind, server: server, account: account)
+        } catch {
+            problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func finish() async {
+        working = true
+        defer { working = false }
+        do {
+            try await confirm(options)
+            dismiss()
+        } catch {
+            problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+}

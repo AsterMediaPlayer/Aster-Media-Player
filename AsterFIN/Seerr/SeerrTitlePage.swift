@@ -129,6 +129,9 @@ struct SeerrTitlePage: View {
     @State private var chosen: Set<Int> = []
     @State private var working = false
     @State private var problem: String?
+    /// An admin picks where the request goes (server, folder, quality).
+    @State private var managesRequests = false
+    @State private var choosingDestination = false
 
     init(title: SeerrTitle) {
         self.title = title
@@ -187,6 +190,11 @@ struct SeerrTitlePage: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("The trailer plays in the YouTube app. Install it from the App Store, then try again.")
+        }
+        .sheet(isPresented: $choosingDestination) {
+            SeerrDestinationSheet(kind: title.isMovie ? .movie : .tv, anime: isAnime, confirmTitle: requestTitle) { options in
+                try await request(options: options)
+            }
         }
         #if !os(tvOS)
         .sheet(item: $playingTrailer) { video in
@@ -293,7 +301,11 @@ struct SeerrTitlePage: View {
         HStack(spacing: 16) {
             if status.canRequest, title.isMovie || !open.isEmpty || seasons.isEmpty {
                 ActionButton(title: requestTitle, systemImage: "plus", prominent: true) {
-                    Task { await request() }
+                    if managesRequests {
+                        choosingDestination = true
+                    } else {
+                        Task { try? await request() }
+                    }
                 }
                 .disabled(working || (!title.isMovie && !seasons.isEmpty && chosen.isEmpty))
             } else if let label = status.label {
@@ -432,8 +444,17 @@ struct SeerrTitlePage: View {
 
     // MARK: Asking
 
+    /// Japanese animation, or tagged anime on TMDB (as Seerr decides when
+    /// to use Sonarr's anime folder).
+    private var isAnime: Bool {
+        guard let details else { return false }
+        return details.isAnime || (details.keywords ?? []).contains { $0.name.lowercased() == "anime" }
+    }
+
     private func load() async {
-        guard let account = accounts.secrets.seerr, let found = try? await SeerrClient.details(title, account: account) else { return }
+        guard let account = accounts.secrets.seerr else { return }
+        managesRequests = await SeerrPermissions.managesRequests(account)
+        guard let found = try? await SeerrClient.details(title, account: account) else { return }
         details = found
         if let known = found.mediaInfo?.status { status = known }
         // New anime often have nothing yet on TMDB: AniList may.
@@ -446,12 +467,14 @@ struct SeerrTitlePage: View {
         }
     }
 
-    private func request() async {
+    /// Asks for it; `options` where an admin chose it to go. Throws for the
+    /// destination sheet to show; the page shows the problem too.
+    private func request(options: SeerrRequestOptions? = nil) async throws {
         guard let account = accounts.secrets.seerr else { return }
         working = true
         defer { working = false }
         do {
-            try await SeerrClient.request(title, seasons: chosen.sorted(), account: account)
+            try await SeerrClient.request(title, seasons: chosen.sorted(), options: options, account: account)
             status = .pending
             seasons = seasons.map { season in
                 chosen.contains(season.number) ? (season.number, season.episodes, .pending) : season
@@ -461,8 +484,10 @@ struct SeerrTitlePage: View {
         } catch SeerrError.signedOut {
             accounts.seerrSignedOut()
             problem = SeerrError.signedOut.localizedDescription
+            throw SeerrError.signedOut
         } catch {
             problem = error.localizedDescription
+            throw error
         }
     }
 }

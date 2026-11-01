@@ -304,9 +304,11 @@ nonisolated enum SeerrClient {
     }
 
     /// Asks for a film, or for these seasons of a show.
-    static func request(_ title: SeerrTitle, seasons: [Int] = [], account: SeerrAccount) async throws {
+    /// `options` (an admin's): which Sonarr or Radarr, folder and quality.
+    static func request(_ title: SeerrTitle, seasons: [Int] = [], options: SeerrRequestOptions? = nil, account: SeerrAccount) async throws {
         var body: [String: Any] = ["mediaType": title.isMovie ? "movie" : "tv", "mediaId": title.id]
         if !title.isMovie { body["seasons"] = seasons }
+        options?.add(to: &body)
         let (data, response) = try await send(account.url, "/request", method: "POST", body: body, cookie: account.cookie)
         if response.statusCode == 401 { throw SeerrError.signedOut }
         guard response.statusCode == 201 || response.statusCode == 200 else {

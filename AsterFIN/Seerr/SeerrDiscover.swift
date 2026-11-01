@@ -57,6 +57,11 @@ nonisolated struct SeerrRequest: Decodable, Sendable, Identifiable, Hashable {
     var seasons: [Season]?
     var requestedBy: Person?
     var modifiedBy: Person?
+    /// Where it goes, as last set (an admin can change it while pending).
+    var serverId: Int?
+    var profileId: Int?
+    var rootFolder: String?
+    var languageProfileId: Int?
 
     struct Media: Decodable, Sendable, Hashable {
         var tmdbId: Int
@@ -537,5 +542,92 @@ nonisolated extension SeerrClient {
             return found
         }
         return films.sorted { $0.date < $1.date }
+    }
+}
+
+
+// MARK: - Where a request goes (an admin's choice)
+
+/// A Sonarr (shows) or Radarr (films) server set up in Seerr, with its
+/// defaults, the anime ones included (Sonarr's).
+nonisolated struct SeerrService: Decodable, Sendable, Hashable, Identifiable {
+    var id: Int
+    var name: String
+    var is4k: Bool?
+    var isDefault: Bool?
+    var activeProfileId: Int?
+    var activeDirectory: String?
+    var activeLanguageProfileId: Int?
+    var activeAnimeProfileId: Int?
+    var activeAnimeDirectory: String?
+    var activeAnimeLanguageProfileId: Int?
+}
+
+/// A server's choices: its quality profiles, folders and (Sonarr's)
+/// language profiles.
+nonisolated struct SeerrServiceChoices: Decodable, Sendable {
+    struct Named: Decodable, Sendable, Hashable, Identifiable { var id: Int; var name: String }
+    struct Folder: Decodable, Sendable, Hashable { var path: String; var freeSpace: Int64? }
+    var server: SeerrService
+    var profiles: [Named]?
+    var rootFolders: [Folder]?
+    var languageProfiles: [Named]?
+}
+
+/// Where a request goes: the server, quality, folder and language.
+nonisolated struct SeerrRequestOptions: Hashable, Sendable {
+    var serverId: Int
+    var profileId: Int?
+    var rootFolder: String?
+    var languageProfileId: Int?
+
+    /// The server's defaults, its anime ones for an anime show.
+    init(server: SeerrService, anime: Bool) {
+        serverId = server.id
+        profileId = (anime ? server.activeAnimeProfileId : nil) ?? server.activeProfileId
+        rootFolder = (anime ? server.activeAnimeDirectory.flatMap { $0.isEmpty ? nil : $0 } : nil) ?? server.activeDirectory
+        languageProfileId = (anime ? server.activeAnimeLanguageProfileId : nil) ?? server.activeLanguageProfileId
+    }
+
+    init(serverId: Int, profileId: Int?, rootFolder: String?, languageProfileId: Int?) {
+        self.serverId = serverId
+        self.profileId = profileId
+        self.rootFolder = rootFolder
+        self.languageProfileId = languageProfileId
+    }
+
+    func add(to body: inout [String: Any]) {
+        body["serverId"] = serverId
+        if let profileId { body["profileId"] = profileId }
+        if let rootFolder { body["rootFolder"] = rootFolder }
+        if let languageProfileId { body["languageProfileId"] = languageProfileId }
+    }
+}
+
+nonisolated extension SeerrClient {
+    /// The Sonarr (`tv`) or Radarr (`movie`) servers, 4K ones left out:
+    /// Aster asks for the usual copy.
+    static func services(_ kind: SeerrFilter.Kind, account: SeerrAccount) async throws -> [SeerrService] {
+        try await get([SeerrService].self, account, kind == .tv ? "/service/sonarr" : "/service/radarr")
+            .filter { $0.is4k != true }
+    }
+
+    static func serviceChoices(_ kind: SeerrFilter.Kind, server: Int, account: SeerrAccount) async throws -> SeerrServiceChoices {
+        try await get(SeerrServiceChoices.self, account, kind == .tv ? "/service/sonarr/\(server)" : "/service/radarr/\(server)")
+    }
+
+    /// Changes where a pending request goes (an admin's Edit).
+    static func update(_ request: SeerrRequest, options: SeerrRequestOptions, account: SeerrAccount) async throws {
+        var body: [String: Any] = ["mediaType": request.type ?? request.media.mediaType ?? "movie"]
+        if body["mediaType"] as? String == "tv" {
+            body["seasons"] = (request.seasons ?? []).map(\.seasonNumber)
+        }
+        options.add(to: &body)
+        let (data, response) = try await send(account.url, "/request/\(request.id)", method: "PUT", body: body, cookie: account.cookie)
+        if response.statusCode == 401 { throw SeerrError.signedOut }
+        guard (200..<300).contains(response.statusCode) else {
+            struct Failure: Decodable { var message: String? }
+            throw SeerrError.refused((try? JSONDecoder().decode(Failure.self, from: data))?.message)
+        }
     }
 }

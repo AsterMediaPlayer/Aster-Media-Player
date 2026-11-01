@@ -66,6 +66,44 @@ nonisolated enum AniList {
         return data
     }
 
+    /// An anime's description and main studios, by its native title, else
+    /// its English one, for a title page TMDB knows little of yet. No
+    /// sign-in needed.
+    static func describe(native: String?, english: String) async -> (description: String?, studios: [String])? {
+        struct Reply: Decodable {
+            struct DataPart: Decodable { var Media: Media? }
+            struct Media: Decodable {
+                var description: String?
+                var studios: Studios?
+            }
+            struct Studios: Decodable { var nodes: [Studio]? }
+            struct Studio: Decodable { var name: String }
+            var data: DataPart?
+        }
+        let query = "query($s:String){Media(search:$s,type:ANIME,sort:START_DATE_DESC){description(asHtml:false) studios(isMain:true){nodes{name}}}}"
+        for name in [native, english].compactMap({ $0 }).filter({ !$0.isEmpty }) {
+            guard let data = try? await request(query, variables: ["s": .string(name)], token: nil),
+                  let media = (try? JSONDecoder().decode(Reply.self, from: data))?.data?.Media else { continue }
+            let text = media.description.map(plainText).flatMap { $0.isEmpty ? nil : $0 }
+            return (text, (media.studios?.nodes ?? []).map(\.name))
+        }
+        return nil
+    }
+
+    /// AniList's description without its markup: "<br>" as line breaks,
+    /// "<i>" and the like dropped, entities as characters.
+    static func plainText(_ html: String) -> String {
+        var text = html.replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        for (entity, character) in [("&amp;", "&"), ("&quot;", "\""), ("&#039;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&mdash;", "—")] {
+            text = text.replacingOccurrences(of: entity, with: character)
+        }
+        while text.contains("\n\n\n") { text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The signed-in viewer's name.
     static func viewerName(token: String) async throws -> String {
         struct Reply: Decodable {

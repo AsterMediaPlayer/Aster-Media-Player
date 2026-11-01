@@ -76,6 +76,21 @@ struct SeerrTests {
         #expect(SeerrClient.image(nil, width: "w1280") == nil)
     }
 
+    /// A new anime's details (trimmed from Fool Night's): what the Details
+    /// section shows, and whether AniList is asked for more.
+    @Test func anAnimesDetails() throws {
+        let details = try JSONDecoder().decode(SeerrDetails.self, from: Data(#"{"name": "Fool Night", "originalName": "フールナイト", "originalLanguage": "ja", "overview": "", "numberOfEpisodes": 12, "voteAverage": 7.5, "genres": [{"name": "Animation"}, {"name": "Drama"}], "productionCompanies": [{"name": "SHAFT"}], "createdBy": [], "keywords": [{"name": "based on manga"}], "credits": {"cast": [], "crew": [{"name": "Akiyuki Shinbo", "job": "Director"}, {"name": "Akiyuki Shinbo", "job": "Director"}]}, "relatedVideos": [{"type": "Teaser", "url": "https://www.youtube.com/watch?v=a"}, {"type": "Trailer", "url": "https://www.youtube.com/watch?v=b"}]}"#.utf8))
+        #expect(details.original == "フールナイト")
+        #expect(details.isAnime)
+        #expect(details.numberOfEpisodes == 12)
+        #expect(details.makers == ["Akiyuki Shinbo"])
+        #expect(details.trailerURL?.absoluteString == "https://www.youtube.com/watch?v=b")
+    }
+
+    @Test func aniListDescriptionsArePlain() {
+        #expect(AniList.plainText("A <i>night</i> &amp; day.<br><br><br>(Source: Shogakukan)") == "A night & day.\n\n(Source: Shogakukan)")
+    }
+
     @Test func addressesAreRead() {
         #expect(SeerrClient.address("192.168.1.240:5055")?.absoluteString == "http://192.168.1.240:5055")
         #expect(SeerrClient.address(" https://requests.example.com/ ")?.absoluteString == "https://requests.example.com")

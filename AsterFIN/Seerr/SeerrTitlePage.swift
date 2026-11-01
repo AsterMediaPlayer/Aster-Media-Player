@@ -30,9 +30,39 @@ nonisolated struct SeerrDetails: Decodable, Sendable {
     var credits: Credits?
     var seasons: [SeerrShow.Season]?
     var mediaInfo: SeerrTitle.MediaInfo?
+    var originalTitle: String?
+    var originalName: String?
+    var originalLanguage: String?
+    var numberOfEpisodes: Int?
+    var voteAverage: Double?
+    var productionCompanies: [Named]?
+    var createdBy: [Named]?
+    var keywords: [Named]?
+    var relatedVideos: [Video]?
 
     struct Named: Decodable, Sendable, Hashable { var name: String }
-    struct Credits: Decodable, Sendable { var cast: [Person]? }
+    struct Credits: Decodable, Sendable { var cast: [Person]?; var crew: [Crew]? }
+    struct Crew: Decodable, Sendable, Hashable { var name: String; var job: String? }
+    struct Video: Decodable, Sendable, Hashable { var type: String?; var site: String?; var url: String?; var name: String? }
+
+    /// Its own title, in its own language, when that's not the one shown.
+    var original: String? { originalName ?? originalTitle }
+
+    /// The first trailer, to watch on its site.
+    var trailerURL: URL? {
+        (relatedVideos ?? []).first { $0.type == "Trailer" }?.url.flatMap(URL.init(string:))
+    }
+
+    /// A film's directors, else a show's creators.
+    var makers: [String] {
+        let directors = (credits?.crew ?? []).filter { $0.job == "Director" }.map(\.name)
+        return Array(NSOrderedSet(array: directors.isEmpty ? (createdBy ?? []).map(\.name) : directors)) as? [String] ?? directors
+    }
+
+    /// Japanese animation: AniList may know it when TMDB has little.
+    var isAnime: Bool {
+        originalLanguage == "ja" && (genres ?? []).contains { $0.name == "Animation" }
+    }
     struct Person: Decodable, Sendable, Hashable, Identifiable {
         var id: Int
         var name: String
@@ -70,6 +100,8 @@ struct SeerrTitlePage: View {
 
     private let accounts = TrackerAccounts.shared
     @State private var details: SeerrDetails?
+    /// AniList's description and studios, for anime TMDB knows little of.
+    @State private var aniList: (description: String?, studios: [String])?
     @State private var status: SeerrStatus
     @State private var seasons: [(number: Int, episodes: Int?, status: SeerrStatus)] = []
     @State private var chosen: Set<Int> = []
@@ -113,6 +145,9 @@ struct SeerrTitlePage: View {
                         .frame(maxWidth: .infinity, minHeight: Metrics.headerHeight, alignment: .bottomLeading)
                     if !title.isMovie, !seasons.isEmpty {
                         seasonChips
+                    }
+                    if let details {
+                        detailsSection(details)
                     }
                     if let cast = details?.credits?.cast, !cast.isEmpty {
                         Shelf(title: "Cast", items: Array(cast.prefix(20)), spacing: Lockup.personSpacing) { person in
@@ -173,11 +208,15 @@ struct SeerrTitlePage: View {
                     Label(premiere, systemImage: "calendar")
                         .font(.callout.weight(.semibold))
                 }
-                if let overview = details?.overview ?? title.overview, !overview.isEmpty {
+                if let overview = summary {
                     Text(overview)
                         .font(.body)
                         .lineLimit(5)
                         .frame(maxWidth: Metrics.overviewWidth, alignment: .leading)
+                } else if details != nil {
+                    Text("No description yet.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
                 actions
                 if let problem {
@@ -187,6 +226,14 @@ struct SeerrTitlePage: View {
         }
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.top, 120)
+    }
+
+    /// TMDB's overview, else AniList's description.
+    private var summary: String? {
+        for text in [details?.overview, title.overview, aniList?.description] {
+            if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return text }
+        }
+        return nil
     }
 
     /// "2027  ·  Animation, Comedy  ·  1 Season  ·  In Production".
@@ -222,6 +269,14 @@ struct SeerrTitlePage: View {
                     .font(.headline)
                     .padding(.vertical, 10)
             }
+            #if !os(tvOS)
+            if let trailer = details?.trailerURL {
+                Link(destination: trailer) {
+                    Label("Trailer", systemImage: "play.rectangle")
+                }
+                .actionButtonStyle()
+            }
+            #endif
             if working { ProgressView() }
         }
         .padding(.top, 8)
@@ -267,12 +322,68 @@ struct SeerrTitlePage: View {
         }
     }
 
+    /// What the library's Details tab shows of a title, as far as it's known.
+    private func detailsSection(_ details: SeerrDetails) -> some View {
+        var facts: [(String, String)] = []
+        if let original = details.original, original != (details.title ?? details.name) { facts.append(("Original Title", original)) }
+        if let date = details.date {
+            facts.append((title.isMovie ? "Release" : "Premiere", date.formatted(date: .long, time: .omitted)))
+        }
+        if let state = details.status, !state.isEmpty { facts.append(("Status", state)) }
+        if let networks = details.networks, !networks.isEmpty { facts.append(("Network", networks.map(\.name).joined(separator: ", "))) }
+        let studios = (details.productionCompanies ?? []).map(\.name)
+        let shownStudios = studios.isEmpty ? (aniList?.studios ?? []) : studios
+        if !shownStudios.isEmpty { facts.append(("Studio", shownStudios.prefix(3).joined(separator: ", "))) }
+        if !details.makers.isEmpty { facts.append((title.isMovie ? "Director" : "Created by", details.makers.prefix(3).joined(separator: ", "))) }
+        if let episodes = details.numberOfEpisodes, episodes > 0 { facts.append(("Episodes", String(episodes))) }
+        if let genres = details.genres, !genres.isEmpty { facts.append(("Genres", genres.map(\.name).joined(separator: ", "))) }
+        if let keywords = details.keywords, !keywords.isEmpty { facts.append(("Keywords", keywords.prefix(8).map(\.name).joined(separator: ", "))) }
+        let score = TitleScore(.tmdb, details.voteAverage, outOf: 10)
+        return VStack(alignment: .leading, spacing: 16) {
+            Text("Details")
+                .font(.title3.weight(.semibold))
+            if let score {
+                TitleScoreRow(scores: [score])
+                    .font(.callout)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.factWidth), spacing: 28, alignment: .topLeading)], alignment: .leading, spacing: 18) {
+                ForEach(facts, id: \.0) { fact in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(fact.0.uppercased())
+                            .font(.caption.weight(.semibold))
+                            .tracking(1)
+                            .foregroundStyle(.secondary)
+                        Text(fact.1)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+        .padding(.horizontal, Lockup.screenPadding)
+        #if os(tvOS)
+        // Reachable by the remote, so the page scrolls down to it.
+        .focusable()
+        #endif
+    }
+
+    #if os(tvOS)
+    private static let factWidth: CGFloat = 360
+    #else
+    private static let factWidth: CGFloat = 200
+    #endif
+
     // MARK: Asking
 
     private func load() async {
         guard let account = accounts.secrets.seerr, let found = try? await SeerrClient.details(title, account: account) else { return }
         details = found
         if let known = found.mediaInfo?.status { status = known }
+        // New anime often have nothing yet on TMDB: AniList may.
+        if found.isAnime, (found.overview ?? "").isEmpty || (found.productionCompanies ?? []).isEmpty {
+            aniList = await AniList.describe(native: found.original, english: found.name ?? found.title ?? title.displayTitle)
+        }
         if !title.isMovie {
             seasons = found.show.seasonStatus()
             chosen = Set(open)

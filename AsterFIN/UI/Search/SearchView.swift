@@ -41,12 +41,10 @@ struct SearchView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     header
-                    if message == nil {
-                        if !shows.isEmpty {
-                            ItemGrid(items: shows)
-                        }
-                        footer
+                    if message == nil, !shows.isEmpty {
+                        ItemGrid(items: shows)
                     }
+                    footer
                 }
                 .padding(.bottom, Lockup.pageBottomPadding)
             }
@@ -83,6 +81,18 @@ struct SearchView: View {
 
     @ViewBuilder
     private var footer: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            libraryFooter
+            // Titles the server hasn't got, from Seerr once it's set up:
+            // shown even when the library has nothing for the search.
+            if !query.isEmpty {
+                SeerrSearchShelf(query: query)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var libraryFooter: some View {
         if message == nil {
             VStack(alignment: .leading, spacing: 20) {
                 Shelf(title: "Episodes", items: episodes) { item in

@@ -49,6 +49,8 @@ final class AppSession {
     }
     /// A Plex sign-in's plex.tv side; nil on Jellyfin and Emby.
     private(set) var plexLink: PlexLink?
+    /// The plex.tv account's token, for services that sign in with Plex (Seerr).
+    var plexAccountToken: String? { plexLink?.accountToken }
     private(set) var userName: String?
     private(set) var userId: String?
 

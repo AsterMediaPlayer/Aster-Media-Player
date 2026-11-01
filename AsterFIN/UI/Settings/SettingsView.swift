@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, tracking, channels, serverPlugins, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, tracking, requests, channels, serverPlugins, tabBar, downloads, account, about
     /// A saved server's page under Account, and its Lock After choices, by
     /// the server's id. Registered here at the root with the others: pages
     /// registered further in froze Apple TV when they opened one more.
@@ -46,6 +46,9 @@ struct SettingsView: View {
                         Label("Tracking", systemImage: "checklist")
                     }
                 }
+                NavigationLink(value: SettingsDestination.requests) {
+                    Label("Requests", systemImage: "plus.rectangle.on.rectangle")
+                }
                 if session.isJellyfin {
                     NavigationLink(value: SettingsDestination.channels) {
                         Label("Channels", systemImage: "tv.and.mediabox")
@@ -83,6 +86,7 @@ struct SettingsView: View {
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
             case .tracking: TrackingSettingsView()
+            case .requests: SeerrSettingsView()
             case .channels: ChannelSettingsView()
             case .serverPlugins: ServerPluginsSettingsView()
             case .tabBar:
@@ -131,6 +135,8 @@ struct MacSettingsView: View {
                 TrackingSettingsView()
                     .tabItem { Label("Tracking", systemImage: "checklist") }
             }
+            SeerrSettingsView()
+                .tabItem { Label("Requests", systemImage: "plus.rectangle.on.rectangle") }
             ChannelSettingsView()
                 .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
             if session.isJellyfin {
@@ -148,7 +154,7 @@ struct MacSettingsView: View {
         }
         // Wide enough for every pane's tab in the bar (eight on Jellyfin);
         // at 560 the last ones fell off the end.
-        .frame(width: 820)
+        .frame(width: 920)
         .frame(minHeight: 380)
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }

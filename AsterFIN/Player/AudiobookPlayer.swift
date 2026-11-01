@@ -294,10 +294,11 @@ final class AudiobookPlayer {
                 hasStarted = true
                 lastReport = Date()
                 report(paused: !playing, start: true)
-                sonosCommand { _ in
-                    try await room.seek(track: part + 1)
-                    if seconds > 1 { try await room.seek(to: seconds) }
-                    if playing { try await room.play() } else { try await room.pause() }
+                // Until the room is there, what it says isn't the place.
+                sonosSettleUntil = Date().addingTimeInterval(30)
+                Task { [weak self] in
+                    try? await room.start(track: part + 1, at: seconds, playing: playing)
+                    self?.sonosSettleUntil = Date().addingTimeInterval(2)
                 }
             }
             publishNowPlaying()
@@ -566,9 +567,7 @@ final class AudiobookPlayer {
                 try await room.enqueue(tracks)
                 try await room.playFromQueue()
                 try? await room.setPlayMode(.normal)
-                try await room.seek(track: number)
-                if seconds > 1 { try? await room.seek(to: seconds) }
-                if playing { try await room.play() }
+                try await room.start(track: number, at: seconds, playing: playing)
                 sonosSettleUntil = Date().addingTimeInterval(2)
             } catch {
                 sonosLost(error)

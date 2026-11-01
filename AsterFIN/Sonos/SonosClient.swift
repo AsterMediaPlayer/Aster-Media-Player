@@ -185,6 +185,39 @@ nonisolated struct SonosClient: Sendable {
         _ = try await call(.avTransport, "Seek", [("InstanceID", "0"), ("Unit", "REL_TIME"), ("Target", Self.clock(seconds))])
     }
 
+    /// Plays the queue's `track`th entry from `seconds` in. A speaker seeks
+    /// within a track only once it's playing it: a seek sent straight after
+    /// choosing the track failed, and the track (a whole audiobook) began
+    /// from the start. So it plays, waits until the speaker says so, seeks,
+    /// and checks where it landed, trying again for a while; then pauses
+    /// when it isn't to play on.
+    func start(track: Int, at seconds: TimeInterval, playing: Bool) async throws {
+        try await seek(track: track)
+        try await play()
+        if seconds > 1 {
+            var landed = false
+            for attempt in 0 ..< 15 where !landed {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 300 : 700))
+                guard (try? await transportState()) == .playing else { continue }
+                do {
+                    try await seek(to: seconds)
+                } catch {
+                    #if DEBUG
+                    print("DEBUG sonos: seek to \(Self.clock(seconds)) refused (try \(attempt + 1)): \(error)")
+                    #endif
+                    continue
+                }
+                if let position = try? await position(), abs(position.elapsed - seconds) < 20 {
+                    landed = true
+                }
+            }
+            #if DEBUG
+            print("DEBUG sonos: track \(track) \(landed ? "at" : "never reached") \(Self.clock(seconds))")
+            #endif
+        }
+        if !playing { try await pause() }
+    }
+
     func setPlayMode(_ mode: SonosPlayMode) async throws {
         _ = try await call(.avTransport, "SetPlayMode", [("InstanceID", "0"), ("NewPlayMode", mode.rawValue)])
     }

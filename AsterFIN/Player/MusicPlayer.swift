@@ -536,9 +536,7 @@ final class MusicPlayer {
                 try await room.enqueue(tracks)
                 try await room.playFromQueue()
                 try? await room.setPlayMode(mode)
-                try await room.seek(track: number)
-                if seconds > 1 { try? await room.seek(to: seconds) }
-                if playing { try await room.play() }
+                try await room.start(track: number, at: seconds, playing: playing)
                 sonosSettleUntil = Date().addingTimeInterval(2)
             } catch {
                 sonosLost(error)

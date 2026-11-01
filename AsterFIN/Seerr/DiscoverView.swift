@@ -551,6 +551,11 @@ private struct SeerrFilterBar: View {
             NavigationStack {
                 pickList(picking)
             }
+            #if os(macOS)
+            // A Mac sheet takes its content's size, and a list has none of
+            // its own: it opened as a sliver, looking empty.
+            .frame(minWidth: 420, idealWidth: 460, minHeight: 480, idealHeight: 560)
+            #endif
         }
         .task(id: filter.kind) { await loadChoices() }
     }

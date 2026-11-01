@@ -298,7 +298,9 @@ struct SeerrTitlePage: View {
 
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 16) {
+        // Room for a focused button to grow (on the TV) without running
+        // into the next: "Request All Seasons" ran into Trailer.
+        HStack(spacing: Self.actionSpacing) {
             if status.canRequest, title.isMovie || !open.isEmpty || seasons.isEmpty {
                 ActionButton(title: requestTitle, systemImage: "plus", prominent: true) {
                     if managesRequests {
@@ -435,6 +437,12 @@ struct SeerrTitlePage: View {
         guard names.count > kept + 1 else { return names.joined(separator: ", ") }
         return names.prefix(kept).joined(separator: ", ") + " and \(names.count - kept) more"
     }
+
+    #if os(tvOS)
+    private static let actionSpacing: CGFloat = 44
+    #else
+    private static let actionSpacing: CGFloat = 16
+    #endif
 
     #if os(tvOS)
     private static let factWidth: CGFloat = 360

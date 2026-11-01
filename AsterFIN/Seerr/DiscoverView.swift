@@ -43,7 +43,7 @@ struct DiscoverView: View {
         ZStack(alignment: .top) {
             switch shown {
             case .upcoming:
-                UpcomingView(keyboardTab: .discover)
+                UpcomingAgenda(topInset: pickerRoom)
             case let seerr?:
                 if let account = accounts.secrets.seerr, accounts.needsSignIn.contains("Seerr") {
                     signInAgain(account)

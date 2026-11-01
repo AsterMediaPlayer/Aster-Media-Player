@@ -119,8 +119,8 @@ final class UpcomingModel {
 }
 
 struct UpcomingView: View {
-    /// The tab it's shown in, for the Mac keyboard: Discover's.
-    var keyboardTab: AppTab = .discover
+    /// The tab it's shown in, for the Mac keyboard.
+    var keyboardTab: AppTab = .upcoming
 
     @Environment(AppSession.self) private var session
     @State private var model = UpcomingModel()

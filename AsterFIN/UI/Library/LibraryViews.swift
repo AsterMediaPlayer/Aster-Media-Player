@@ -400,6 +400,14 @@ struct TypeGridView: View {
 
     private var title: String { kind == .movie ? "Movies" : "TV Shows" }
 
+    /// TV Shows' Libraries row: the TV libraries, less the anime ones (the
+    /// Anime tab's). None on Movies.
+    private var libraries: [BaseItem] {
+        guard kind == .series else { return [] }
+        let anime = Set(session.animeLibraries.map(\.id))
+        return session.showLibraries.filter { !anime.contains($0.id) }
+    }
+
     private var indexed: Bool { sort == .name && !sections.isEmpty }
 
     private var query: ItemQuery {
@@ -453,6 +461,7 @@ struct TypeGridView: View {
         TypeGridHeader(
             title: title,
             featured: featured,
+            libraries: libraries,
             recent: recent,
             sort: $sort,
             letters: indexed ? sections.map(\.key) : [],
@@ -470,7 +479,7 @@ struct TypeGridView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !featured.isEmpty {
                         HeroCarousel(items: featured, moveDown: {
-                            focusedLockup = recent.first?.id
+                            focusedLockup = libraries.first?.id ?? recent.first?.id
                         }, focusChanged: { focused in
                             if focused { focusedLockup = nil }
                             heroFocused = focused
@@ -507,6 +516,13 @@ struct TypeGridView: View {
 
     @ViewBuilder
     private func page(_ reader: ScrollViewProxy) -> some View {
+        if !libraries.isEmpty {
+            Shelf(title: "Libraries", items: libraries) { library in
+                LibraryTile(library: library, focus: $focusedLockup)
+            }
+            .heroLanding($focusedLockup, on: libraries.first?.id, fromHero: heroFocused)
+            .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 0)
+        }
         HStack(alignment: .firstTextBaseline) {
             Text(title)
                 .font(.largeTitle.weight(.bold))
@@ -519,12 +535,12 @@ struct TypeGridView: View {
             .pickerStyle(.menu)
         }
         .padding(.horizontal, Lockup.screenPadding)
-        .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 20)
+        .padding(.top, featured.isEmpty && libraries.isEmpty ? Lockup.pageTopPadding : 20)
 
         Shelf(title: "Recently Added", items: recent) { item in
             LandscapeLockup(item: item, focus: $focusedLockup)
         }
-        .heroLanding($focusedLockup, on: recent.first?.id, fromHero: heroFocused)
+        .heroLanding($focusedLockup, on: libraries.isEmpty ? recent.first?.id : nil, fromHero: heroFocused)
 
         if model.items.isEmpty, let error = model.errorMessage {
             MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
@@ -632,6 +648,8 @@ struct TypeGridView: View {
 private struct TypeGridHeader: View {
     let title: String
     let featured: [BaseItem]
+    /// TV Shows' Libraries row, right below the hero.
+    let libraries: [BaseItem]
     let recent: [BaseItem]
     @Binding var sort: LibrarySort
     let letters: [String]
@@ -646,11 +664,19 @@ private struct TypeGridHeader: View {
         VStack(alignment: .leading, spacing: 0) {
             if !featured.isEmpty {
                 HeroCarousel(items: featured, moveDown: {
-                    focusedLockup = recent.first?.id
+                    focusedLockup = libraries.first?.id ?? recent.first?.id
                 }, focusChanged: { focused in
                     if focused { focusedLockup = nil }
                     heroFocused = focused
                 })
+            }
+            if !libraries.isEmpty {
+                Shelf(title: "Libraries", items: libraries) { library in
+                    LibraryTile(library: library, focus: $focusedLockup)
+                }
+                .heroLanding($focusedLockup, on: libraries.first?.id, fromHero: heroFocused)
+                .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 0)
+                .modifier(MiniPlayerRoom())
             }
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
@@ -664,13 +690,13 @@ private struct TypeGridHeader: View {
                 .pickerStyle(.menu)
             }
             .padding(.horizontal, Lockup.screenPadding)
-            .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 20)
+            .padding(.top, featured.isEmpty && libraries.isEmpty ? Lockup.pageTopPadding : 20)
             .modifier(MiniPlayerRoom())
 
             Shelf(title: "Recently Added", items: recent) { item in
                 LandscapeLockup(item: item, focus: $focusedLockup)
             }
-            .heroLanding($focusedLockup, on: recent.first?.id, fromHero: heroFocused)
+            .heroLanding($focusedLockup, on: libraries.isEmpty ? recent.first?.id : nil, fromHero: heroFocused)
 
             Text("All \(title)")
                 .font(.title3.weight(.semibold))

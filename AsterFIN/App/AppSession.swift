@@ -151,6 +151,8 @@ final class AppSession {
     private(set) var hasLiveTV = false
     /// The server's book libraries, which the Audiobooks tab browses.
     private(set) var bookLibraries: [BaseItem] = []
+    /// The TV show libraries, for the TV Shows page's Libraries row.
+    private(set) var showLibraries: [BaseItem] = []
 
     /// Whether shows in the library have episodes airing soon, which the
     /// Upcoming tab needs. Checked when the main screen loads.
@@ -172,6 +174,7 @@ final class AppSession {
         hasMusic = views.contains { $0.collectionType == "music" }
         hasLiveTV = views.contains { $0.collectionType == "livetv" }
         bookLibraries = views.filter { $0.collectionType == "books" }
+        showLibraries = views.filter { $0.collectionType == "tvshows" }
     }
 
     /// The tabs this server has something for.

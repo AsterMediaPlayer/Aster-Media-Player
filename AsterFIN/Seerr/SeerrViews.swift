@@ -59,6 +59,18 @@ struct SeerrSettingsView: View {
                         }
                     }
                 }
+                if let options, options.mediaServerType == 2, options.mediaServerLogin != false, let base = SeerrClient.address(address) {
+                    Section {
+                        SeerrQuickConnect(base: base) { account in
+                            accounts.signedInToSeerr(account)
+                            problem = nil
+                        }
+                    } footer: {
+                        Text(session.jellyfin == nil
+                             ? "Approve the code in Jellyfin, or sign in with a user name and password below."
+                             : "Signs in to Seerr as your Jellyfin user, with nothing to type. Needs Quick Connect turned on in Jellyfin.")
+                    }
+                }
                 if let options {
                     Section {
                         if options.signsInWithPlex, session.serverKind == .plex {
@@ -271,5 +283,88 @@ struct SeerrDiscoverShelf: View {
                 #endif
             }
         }
+    }
+}
+
+// MARK: - Quick Connect
+
+/// Signs in to Seerr with Jellyfin's Quick Connect. Signed in to that
+/// same Jellyfin, the app approves Seerr's code itself: one press, nothing
+/// to type, which suits the TV. Otherwise (Seerr uses another Jellyfin)
+/// the code shows, to approve in Jellyfin's Quick Connect page.
+struct SeerrQuickConnect: View {
+    let base: URL
+    var onSignedIn: (SeerrAccount) -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var code: String?
+    @State private var working = false
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                Task { await signIn() }
+            } label: {
+                Label(session.jellyfin == nil ? "Sign In with Quick Connect" : "Sign In with Jellyfin", systemImage: "bolt.horizontal.circle")
+            }
+            .disabled(working)
+            if working, code == nil {
+                ProgressView()
+            }
+            if let code {
+                Text("Approve this code in Jellyfin (Settings › Quick Connect):")
+                    .foregroundStyle(.secondary)
+                Text(code)
+                    .font(.system(.largeTitle, design: .monospaced).weight(.bold))
+                    .tracking(6)
+                    .textSelectionIfAvailable()
+            }
+            if let problem {
+                Text(problem).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func signIn() async {
+        working = true
+        problem = nil
+        code = nil
+        defer { working = false }
+        do {
+            let start = try await SeerrClient.quickConnectStart(base)
+            // Approved here when it's the same Jellyfin; else shown to approve.
+            if let jellyfin = session.jellyfin, (try? await jellyfin.quickConnectAuthorize(code: start.code)) == true {
+                // Approved; Seerr notices within a moment.
+            } else {
+                code = start.code
+            }
+            // Five minutes, as long as Jellyfin keeps a code.
+            for _ in 0 ..< 150 {
+                if try await SeerrClient.quickConnectApproved(base, secret: start.secret) {
+                    onSignedIn(try await SeerrClient.signIn(base, quickConnectSecret: start.secret))
+                    code = nil
+                    return
+                }
+                try await Task.sleep(for: .seconds(2))
+            }
+            code = nil
+            problem = "The code ran out. Try again."
+        } catch is CancellationError {
+        } catch {
+            code = nil
+            problem = (error as? LocalizedError)?.errorDescription ?? "Seerr's Quick Connect didn't work. Is Quick Connect turned on in Jellyfin?"
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func textSelectionIfAvailable() -> some View {
+        #if os(tvOS)
+        self
+        #else
+        textSelection(.enabled)
+        #endif
     }
 }

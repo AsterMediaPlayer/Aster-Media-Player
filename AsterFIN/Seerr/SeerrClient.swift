@@ -158,7 +158,16 @@ nonisolated enum SeerrClient {
 
     static func get<T: Decodable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
         let (data, response) = try await send(account.url, path, cookie: account.cookie)
-        if response.statusCode == 401 || response.statusCode == 403 { throw SeerrError.signedOut }
+        if response.statusCode == 401 { throw SeerrError.signedOut }
+        if response.statusCode == 403 {
+            // Seerr says 403 both to no session and to a user who may not
+            // see this; only the first is being signed out.
+            let (_, me) = try await send(account.url, "/auth/me", cookie: account.cookie)
+            #if DEBUG
+            print("DEBUG seerr: 403 for \(path); /auth/me answered \(me.statusCode)")
+            #endif
+            throw me.statusCode == 200 ? SeerrError.http(403) : SeerrError.signedOut
+        }
         guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -179,6 +188,33 @@ nonisolated enum SeerrClient {
     /// With the Plex account's own token, nothing to type.
     static func signIn(_ base: URL, plexToken: String) async throws -> SeerrAccount {
         try await signIn(base, "/auth/plex", ["authToken": plexToken])
+    }
+
+    /// Quick Connect through Seerr's Jellyfin: a code to approve there (or
+    /// for this app to approve itself, being signed in to it), and a secret
+    /// to ask after it with.
+    static func quickConnectStart(_ base: URL) async throws -> (code: String, secret: String) {
+        struct Reply: Decodable { var code: String; var secret: String }
+        let (data, response) = try await send(base, "/auth/jellyfin/quickconnect/initiate", method: "POST")
+        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
+        let reply = try JSONDecoder().decode(Reply.self, from: data)
+        return (reply.code, reply.secret)
+    }
+
+    /// Whether the code's been approved yet.
+    static func quickConnectApproved(_ base: URL, secret: String) async throws -> Bool {
+        struct Reply: Decodable { var authenticated: Bool }
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        let encoded = secret.addingPercentEncoding(withAllowedCharacters: allowed) ?? secret
+        let (data, response) = try await send(base, "/auth/jellyfin/quickconnect/check?secret=\(encoded)")
+        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
+        return try JSONDecoder().decode(Reply.self, from: data).authenticated
+    }
+
+    /// Signed in once the code's approved.
+    static func signIn(_ base: URL, quickConnectSecret secret: String) async throws -> SeerrAccount {
+        try await signIn(base, "/auth/jellyfin/quickconnect/authenticate", ["secret": secret])
     }
 
     /// With a Seerr account of its own (an email address and password).

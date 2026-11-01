@@ -19,7 +19,36 @@ struct DiscoverView: View {
     @State private var movieFilter = SeerrFilter(kind: .movie)
     @State private var seriesFilter = SeerrFilter(kind: .tv)
 
+    private let accounts = TrackerAccounts.shared
+
     var body: some View {
+        if let account = accounts.secrets.seerr, accounts.needsSignIn.contains("Seerr") {
+            signInAgain(account)
+        } else {
+            discover
+        }
+    }
+
+    /// Seerr's session ran out: sign in again right here.
+    private func signInAgain(_ account: SeerrAccount) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Sign In to Seerr Again")
+                .font(.largeTitle.weight(.bold))
+            Text("Seerr ended the session for \(account.name) at \(account.url.host() ?? account.url.absoluteString).")
+                .foregroundStyle(.secondary)
+            SeerrQuickConnect(base: account.url) { account in
+                accounts.signedInToSeerr(account)
+            }
+            Text("Or sign in with a password in Settings › Requests.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: 1000, alignment: .leading)
+        .padding(Lockup.screenPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var discover: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 24) {
                 Picker("Section", selection: $section) {
@@ -81,6 +110,7 @@ private func noteSeerrFailure(_ error: Error, _ what: String) {
 private struct DiscoverRows: View {
     @State private var sliders: [SeerrSlider] = []
     @State private var loaded = false
+    @State private var problem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -88,6 +118,12 @@ private struct DiscoverRows: View {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 120)
+            }
+            if loaded, sliders.isEmpty, let problem {
+                Text(problem)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Lockup.screenPadding)
+                    .padding(.vertical, 60)
             }
             ForEach(sliders, id: \.stableID) { slider in
                 SliderRow(slider: slider)
@@ -99,6 +135,7 @@ private struct DiscoverRows: View {
                 sliders = try await SeerrClient.sliders(account: account)
             } catch {
                 noteSeerrFailure(error, "Discover rows")
+                problem = "Seerr didn't send its Discover page (\((error as? LocalizedError)?.errorDescription ?? error.localizedDescription))."
             }
             loaded = true
         }

@@ -226,6 +226,14 @@ nonisolated final class JellyfinClient: MediaServer {
         try await get(QuickConnectResult.self, "/QuickConnect/Connect", query: ["secret": secret])
     }
 
+    /// Approves a Quick Connect code as the signed-in user: how this app
+    /// signs in to Seerr for them, with nothing to type.
+    /// False, or an error, when this server doesn't know the code (Seerr
+    /// asked another Jellyfin).
+    func quickConnectAuthorize(code: String) async throws -> Bool {
+        try await post(Bool.self, "/QuickConnect/Authorize", query: ["code": code, "userId": userId])
+    }
+
     func authenticateWithQuickConnect(secret: String) async throws -> AuthenticationResult {
         nonisolated struct Body: Encodable, Sendable { var Secret: String }
         return try await post(AuthenticationResult.self, "/Users/AuthenticateWithQuickConnect", body: Body(Secret: secret))

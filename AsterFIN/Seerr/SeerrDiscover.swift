@@ -179,6 +179,24 @@ nonisolated struct SeerrFilter: Hashable, Sendable {
 
     init(kind: Kind) { self.kind = kind }
 
+    /// TMDB's Animation genre.
+    static let animationGenre = 16
+
+    /// Anime: the Animation genre, originally in Japanese. Turning it off
+    /// takes both away, leaving any other genres chosen.
+    var isAnime: Bool {
+        get { genres.contains(Self.animationGenre) && language == "ja" }
+        set {
+            if newValue {
+                genres.insert(Self.animationGenre)
+                language = "ja"
+            } else {
+                genres.remove(Self.animationGenre)
+                if language == "ja" { language = nil }
+            }
+        }
+    }
+
     /// How many filters are set, for the Filters button.
     var activeCount: Int {
         [!genres.isEmpty, fromYear != nil || toYear != nil, minimumRating != nil,

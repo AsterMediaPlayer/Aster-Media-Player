@@ -473,6 +473,15 @@ private struct SeerrFilterBar: View {
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 16) {
+                // Anime: Animation from Japan, in one press.
+                Button {
+                    filter.isAnime.toggle()
+                } label: {
+                    Label("Anime", systemImage: filter.isAnime ? "checkmark" : "sparkles")
+                }
+                .chipStyle(selected: filter.isAnime)
+                .accessibilityValue(filter.isAnime ? "On" : "Off")
+
                 Menu {
                     Picker("Sort", selection: $filter.sort) {
                         ForEach(SeerrFilter.Sort.allCases) { Text($0.label).tag($0) }

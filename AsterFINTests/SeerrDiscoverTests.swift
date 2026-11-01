@@ -48,6 +48,22 @@ struct SeerrDiscoverTests {
         #expect(film.path(page: 1).contains("primaryReleaseDateGte=1990-01-01"))
     }
 
+    @Test func animeIsAnimationFromJapan() {
+        var filter = SeerrFilter(kind: .tv)
+        filter.genres = [10759]
+        filter.isAnime = true
+        #expect(filter.genres == [16, 10759])
+        #expect(filter.language == "ja")
+        #expect(filter.path(page: 1).contains("genre=16%2C10759"))
+        #expect(filter.path(page: 1).contains("language=ja"))
+        filter.isAnime = false
+        #expect(filter.genres == [10759])
+        #expect(filter.language == nil)
+        // Japanese alone, or Animation alone, isn't anime.
+        filter.language = "ja"
+        #expect(!filter.isAnime)
+    }
+
     @Test func eachRowsList() {
         func path(_ type: Int, _ data: String? = nil) -> String? {
             SeerrClient.titlesPath(for: SeerrSlider(type: type, data: data))?.path

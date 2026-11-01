@@ -91,6 +91,12 @@ struct SeerrTests {
         #expect(teased.trailerAppURL?.absoluteString == "youtube://watch/WS2spKg_z8M")
     }
 
+    @Test func longListsAreShortened() {
+        #expect(SeerrTitlePage.shortList(["Fuji TV", "Kansai TV", "TOS", "NST", "KTN"]) == "Fuji TV, Kansai TV, TOS and 2 more")
+        // One more is just shown, not "and 1 more".
+        #expect(SeerrTitlePage.shortList(["A", "B", "C", "D"]) == "A, B, C, D")
+    }
+
     @Test func aniListDescriptionsArePlain() {
         #expect(AniList.plainText("A <i>night</i> &amp; day.<br><br><br>(Source: Shogakukan)") == "A night & day.\n\n(Source: Shogakukan)")
     }

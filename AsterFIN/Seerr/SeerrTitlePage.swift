@@ -358,7 +358,7 @@ struct SeerrTitlePage: View {
             facts.append((title.isMovie ? "Release" : "Premiere", date.formatted(date: .long, time: .omitted)))
         }
         if let state = details.status, !state.isEmpty { facts.append(("Status", state)) }
-        if let networks = details.networks, !networks.isEmpty { facts.append(("Network", networks.map(\.name).joined(separator: ", "))) }
+        if let networks = details.networks, !networks.isEmpty { facts.append((networks.count == 1 ? "Network" : "Networks", Self.shortList(networks.map(\.name)))) }
         let studios = (details.productionCompanies ?? []).map(\.name)
         let shownStudios = studios.isEmpty ? (aniList?.studios ?? []) : studios
         if !shownStudios.isEmpty { facts.append(("Studio", shownStudios.prefix(3).joined(separator: ", "))) }
@@ -394,6 +394,13 @@ struct SeerrTitlePage: View {
         // Reachable by the remote, so the page scrolls down to it.
         .focusable()
         #endif
+    }
+
+    /// The first three, and how many more: a show on every local station
+    /// in Japan lists dozens.
+    static func shortList(_ names: [String], keeping kept: Int = 3) -> String {
+        guard names.count > kept + 1 else { return names.joined(separator: ", ") }
+        return names.prefix(kept).joined(separator: ", ") + " and \(names.count - kept) more"
     }
 
     #if os(tvOS)
@@ -442,6 +449,10 @@ struct SeerrTitlePage: View {
 /// A cast member: their photo in a circle, their name and part.
 private struct CastPortrait: View {
     let person: SeerrDetails.Person
+    #if os(tvOS)
+    /// Focusable so the remote can reach the row, and the page scrolls to it.
+    @FocusState private var focused: Bool
+    #endif
 
     #if os(tvOS)
     private let size: CGFloat = 160
@@ -454,6 +465,12 @@ private struct CastPortrait: View {
             RemoteImage(url: person.photoURL, systemImage: "person.fill")
                 .frame(width: size, height: size)
                 .clipShape(Circle())
+                #if os(tvOS)
+                .overlay(Circle().stroke(.white, lineWidth: focused ? 4 : 0))
+                .scaleEffect(focused ? 1.12 : 1)
+                .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 16, y: 8)
+                .animation(.easeOut(duration: 0.15), value: focused)
+                #endif
             Text(person.name).font(.caption.weight(.semibold)).lineLimit(1)
             if let character = person.character, !character.isEmpty {
                 Text(character).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -461,5 +478,9 @@ private struct CastPortrait: View {
         }
         .frame(width: size + 24)
         .accessibilityElement(children: .combine)
+        #if os(tvOS)
+        .focusable()
+        .focused($focused)
+        #endif
     }
 }

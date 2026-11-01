@@ -418,6 +418,7 @@ struct SeerrDestinationSheet: View {
                         Picker("Server", selection: serverBinding) {
                             ForEach(services) { Text($0.name).tag($0.id) }
                         }
+                        .destinationPickerStyle()
                     }
                     if let found = choices[options.serverId] {
                         if let folders = found.rootFolders, !folders.isEmpty {
@@ -426,16 +427,19 @@ struct SeerrDestinationSheet: View {
                                     Text(folderLabel(folder)).tag(Optional(folder.path))
                                 }
                             }
+                            .destinationPickerStyle()
                         }
                         if let profiles = found.profiles, !profiles.isEmpty {
                             Picker("Quality", selection: binding(\.profileId)) {
                                 ForEach(profiles) { Text($0.name).tag(Optional($0.id)) }
                             }
+                            .destinationPickerStyle()
                         }
                         if let languages = found.languageProfiles, !languages.isEmpty {
                             Picker("Language", selection: binding(\.languageProfileId)) {
                                 ForEach(languages) { Text($0.name).tag(Optional($0.id)) }
                             }
+                            .destinationPickerStyle()
                         }
                     } else {
                         ProgressView()
@@ -447,6 +451,14 @@ struct SeerrDestinationSheet: View {
                 if let problem {
                     Text(problem).foregroundStyle(.red)
                 }
+                #if os(tvOS)
+                // A TV sheet shows no toolbar: its buttons are here instead.
+                Section {
+                    Button(confirmTitle) { Task { await finish() } }
+                        .disabled(loading || working)
+                    Button("Cancel", role: .cancel) { dismiss() }
+                }
+                #endif
             }
             #if os(macOS)
             .formStyle(.grouped)
@@ -520,5 +532,19 @@ struct SeerrDestinationSheet: View {
         } catch {
             problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+}
+
+
+private extension View {
+    /// Menus on the TV, where a sheet's list-style pickers showed blank;
+    /// the platform's own style elsewhere.
+    @ViewBuilder
+    func destinationPickerStyle() -> some View {
+        #if os(tvOS)
+        pickerStyle(.menu)
+        #else
+        self
+        #endif
     }
 }

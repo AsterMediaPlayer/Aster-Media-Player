@@ -929,15 +929,35 @@ struct ItemDetailView: View {
         return "favorite"
     }
 
+    /// An episode that hasn't aired (Jellyfin's placeholder from the show's
+    /// schedule): nothing to play yet.
+    private var isUnaired: Bool { detail.kind == .episode && detail.locationType == "Virtual" }
+
     private var actionRow: some View {
         HStack(spacing: 20) {
             let resumable = detail.kind == .series ? (model.nextEpisode?.canResume ?? false) : detail.canResume
+            if isUnaired {
+                // When it airs, and its show, in Play's place.
+                if let seriesId = detail.seriesId {
+                    NavigationLink(value: BaseItem(id: seriesId, name: detail.seriesName, type: ItemKind.series.rawValue)) {
+                        Label("Go to Show", systemImage: "tv")
+                    }
+                    .actionButtonStyle(prominent: true)
+                    .focused($focusedAction, equals: "play")
+                }
+                if let airs = UpcomingSchedule.airsLine(for: detail) {
+                    Label(airs, systemImage: "calendar")
+                        .font(.headline)
+                        .padding(.horizontal, 8)
+                }
+            } else {
             ActionButton(title: playTitle(resumable: resumable), systemImage: "play.fill", prominent: true, focus: $focusedAction, focusID: "play") {
                 play(fromBeginning: false)
             }
             // For the episode bar, which lines the next episode up under it.
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { playButtonMidX = $0 }
-            if resumable {
+            }
+            if resumable, !isUnaired {
                 ActionButton(title: "From Beginning", systemImage: "arrow.counterclockwise", focus: $focusedAction, focusID: "beginning") {
                     play(fromBeginning: true)
                 }

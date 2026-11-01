@@ -85,10 +85,29 @@ nonisolated enum UpcomingSchedule {
         episode.locationType == "FileSystem"
     }
 
-    /// What a card or the hero opens: the episode when it can be watched,
-    /// else its show.
+    /// Whether the episode has anything of its own to show on a page: out
+    /// already, or with a summary or a real title (a placeholder has
+    /// neither, only "Episode 3").
+    static func hasDetails(_ episode: BaseItem) -> Bool {
+        if isAvailable(episode) { return true }
+        if let overview = episode.overview, !overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if let name = episode.name, !name.isEmpty, name != "Episode \(episode.indexNumber ?? -1)", !name.hasPrefix("TBA") { return true }
+        return false
+    }
+
+    /// "Airs Tomorrow", "Airs Thursday, November 14": for a page whose
+    /// episode isn't out yet.
+    static func airsLine(for episode: BaseItem, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let day = airDate(of: episode) else { return nil }
+        let countdown = countdown(to: day, from: now, calendar: calendar)
+        if countdown == "Today" || countdown == "Tomorrow" { return "Airs \(countdown)" }
+        return "Airs \(day.formatted(.dateTime.weekday(.wide).month(.wide).day()))"
+    }
+
+    /// What a card or the hero opens: the episode when it has a page worth
+    /// opening, else its show.
     static func destination(for episode: BaseItem) -> BaseItem {
-        if isAvailable(episode) { return episode }
+        if hasDetails(episode) { return episode }
         guard let seriesId = episode.seriesId else { return episode }
         return BaseItem(id: seriesId, name: episode.seriesName, type: ItemKind.series.rawValue)
     }

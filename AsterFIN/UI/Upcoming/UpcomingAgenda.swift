@@ -6,7 +6,8 @@
 //  as a desk calendar shows it (weekday, date, how far off), with that
 //  day's episodes beside it as wide pictures. The page takes the focused
 //  show's picture, softly, behind everything. No hero: every row is plain
-//  to move through, up to Discover's sections and back.
+//  to move through, up to Discover's sections and back. Anime and other
+//  shows can each be turned off at the top.
 //
 
 import SwiftUI
@@ -20,6 +21,28 @@ struct UpcomingAgenda: View {
     /// The episode with focus, whose show's picture fills the page.
     @FocusState private var focused: String?
     @State private var backdropEpisode: BaseItem?
+    /// Which kinds of show to list; either can be turned off at the top.
+    @AppStorage("AsterFIN.upcomingAnime") private var showsAnime = true
+    @AppStorage("AsterFIN.upcomingShows") private var showsTV = true
+
+    /// Whether an episode's show is anime (from the anime libraries found).
+    private func isAnime(_ episode: BaseItem) -> Bool {
+        session.animeItemIds.contains(episode.seriesId ?? "")
+    }
+
+    /// The days, less the kinds turned off, and days left empty by that.
+    private var days: [(day: Date, episodes: [BaseItem])] {
+        model.days.compactMap { entry in
+            let kept = entry.episodes.filter { isAnime($0) ? showsAnime : showsTV }
+            return kept.isEmpty ? nil : (entry.day, kept)
+        }
+    }
+
+    /// Both kinds are coming, so the switches are worth showing.
+    private var hasBothKinds: Bool {
+        let all = model.days.flatMap(\.episodes)
+        return all.contains(where: isAnime) && all.contains { !isAnime($0) }
+    }
 
     var body: some View {
         ZStack {
@@ -41,7 +64,7 @@ struct UpcomingAgenda: View {
             Task { await reload() }
         }
         .onChange(of: focused) { _, id in
-            guard let id, let episode = model.days.lazy.flatMap(\.episodes).first(where: { $0.id == id }) else { return }
+            guard let id, let episode = days.lazy.flatMap(\.episodes).first(where: { $0.id == id }) else { return }
             withAnimation(.easeInOut(duration: 0.6)) { backdropEpisode = episode }
         }
     }
@@ -50,7 +73,7 @@ struct UpcomingAgenda: View {
     private var backdrop: some View {
         ZStack {
             Color.black
-            if let episode = backdropEpisode ?? model.days.first?.episodes.first {
+            if let episode = backdropEpisode ?? days.first?.episodes.first {
                 RemoteImage(url: session.jellyfin?.backdropURL(for: episode, width: 1280)) { Color.black }
                     .blur(radius: 50)
                     .scaleEffect(1.15)
@@ -67,7 +90,16 @@ struct UpcomingAgenda: View {
     private var agenda: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: Self.daySpacing) {
-                ForEach(Array(model.days.enumerated()), id: \.element.day) { _, entry in
+                if hasBothKinds {
+                    kindSwitches
+                }
+                if days.isEmpty {
+                    Text("Turn on Anime or TV Shows above to see what's coming.")
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Lockup.screenPadding)
+                        .padding(.vertical, 60)
+                }
+                ForEach(Array(days.enumerated()), id: \.element.day) { _, entry in
                     day(entry.day, entry.episodes)
                 }
             }
@@ -75,6 +107,26 @@ struct UpcomingAgenda: View {
             .padding(.bottom, Lockup.pageBottomPadding)
         }
         .scrollClipDisabled()
+    }
+
+    /// Anime and TV Shows, each on or off.
+    private var kindSwitches: some View {
+        HStack(spacing: 16) {
+            kindSwitch("Anime", systemImage: "sparkles", isOn: $showsAnime)
+            kindSwitch("TV Shows", systemImage: "tv", isOn: $showsTV)
+        }
+        .padding(.horizontal, Lockup.screenPadding)
+        .padding(.bottom, 8)
+    }
+
+    private func kindSwitch(_ title: String, systemImage: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) { isOn.wrappedValue.toggle() }
+        } label: {
+            Label(title, systemImage: isOn.wrappedValue ? "checkmark" : systemImage)
+        }
+        .chipStyle(selected: isOn.wrappedValue)
+        .accessibilityValue(isOn.wrappedValue ? "Shown" : "Hidden")
     }
 
     private func day(_ day: Date, _ episodes: [BaseItem]) -> some View {

@@ -592,30 +592,35 @@ nonisolated struct SeerrServiceChoices: Decodable, Sendable {
     var languageProfiles: [Named]?
 }
 
-/// Where a request goes: the server, quality, folder and language.
+/// Where a request goes: the server, quality, folder and language, and
+/// whether it's for the 4K copy (a 4K server's, which Seerr keeps apart).
 nonisolated struct SeerrRequestOptions: Hashable, Sendable {
     var serverId: Int
     var profileId: Int?
     var rootFolder: String?
     var languageProfileId: Int?
+    var is4k = false
 
     /// The server's defaults, its anime ones for an anime show.
     init(server: SeerrService, anime: Bool) {
         serverId = server.id
+        is4k = server.is4k ?? false
         profileId = (anime ? server.activeAnimeProfileId : nil) ?? server.activeProfileId
         rootFolder = (anime ? server.activeAnimeDirectory.flatMap { $0.isEmpty ? nil : $0 } : nil) ?? server.activeDirectory
         languageProfileId = (anime ? server.activeAnimeLanguageProfileId : nil) ?? server.activeLanguageProfileId
     }
 
-    init(serverId: Int, profileId: Int?, rootFolder: String?, languageProfileId: Int?) {
+    init(serverId: Int, profileId: Int?, rootFolder: String?, languageProfileId: Int?, is4k: Bool = false) {
         self.serverId = serverId
         self.profileId = profileId
         self.rootFolder = rootFolder
         self.languageProfileId = languageProfileId
+        self.is4k = is4k
     }
 
     func add(to body: inout [String: Any]) {
         body["serverId"] = serverId
+        body["is4k"] = is4k
         if let profileId { body["profileId"] = profileId }
         if let rootFolder { body["rootFolder"] = rootFolder }
         if let languageProfileId { body["languageProfileId"] = languageProfileId }
@@ -623,11 +628,13 @@ nonisolated struct SeerrRequestOptions: Hashable, Sendable {
 }
 
 nonisolated extension SeerrClient {
-    /// The Sonarr (`tv`) or Radarr (`movie`) servers, 4K ones left out:
-    /// Aster asks for the usual copy.
-    static func services(_ kind: SeerrFilter.Kind, account: SeerrAccount) async throws -> [SeerrService] {
+    /// The Sonarr (`tv`) or Radarr (`movie`) servers, the usual ones first,
+    /// then the 4K ones; only the 4K ones (`fourK` true) or only the usual
+    /// ones (false) when asked.
+    static func services(_ kind: SeerrFilter.Kind, fourK: Bool? = nil, account: SeerrAccount) async throws -> [SeerrService] {
         try await get([SeerrService].self, account, kind == .tv ? "/service/sonarr" : "/service/radarr")
-            .filter { $0.is4k != true }
+            .filter { fourK == nil || ($0.is4k ?? false) == fourK }
+            .sorted { ($0.is4k ?? false ? 1 : 0) < ($1.is4k ?? false ? 1 : 0) }
     }
 
     static func serviceChoices(_ kind: SeerrFilter.Kind, server: Int, account: SeerrAccount) async throws -> SeerrServiceChoices {

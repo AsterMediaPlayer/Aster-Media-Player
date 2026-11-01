@@ -803,7 +803,9 @@ private struct SeerrRequestsList: View {
         .sheet(item: $editing) { request in
             SeerrDestinationSheet(
                 kind: request.type == "movie" ? .movie : .tv,
-                current: request.serverId.map { SeerrRequestOptions(serverId: $0, profileId: request.profileId, rootFolder: request.rootFolder, languageProfileId: request.languageProfileId) },
+                current: request.serverId.map { SeerrRequestOptions(serverId: $0, profileId: request.profileId, rootFolder: request.rootFolder, languageProfileId: request.languageProfileId, is4k: request.is4k ?? false) },
+                // A 4K request stays one; a usual one stays usual.
+                fourK: request.is4k ?? false,
                 confirmTitle: "Save"
             ) { options in
                 guard let options, let account = seerrAccount() else { return }

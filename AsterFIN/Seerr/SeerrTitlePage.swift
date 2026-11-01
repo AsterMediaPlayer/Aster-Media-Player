@@ -132,6 +132,11 @@ struct SeerrTitlePage: View {
     /// An admin picks where the request goes (server, folder, quality).
     @State private var managesRequests = false
     @State private var choosingDestination = false
+    /// Where the 4K copy stands, and whether Seerr has a 4K Radarr to ask.
+    @State private var status4k: SeerrStatus = .unknown
+    @State private var has4KServer = false
+    /// The sheet is for the 4K copy.
+    @State private var choosing4K = false
 
     init(title: SeerrTitle) {
         self.title = title
@@ -192,7 +197,9 @@ struct SeerrTitlePage: View {
             Text("The trailer plays in the YouTube app. Install it from the App Store, then try again.")
         }
         .sheet(isPresented: $choosingDestination) {
-            SeerrDestinationSheet(kind: title.isMovie ? .movie : .tv, anime: isAnime, confirmTitle: requestTitle) { options in
+            SeerrDestinationSheet(kind: title.isMovie ? .movie : .tv, anime: isAnime,
+                                  fourK: choosing4K ? true : nil,
+                                  confirmTitle: choosing4K ? "Request in 4K" : requestTitle) { options in
                 try await request(options: options)
             }
         }
@@ -304,6 +311,7 @@ struct SeerrTitlePage: View {
             if status.canRequest, title.isMovie || !open.isEmpty || seasons.isEmpty {
                 ActionButton(title: requestTitle, systemImage: "plus", prominent: true) {
                     if managesRequests {
+                        choosing4K = false
                         choosingDestination = true
                     } else {
                         Task { try? await request() }
@@ -312,6 +320,19 @@ struct SeerrTitlePage: View {
                 .disabled(working || (!title.isMovie && !seasons.isEmpty && chosen.isEmpty))
             } else if let label = status.label {
                 Label(label, systemImage: status == .available ? "checkmark.circle.fill" : "clock")
+                    .font(.headline)
+                    .padding(.vertical, 10)
+            }
+            // An admin's 4K copy of a film, kept apart by Seerr: asked for
+            // even when the usual copy is already there.
+            if title.isMovie, managesRequests, has4KServer, status4k.canRequest {
+                ActionButton(title: "Request in 4K", systemImage: "4k.tv") {
+                    choosing4K = true
+                    choosingDestination = true
+                }
+                .disabled(working)
+            } else if title.isMovie, managesRequests, has4KServer, let label = status4k.label {
+                Label("4K \(label)", systemImage: "4k.tv")
                     .font(.headline)
                     .padding(.vertical, 10)
             }
@@ -462,7 +483,11 @@ struct SeerrTitlePage: View {
     private func load() async {
         guard let account = accounts.secrets.seerr else { return }
         managesRequests = await SeerrPermissions.managesRequests(account)
+        if managesRequests, title.isMovie {
+            has4KServer = !((try? await SeerrClient.services(.movie, fourK: true, account: account)) ?? []).isEmpty
+        }
         guard let found = try? await SeerrClient.details(title, account: account) else { return }
+        status4k = found.mediaInfo?.status4k ?? .unknown
         details = found
         if let known = found.mediaInfo?.status { status = known }
         // New anime often have nothing yet on TMDB: AniList may.
@@ -483,6 +508,12 @@ struct SeerrTitlePage: View {
         defer { working = false }
         do {
             try await SeerrClient.request(title, seasons: chosen.sorted(), options: options, account: account)
+            // A 4K request leaves the usual copy as it was.
+            if options?.is4k == true {
+                status4k = .pending
+                problem = nil
+                return
+            }
             status = .pending
             seasons = seasons.map { season in
                 chosen.contains(season.number) ? (season.number, season.episodes, .pending) : season

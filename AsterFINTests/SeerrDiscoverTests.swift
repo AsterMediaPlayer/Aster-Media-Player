@@ -130,6 +130,20 @@ struct SeerrDiscoverTests {
         #expect(body["rootFolder"] as? String == "/data/anime")
     }
 
+    /// A 4K server's request is marked 4K, which Seerr keeps apart.
+    @Test func aFourKServersRequestsAreFourK() throws {
+        let radarr4k = try JSONDecoder().decode(SeerrService.self, from: Data(#"{"id": 1, "name": "Radarr 4K", "is4k": true, "isDefault": true, "activeProfileId": 6, "activeDirectory": "/data/movies-4k"}"#.utf8))
+        let options = SeerrRequestOptions(server: radarr4k, anime: false)
+        #expect(options.is4k)
+        var body: [String: Any] = [:]
+        options.add(to: &body)
+        #expect(body["is4k"] as? Bool == true)
+        #expect(body["rootFolder"] as? String == "/data/movies-4k")
+        let film = try JSONDecoder().decode(SeerrTitle.self, from: Data(#"{"id": 3, "mediaType": "movie", "title": "Dune", "mediaInfo": {"status": 5, "status4k": 1}}"#.utf8))
+        #expect(film.status == .available)
+        #expect(film.mediaInfo?.status4k?.canRequest == true)
+    }
+
     @Test func aServersChoicesAreRead() throws {
         let choices = try JSONDecoder().decode(SeerrServiceChoices.self, from: Data(#"{"server": {"id": 0, "name": "Sonarr"}, "profiles": [{"id": 4, "name": "HD-1080p"}], "rootFolders": [{"id": 1, "freeSpace": 2100000000000, "path": "/data/anime", "totalSpace": 4000000000000}], "languageProfiles": null, "tags": []}"#.utf8))
         #expect(choices.profiles?.first?.name == "HD-1080p")

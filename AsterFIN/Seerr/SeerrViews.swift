@@ -398,6 +398,8 @@ struct SeerrDestinationSheet: View {
     var anime = false
     /// What's set already, when changing a pending request.
     var current: SeerrRequestOptions?
+    /// Only the 4K servers (true), only the usual ones (false), or both.
+    var fourK: Bool?
     var confirmTitle = "Request"
     /// Nil when Seerr has no server to choose (it then uses its default).
     let confirm: (SeerrRequestOptions?) async throws -> Void
@@ -419,7 +421,10 @@ struct SeerrDestinationSheet: View {
                 } else if let options {
                     if services.count > 1 {
                         Picker("Server", selection: serverBinding) {
-                            ForEach(services) { Text($0.name).tag($0.id) }
+                            ForEach(services) { server in
+                                Text(server.is4k == true && !server.name.localizedCaseInsensitiveContains("4k") ? "\(server.name) (4K)" : server.name)
+                                    .tag(server.id)
+                            }
                         }
                         .destinationPickerStyle()
                     }
@@ -511,13 +516,16 @@ struct SeerrDestinationSheet: View {
         defer { loading = false }
         guard let account = accounts.secrets.seerr else { return }
         do {
-            services = try await SeerrClient.services(kind, account: account)
+            services = try await SeerrClient.services(kind, fourK: fourK, account: account)
         } catch {
             problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return
         }
-        let start = current.flatMap { current in services.first { $0.id == current.serverId } }
-            ?? services.first { $0.isDefault == true } ?? services.first
+        // The request's own server; else the default (the usual copy's,
+        // unless only 4K ones are offered).
+        let start = current.flatMap { current in services.first { $0.id == current.serverId && ($0.is4k ?? false) == current.is4k } }
+            ?? services.first { $0.isDefault == true && ($0.is4k ?? false) == (fourK ?? false) }
+            ?? services.first
         guard let start else { return }
         options = current?.serverId == start.id ? current : SeerrRequestOptions(server: start, anime: anime)
         await loadChoices(for: start.id)

@@ -49,6 +49,8 @@ nonisolated struct SeerrTitle: Decodable, Sendable, Hashable, Identifiable {
 
     struct MediaInfo: Decodable, Sendable, Hashable {
         var status: SeerrStatus?
+        /// The 4K copy's, kept apart by Seerr.
+        var status4k: SeerrStatus?
         var seasons: [SeasonStatus]?
         var jellyfinMediaId: String?
         var ratingKey: String?

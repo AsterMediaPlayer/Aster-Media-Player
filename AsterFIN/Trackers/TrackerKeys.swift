@@ -11,7 +11,9 @@
 //  AniList: anilist.co/settings/developer, redirect URL aster://anilist-auth
 //  MyAnimeList: myanimelist.net/apiconfig, app type "other",
 //               redirect URL aster://mal-auth
-//  Trakt: trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob
+//  Trakt: developer.trakt.tv/apps, redirect URI http://localhost (the code
+//         sign-in uses none; a Development app takes only localhost, and
+//         lets in only the people added to it)
 //  Simkl: simkl.com/settings/developer, redirect URL aster://simkl-auth
 //
 //  Trakt's sign-in also takes its client secret, which stays off the public

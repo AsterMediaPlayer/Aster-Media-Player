@@ -126,7 +126,7 @@ nonisolated enum Trakt {
     static func refreshed(_ tokens: Tokens) async throws -> Tokens {
         let (data, status) = try await request("/oauth/token", method: "POST", body: [
             "refresh_token": tokens.refresh, "client_id": TrackerKeys.traktClientId, "client_secret": TrackerKeys.traktClientSecret,
-            "redirect_uri": "urn:ietf:wg:oauth:2.0:oob", "grant_type": "refresh_token",
+            "redirect_uri": "http://localhost", "grant_type": "refresh_token",
         ])
         if status == 400 || status == 401 { throw TrackerError.signedOut }
         guard status == 200 else { throw TrackerError.http(status) }

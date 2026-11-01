@@ -184,6 +184,11 @@ struct AnimeView: View {
                             LandscapeLockup(item: item, showSeriesTitle: false)
                         }
                     }
+                    // Starting this season and next, to request from Seerr
+                    // (when it's set up): last at the foot of the page.
+                    SeerrDiscoverShelf(title: "Upcoming Anime") { account in
+                        try await SeerrClient.upcomingAnime(account: account)
+                    }
                     }
                     .padding(.trailing, themeMiniInset)
                     .animation(.smooth(duration: 0.4), value: themeMiniInset)

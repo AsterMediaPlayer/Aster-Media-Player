@@ -36,7 +36,8 @@ nonisolated enum SeerrStatus: Int, Codable, Sendable {
 /// A film or show as Seerr lists it (from TMDB).
 nonisolated struct SeerrTitle: Decodable, Sendable, Hashable, Identifiable {
     var id: Int
-    var mediaType: String
+    /// "movie" or "tv"; Discover's rows of one kind may leave it out.
+    var mediaType: String?
     var title: String?
     var name: String?
     var releaseDate: String?
@@ -216,13 +217,59 @@ nonisolated enum SeerrClient {
         return page.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
     }
 
+    /// Anime starting or airing around now: Japanese animation first airing
+    /// from the first of last month to six months on, newest first, as
+    /// Seerr's own Discover filters write it.
+    static func upcomingAnime(account: SeerrAccount, now: Date = Date()) async throws -> [SeerrTitle] {
+        let window = upcomingWindow(from: now)
+        var items = [
+            URLQueryItem(name: "language", value: "server|ja"),
+            URLQueryItem(name: "sortBy", value: "first_air_date.desc"),
+            URLQueryItem(name: "firstAirDateGte", value: window.from),
+            URLQueryItem(name: "firstAirDateLte", value: window.to),
+            URLQueryItem(name: "genre", value: "16"),
+        ]
+        struct Page: Decodable { var results: [SeerrTitle]; var totalPages: Int? }
+        var found: [SeerrTitle] = []
+        // Two pages at most: forty titles is plenty for a row.
+        for page in 1 ... 2 {
+            items.removeAll { $0.name == "page" }
+            items.append(URLQueryItem(name: "page", value: String(page)))
+            var components = URLComponents()
+            components.queryItems = items
+            let query = components.percentEncodedQuery?.replacingOccurrences(of: "|", with: "%7C") ?? ""
+            let reply = try await get(Page.self, account, "/discover/tv?\(query)")
+            found += reply.results.map { title in
+                var title = title
+                title.mediaType = "tv"
+                return title
+            }
+            if page >= (reply.totalPages ?? 1) { break }
+        }
+        return found
+    }
+
+    /// "2026-10-01" to "2027-04-01": the first of last month, and six months on.
+    static func upcomingWindow(from now: Date) -> (from: String, to: String) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let thisMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+        let start = calendar.date(byAdding: .month, value: -1, to: thisMonth) ?? thisMonth
+        let end = calendar.date(byAdding: .month, value: 6, to: start) ?? start
+        let format = DateFormatter()
+        format.calendar = calendar
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        return (format.string(from: start), format.string(from: end))
+    }
+
     static func show(_ id: Int, account: SeerrAccount) async throws -> SeerrShow {
         try await get(SeerrShow.self, account, "/tv/\(id)")
     }
 
     /// Asks for a film, or for these seasons of a show.
     static func request(_ title: SeerrTitle, seasons: [Int] = [], account: SeerrAccount) async throws {
-        var body: [String: Any] = ["mediaType": title.mediaType, "mediaId": title.id]
+        var body: [String: Any] = ["mediaType": title.isMovie ? "movie" : "tv", "mediaId": title.id]
         if !title.isMovie { body["seasons"] = seasons }
         let (data, response) = try await send(account.url, "/request", method: "POST", body: body, cookie: account.cookie)
         if response.statusCode == 401 { throw SeerrError.signedOut }

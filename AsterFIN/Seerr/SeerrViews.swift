@@ -332,3 +332,46 @@ struct SeerrRequestSheet: View {
         }
     }
 }
+
+// MARK: - Discover
+
+/// A row of titles from Seerr to request, as library items look: Upcoming
+/// Anime on the Anime tab. Each opens the request sheet (details, seasons,
+/// Request). Nothing shows without a Seerr sign-in, or with nothing found.
+struct SeerrDiscoverShelf: View {
+    let title: String
+    let load: @Sendable (SeerrAccount) async throws -> [SeerrTitle]
+
+    private let accounts = TrackerAccounts.shared
+    @State private var titles: [SeerrTitle] = []
+    @State private var requesting: SeerrTitle?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Shelf(title: title, items: titles) { item in
+                SeerrTitleLockup(title: item) { requesting = item }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: accounts.secrets.seerr?.cookie) {
+            guard let account = accounts.secrets.seerr, !accounts.needsSignIn.contains("Seerr") else {
+                titles = []
+                return
+            }
+            do {
+                titles = try await load(account)
+            } catch SeerrError.signedOut {
+                accounts.seerrSignedOut()
+            } catch {
+                #if DEBUG
+                print("DEBUG seerr: \(title) failed: \(error)")
+                #endif
+            }
+        }
+        .sheet(item: $requesting) { item in
+            SeerrRequestSheet(title: item) { updated in
+                if let index = titles.firstIndex(where: { $0.id == updated.id }) { titles[index] = updated }
+            }
+        }
+    }
+}

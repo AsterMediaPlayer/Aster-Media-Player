@@ -44,6 +44,24 @@ struct SeerrTests {
         #expect(partly[0].episodes == 12)
     }
 
+    /// From the first of last month to six months on, whatever the day.
+    @Test func upcomingAnimesWindow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let today = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 6)))
+        #expect(SeerrClient.upcomingWindow(from: today) == ("2026-10-01", "2027-04-01"))
+        let january = try #require(calendar.date(from: DateComponents(year: 2027, month: 1, day: 31)))
+        #expect(SeerrClient.upcomingWindow(from: january) == ("2026-12-01", "2027-06-01"))
+    }
+
+    /// Discover's rows may leave out what kind each title is.
+    @Test func discoverTitlesWithoutAKind() throws {
+        let title = try JSONDecoder().decode(SeerrTitle.self, from: Data(#"{"id":326247,"name":"Fool Night","firstAirDate":"2026-11-26","posterPath":"/x.jpg"}"#.utf8))
+        #expect(title.displayTitle == "Fool Night")
+        #expect(title.mediaType == nil)
+        #expect(!title.isMovie)
+    }
+
     @Test func addressesAreRead() {
         #expect(SeerrClient.address("192.168.1.240:5055")?.absoluteString == "http://192.168.1.240:5055")
         #expect(SeerrClient.address(" https://requests.example.com/ ")?.absoluteString == "https://requests.example.com")

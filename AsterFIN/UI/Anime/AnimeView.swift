@@ -194,7 +194,14 @@ struct AnimeView: View {
                     .animation(.smooth(duration: 0.4), value: themeMiniInset)
                 }
             }
+            // The page runs under the tab bar (it ignores the safe area for
+            // the hero), so on a phone or tablet the last row's titles need
+            // the bar's height and the home indicator's below them.
+            #if os(iOS)
+            .padding(.bottom, 110)
+            #else
             .padding(.bottom, Lockup.pageBottomPadding)
+            #endif
         }
         .scrollClipDisabled()
         .ignoresSafeArea()

@@ -1027,6 +1027,7 @@ final class AetherPlayback {
             let final = report(paused: true)
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         } else if isConverted, let playSessionId {
             let client = client
             Task { await client.stopTranscoding(playSessionId: playSessionId) }
@@ -1089,6 +1090,7 @@ final class AetherPlayback {
         if hasStarted, !stopReported, reportsPlayback {
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         } else if isConverted, let playSessionId {
             // Nothing reports a channel's stream, so its encode is ended here.
             let client = client
@@ -1122,6 +1124,7 @@ final class AetherPlayback {
             if engine.duration > 0 { final.positionTicks = Int64(engine.duration * 10_000_000) }
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         }
         guard upNext != nil else { return false }
         endCardVisible = true
@@ -1141,6 +1144,7 @@ final class AetherPlayback {
             let final = report(paused: true)
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         }
         play(next, entry: PlaybackQueueItem(itemId: next.id, startTicks: next.userData?.playbackPositionTicks ?? 0))
     }

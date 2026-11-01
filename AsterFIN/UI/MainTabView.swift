@@ -179,6 +179,12 @@ struct MainTabView: View {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }
             await session.refreshChannels()
         }
+        // The tracking accounts, as any Aster app last left them.
+        .task {
+            if let client = session.client, let user = session.userId {
+                await TrackerAccounts.shared.load(client: client, userId: user)
+            }
+        }
         .task {
             guard let client = session.client else { return }
             await session.refreshUserConfiguration()
@@ -195,7 +201,11 @@ struct MainTabView: View {
             // Leaving: a fresh twelve hours for the On Now widget.
             if phase == .background { ChannelTuner.writeOnNowGuide() }
             #endif
-            guard phase == .active, old == .background, let client = session.jellyfin else { return }
+            guard phase == .active, old == .background else { return }
+            if let client = session.client, let user = session.userId {
+                Task { await TrackerAccounts.shared.load(client: client, userId: user) }
+            }
+            guard let client = session.jellyfin else { return }
             Task {
                 await SettingsSync.pull(client: client)
                 await session.refreshChannels()

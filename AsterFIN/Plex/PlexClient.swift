@@ -451,6 +451,40 @@ nonisolated final class PlexClient: MediaServer {
     /// Plex has no per-device sign-in to end on the server.
     func logout() async {}
 
+    // MARK: Aster's own settings
+
+    /// The playlist Aster keeps its synced settings in: Plex keeps nothing
+    /// for an app, but a playlist is the Plex user's own, and may be empty.
+    /// Its description holds them (the tracking accounts, scrambled). The
+    /// Aster apps leave it out of their playlist lists.
+    static let settingsPlaylistTitle = "Aster Settings (keep)"
+
+    private func settingsPlaylist() async -> PlexMetadata? {
+        let all = (try? await container("/playlists", query: ["playlistType": "video"]).metadata) ?? []
+        return all.first { $0.title == Self.settingsPlaylistTitle }
+    }
+
+    /// The settings playlist's description, nil when there's none yet.
+    func asterSettingsNote() async -> String? {
+        guard let playlist = await settingsPlaylist() else { return nil }
+        // The list may leave the description out: the playlist's own page has it.
+        if let summary = playlist.summary, !summary.isEmpty { return summary }
+        return try? await container("/playlists/\(playlist.ratingKey)").metadata?.first?.summary
+    }
+
+    /// Writes the settings playlist's description, making the playlist first.
+    func setAsterSettingsNote(_ note: String) async {
+        var key = await settingsPlaylist()?.ratingKey
+        if key == nil {
+            let made = try? await perform(request(url("/playlists", query: [
+                "type": "video", "title": Self.settingsPlaylistTitle, "smart": "0", "uri": "",
+            ]), method: "POST"))
+            key = made.flatMap { try? JSONDecoder().decode(PlexReply.self, from: $0) }?.mediaContainer.metadata?.first?.ratingKey
+        }
+        guard let key else { return }
+        _ = try? await perform(request(url("/playlists/\(key)", query: ["summary": note]), method: "PUT"))
+    }
+
     // MARK: Anime
 
     /// Libraries matched by an anime agent (Shoko, HAMA or AniDB), and

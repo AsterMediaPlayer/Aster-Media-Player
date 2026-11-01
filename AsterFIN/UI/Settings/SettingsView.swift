@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, channels, serverPlugins, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, tracking, channels, serverPlugins, tabBar, downloads, account, about
     /// A saved server's page under Account, and its Lock After choices, by
     /// the server's id. Registered here at the root with the others: pages
     /// registered further in froze Apple TV when they opened one more.
@@ -39,6 +39,12 @@ struct SettingsView: View {
                 }
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
+                }
+                // Only once Aster has the services' app ids (see TrackerKeys).
+                if TrackerAccounts.isAvailable {
+                    NavigationLink(value: SettingsDestination.tracking) {
+                        Label("Tracking", systemImage: "checklist")
+                    }
                 }
                 if session.isJellyfin {
                     NavigationLink(value: SettingsDestination.channels) {
@@ -76,6 +82,7 @@ struct SettingsView: View {
             case .audioSubtitles: AudioSubtitleSettingsView()
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
+            case .tracking: TrackingSettingsView()
             case .channels: ChannelSettingsView()
             case .serverPlugins: ServerPluginsSettingsView()
             case .tabBar:
@@ -120,6 +127,10 @@ struct MacSettingsView: View {
                 .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
+            if TrackerAccounts.isAvailable {
+                TrackingSettingsView()
+                    .tabItem { Label("Tracking", systemImage: "checklist") }
+            }
             ChannelSettingsView()
                 .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
             if session.isJellyfin {
@@ -137,7 +148,7 @@ struct MacSettingsView: View {
         }
         // Wide enough for every pane's tab in the bar (eight on Jellyfin);
         // at 560 the last ones fell off the end.
-        .frame(width: 720)
+        .frame(width: 820)
         .frame(minHeight: 380)
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }

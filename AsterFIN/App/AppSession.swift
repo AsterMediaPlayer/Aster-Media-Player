@@ -757,6 +757,13 @@ enum AppSettings {
         UserDefaults.standard.object(forKey: themeCardsKey) as? Bool ?? true
     }
 
+    /// Watched anime episodes and films sent to the tracking accounts.
+    /// On by default; kept on the device.
+    static let trackWatchingKey = "AsterFIN.trackWatching"
+    static var trackWatching: Bool {
+        UserDefaults.standard.object(forKey: trackWatchingKey) as? Bool ?? true
+    }
+
     static var songLookups: Bool {
         UserDefaults.standard.object(forKey: songLookupsKey) as? Bool ?? true
     }

@@ -262,6 +262,7 @@ final class PlaybackCoordinator {
         if hasStarted, reportsPlayback, let item = currentItem {
             let report = makeReport(itemId: item.id, position: position, paused: true)
             Task { await client.reportStopped(report) }
+            TrackerAccounts.shared.stopped(report, client: client)
         }
         if let liveStreamId {
             let id = liveStreamId
@@ -941,6 +942,7 @@ final class PlaybackCoordinator {
         guard reportsPlayback else { return }
         let report = makeReport(itemId: item.id, position: currentPositionTicks, paused: true)
         Task { await client.reportStopped(report) }
+        TrackerAccounts.shared.stopped(report, client: client)
     }
 
     // MARK: Falling back

@@ -98,6 +98,12 @@ struct SonosClientTests {
         book.container = "m4b"
         #expect(client.sonosTrack(for: book).url.path() == "/Audio/b1/stream.m4a")
 
+        // As servers write the MP4 family: an audiobook goes as the file.
+        var family = BaseItem(id: "m1")
+        family.container = "mov,mp4,m4a,3gp,3g2,mj2"
+        #expect(client.sonosTrack(for: family).url.path() == "/Audio/m1/stream.m4a")
+        #expect(client.sonosTrack(for: family).url.query()?.contains("static=true") == true)
+
         var opus = BaseItem(id: "o1")
         opus.container = "ogg"
         let converted = client.sonosTrack(for: opus)

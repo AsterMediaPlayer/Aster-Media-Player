@@ -548,10 +548,9 @@ final class AudiobookPlayer {
     private func sendBookToSonos(at seconds: TimeInterval, playing: Bool) {
         guard let room = sonos, let client, let book else { return }
         let art = client.posterURL(for: book.cover, width: 600)
-        let tracks = book.parts.enumerated().map { number, part in
-            client.sonosTrack(for: part, title: book.parts.count > 1 ? "\(book.title), Part \(number + 1)" : book.title,
-                              artist: book.author, album: book.title, art: art)
-        }
+        let parts = book.parts
+        let title = book.title
+        let author = book.author
         let number = partIndex + 1
         sonosIds = book.parts.map(\.id)
         isPlaying = playing
@@ -563,6 +562,12 @@ final class AudiobookPlayer {
         sonosSettleUntil = Date().addingTimeInterval(30)
         Task {
             do {
+                // The files as they are, which a speaker can seek within.
+                let known = await client.withContainers(parts)
+                let tracks = known.enumerated().map { number, part in
+                    client.sonosTrack(for: part, title: parts.count > 1 ? "\(title), Part \(number + 1)" : title,
+                                      artist: author, album: title, art: art)
+                }
                 try await room.clearQueue()
                 try await room.enqueue(tracks)
                 try await room.playFromQueue()

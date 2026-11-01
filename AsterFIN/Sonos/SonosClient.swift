@@ -390,29 +390,55 @@ nonisolated private final class ZoneGroupReader: NSObject, XMLParserDelegate {
 // MARK: - Stream addresses
 
 nonisolated extension JellyfinClient {
-    /// Formats a Sonos plays from the file as it is; anything else is
-    /// converted to MP3 at 320 kbps.
-    private static let sonosFormats: [String: String] = [
-        "mp3": "audio/mpeg", "flac": "audio/flac", "m4a": "audio/mp4", "m4b": "audio/mp4",
-        "aac": "audio/aac", "wav": "audio/wav", "aiff": "audio/aiff",
+    /// Formats a Sonos plays from the file as it is, with the extension its
+    /// address gets; anything else is converted to MP3 at 320 kbps. The MP4
+    /// family (m4a, m4b, and the "mov,mp4,m4a,…" a server may write) goes
+    /// as m4a.
+    private static let sonosFormats: [String: (ext: String, mime: String)] = [
+        "mp3": ("mp3", "audio/mpeg"), "flac": ("flac", "audio/flac"),
+        "m4a": ("m4a", "audio/mp4"), "m4b": ("m4a", "audio/mp4"), "mp4": ("m4a", "audio/mp4"), "mov": ("m4a", "audio/mp4"),
+        "aac": ("aac", "audio/aac"), "wav": ("wav", "audio/wav"), "aiff": ("aiff", "audio/aiff"),
     ]
 
     /// A song or book part as a Sonos fetches it: from this server, with the
-    /// sign-in in the address (a speaker can't send headers).
+    /// sign-in in the address (a speaker can't send headers). Converted, a
+    /// stream has no length and can't be sought within, so the file goes as
+    /// it is wherever a speaker plays it.
     func sonosTrack(for item: BaseItem, title: String? = nil, artist: String? = nil, album: String? = nil, art: URL? = nil) -> SonosTrack {
-        let container = item.container?.lowercased().split(separator: ",").first.map(String.init)
+        let names = (item.container ?? item.mediaSources?.first?.container ?? "")
+            .lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         let url: URL
         let mime: String
-        if let container, let known = Self.sonosFormats[container] {
-            // The extension tells the speaker what's coming; m4b is m4a.
-            url = tokenURL("/Audio/\(item.id)/stream.\(container == "m4b" ? "m4a" : container)", query: ["static": "true"])
-            mime = known
+        if let format = names.lazy.compactMap({ Self.sonosFormats[$0] }).first {
+            url = tokenURL("/Audio/\(item.id)/stream.\(format.ext)", query: ["static": "true"])
+            mime = format.mime
         } else {
             url = tokenURL("/Audio/\(item.id)/stream.mp3", query: ["audioCodec": "mp3", "audioBitRate": "320000", "static": "false"])
             mime = "audio/mpeg"
         }
         return SonosTrack(itemId: item.id, url: url, mime: mime, title: title ?? item.displayTitle,
                           artist: artist ?? item.artistText, album: album ?? item.album, artURL: art)
+    }
+
+    /// `items` with their files' containers, which lists leave out: asked
+    /// for those without, a hundred to a request. Ones that can't be asked
+    /// for stay as they were (and are converted).
+    func withContainers(_ items: [BaseItem]) async -> [BaseItem] {
+        let missing = items.filter { $0.container == nil && $0.mediaSources?.first?.container == nil }.map(\.id)
+        guard !missing.isEmpty else { return items }
+        var found: [String: String] = [:]
+        for start in stride(from: 0, to: missing.count, by: 100) {
+            let ids = missing[start ..< min(start + 100, missing.count)].joined(separator: ",")
+            let reply = try? await self.items(["ids": ids, "fields": "MediaSources", "enableImages": "false", "enableUserData": "false"])
+            for item in reply?.items ?? [] {
+                if let container = item.container ?? item.mediaSources?.first?.container { found[item.id] = container }
+            }
+        }
+        return items.map { item in
+            var known = item
+            if known.container == nil { known.container = found[item.id] }
+            return known
+        }
     }
 
     /// The item a Sonos queue's track address is for.

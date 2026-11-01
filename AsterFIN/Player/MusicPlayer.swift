@@ -520,9 +520,6 @@ final class MusicPlayer {
         guard let room = sonos, let client else { return }
         let start = max(0, index - 50)
         let slice = Array(queue[start ..< min(queue.count, start + 500)])
-        let tracks = slice.map { song in
-            client.sonosTrack(for: song, art: client.posterURL(for: song, width: 600))
-        }
         let number = index - start + 1
         let mode = sonosPlayMode
         sonosIds = slice.map(\.id)
@@ -532,6 +529,11 @@ final class MusicPlayer {
         startSonosSession()
         Task {
             do {
+                // The files as they are, where a speaker plays them.
+                let known = await client.withContainers(slice)
+                let tracks = known.map { song in
+                    client.sonosTrack(for: song, art: client.posterURL(for: song, width: 600))
+                }
                 try await room.clearQueue()
                 try await room.enqueue(tracks)
                 try await room.playFromQueue()

@@ -66,7 +66,7 @@ nonisolated struct TrackerSecrets: Codable, Sendable, Equatable {
     }
 
     struct SimklAccount: Codable, Sendable, Equatable {
-        var token: String
+        var tokens: Simkl.Tokens
         var name: String
     }
 
@@ -222,10 +222,21 @@ final class TrackerAccounts {
         change { $0.trakt = .init(tokens: tokens, name: name) }
     }
 
-    func signedInToSimkl(token: String) async throws {
-        let name = try await Simkl.userName(token: token)
+    func signedInToSimkl(_ tokens: Simkl.Tokens) async throws {
+        let name = try await Simkl.userName(token: tokens.access)
         needsSignIn.remove("Simkl")
-        change { $0.simkl = .init(token: token, name: name) }
+        change { $0.simkl = .init(tokens: tokens, name: name) }
+    }
+
+    /// Simkl's token, refreshed when it has under a day left.
+    private func simklToken() async throws -> String? {
+        guard var account = secrets.simkl else { return nil }
+        if let expires = account.tokens.expires, expires.timeIntervalSinceNow < 24 * 60 * 60 {
+            account.tokens = try await Simkl.refreshed(account.tokens)
+            let refreshed = account
+            change { $0.simkl = refreshed }
+        }
+        return account.tokens.access
     }
 
     func signOutOfTrakt() {
@@ -315,8 +326,11 @@ final class TrackerAccounts {
                 return try await Trakt.watched(watched, token: token)
             }
         }
-        if let token = secrets.simkl?.token {
-            await note(title, number, "Simkl") { try await Simkl.watched(watched, token: token) }
+        if secrets.simkl != nil {
+            await note(title, number, "Simkl") {
+                guard let token = try await self.simklToken() else { return .unchanged }
+                return try await Simkl.watched(watched, token: token)
+            }
         }
     }
 

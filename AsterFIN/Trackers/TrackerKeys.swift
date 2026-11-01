@@ -5,7 +5,7 @@
 //  The client ids Aster is registered under with each tracking service.
 //  These are public identifiers (they're in every sign-in address), not
 //  secrets: AniList's implicit grant, MyAnimeList's PKCE sign-in and
-//  Simkl's PIN need no client secret. Empty leaves that service out of
+//  Trakt's and Simkl's device codes need no client secret. Empty leaves that service out of
 //  Settings.
 //
 //  AniList: anilist.co/settings/developer, redirect URL aster://anilist-auth
@@ -14,7 +14,8 @@
 //  Trakt: developer.trakt.tv/apps, redirect URI http://localhost (the code
 //         sign-in uses none; a Development app takes only localhost, and
 //         lets in only the people added to it)
-//  Simkl: simkl.com/settings/developer, redirect URL aster://simkl-auth
+//  Simkl: simkl.com/settings/developer, Auth V2, app type "TV, devices &
+//         command line" (device code sign-in, no redirect, no secret)
 //
 //  Trakt's apps made since its 2026 developer site use PKCE and are given no
 //  client secret; its code sign-in works without one. An older app's secret
@@ -28,7 +29,7 @@ nonisolated enum TrackerKeys {
     static let aniListClientId = "55643"
     static let myAnimeListClientId = "fdd07f4f85274c4a1e8a466193bfe90c"
     static let traktClientId = "mBY-5_3dD7dFPaZG7ILI7x7QOW-bixeR2-LpCDP5Ks8"
-    static let simklClientId = ""
+    static let simklClientId = "ebd388547e0ade13dad9e3196e820dcbc4b86ebb47d84d838b142a83b31bd71d"
 
     static var traktClientSecret: String {
         secrets["TraktClientSecret"] ?? ""

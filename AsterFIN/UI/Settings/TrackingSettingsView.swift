@@ -170,7 +170,8 @@ struct DeviceCodeSignIn: View {
                 .font(.title2.weight(.bold))
             if let code {
                 HStack(alignment: .center, spacing: 40) {
-                    if let qr = QRCode.image(for: code.verificationURL.absoluteString) {
+                    // With the code in it where the service gives one: nothing to type.
+                    if let qr = QRCode.image(for: (code.completeURL ?? code.verificationURL).absoluteString) {
                         Image(decorative: qr, scale: 1)
                             .interpolation(.none)
                             .resizable()
@@ -233,8 +234,8 @@ struct DeviceCodeSignIn: View {
                             dismiss()
                             return
                         }
-                    } else if let token = try await Simkl.poll(fresh) {
-                        try await accounts.signedInToSimkl(token: token)
+                    } else if let tokens = try await Simkl.poll(fresh) {
+                        try await accounts.signedInToSimkl(tokens)
                         dismiss()
                         return
                     }

@@ -16,6 +16,9 @@ import Foundation
 nonisolated struct DeviceCode: Sendable, Equatable {
     var userCode: String
     var verificationURL: URL
+    /// The address with the code already in it, where the service gives one
+    /// (for the QR code: nothing to type).
+    var completeURL: URL? = nil
     /// What the app asks with while it waits (Trakt's device code; Simkl's
     /// user code).
     var pollCode: String
@@ -179,24 +182,64 @@ nonisolated enum Simkl {
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
-    static func startSignIn() async throws -> DeviceCode {
-        let (data, status) = try await request("/oauth/pin?client_id=\(TrackerKeys.simklClientId)&redirect=aster%3A%2F%2Fsimkl-auth")
-        guard status == 200 else { throw TrackerError.http(status) }
-        struct Reply: Decodable { var user_code: String; var verification_url: String; var expires_in: Double; var interval: Double? }
-        let reply = try JSONDecoder().decode(Reply.self, from: data)
-        guard let url = URL(string: reply.verification_url) else { throw TrackerError.badReply }
-        return DeviceCode(userCode: reply.user_code, verificationURL: url, pollCode: reply.user_code,
-                          interval: reply.interval ?? 5, expires: Date().addingTimeInterval(reply.expires_in))
+    /// Simkl's OAuth 2 sign-in for TVs and devices (RFC 8628): a code to
+    /// enter at simkl.com/pin, a year's token and a refresh token.
+    struct Tokens: Codable, Sendable, Equatable {
+        var access: String
+        var refresh: String?
+        var expires: Date?
     }
 
-    /// The token once the code's been entered; nil while it hasn't. Simkl's
-    /// don't run out.
-    static func poll(_ code: DeviceCode) async throws -> String? {
-        let (data, status) = try await request("/oauth/pin/\(code.pollCode)?client_id=\(TrackerKeys.simklClientId)")
+    private static func oauth(_ path: String, _ body: [String: String]) async throws -> (Data, Int) {
+        var request = URLRequest(url: URL(string: "https://api.simkl.com\(path)")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await trackerSession.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
+    static func startSignIn() async throws -> DeviceCode {
+        let (data, status) = try await oauth("/oauth2/device", ["client_id": TrackerKeys.simklClientId])
         guard status == 200 else { throw TrackerError.http(status) }
-        struct Reply: Decodable { var result: String?; var access_token: String? }
+        struct Reply: Decodable {
+            var device_code: String; var user_code: String; var verification_uri: String
+            var verification_uri_complete: String?; var expires_in: Double; var interval: Double?
+        }
         let reply = try JSONDecoder().decode(Reply.self, from: data)
-        return reply.result == "OK" ? reply.access_token : nil
+        guard let url = URL(string: reply.verification_uri) else { throw TrackerError.badReply }
+        return DeviceCode(userCode: reply.user_code, verificationURL: url, completeURL: reply.verification_uri_complete.flatMap(URL.init(string:)),
+                          pollCode: reply.device_code, interval: reply.interval ?? 5, expires: Date().addingTimeInterval(reply.expires_in))
+    }
+
+    /// The tokens once the code's been entered; nil while it hasn't.
+    static func poll(_ code: DeviceCode) async throws -> Tokens? {
+        let (data, status) = try await oauth("/oauth2/token", [
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": code.pollCode, "client_id": TrackerKeys.simklClientId,
+        ])
+        if status == 200 { return try tokens(data) }
+        struct Failure: Decodable { var error: String? }
+        switch (try? JSONDecoder().decode(Failure.self, from: data))?.error {
+        case "authorization_pending", "slow_down": return nil
+        case "access_denied", "expired_token": throw TrackerError.signedOut
+        default: throw TrackerError.http(status)
+        }
+    }
+
+    static func refreshed(_ tokens: Tokens) async throws -> Tokens {
+        guard let refresh = tokens.refresh else { return tokens }
+        let (data, status) = try await oauth("/oauth2/token", ["grant_type": "refresh_token", "refresh_token": refresh, "client_id": TrackerKeys.simklClientId])
+        if status == 400 || status == 401 { throw TrackerError.signedOut }
+        guard status == 200 else { throw TrackerError.http(status) }
+        var fresh = try self.tokens(data)
+        if fresh.refresh == nil { fresh.refresh = refresh }
+        return fresh
+    }
+
+    private static func tokens(_ data: Data) throws -> Tokens {
+        struct Reply: Decodable { var access_token: String; var refresh_token: String?; var expires_in: Double? }
+        let reply = try JSONDecoder().decode(Reply.self, from: data)
+        return Tokens(access: reply.access_token, refresh: reply.refresh_token, expires: reply.expires_in.map { Date().addingTimeInterval($0) })
     }
 
     static func userName(token: String) async throws -> String {

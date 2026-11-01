@@ -171,15 +171,40 @@ nonisolated enum Trakt {
 }
 
 nonisolated enum Simkl {
+    /// Simkl's address for `path`, naming the app as it asks of every
+    /// request (`client_id`, `app-name`, `app-version`); a request without
+    /// them is refused with 403.
+    private static func url(_ path: String) -> URL {
+        var components = URLComponents(string: "https://api.simkl.com\(path)")!
+        components.queryItems = (components.queryItems ?? []) + [
+            URLQueryItem(name: "client_id", value: TrackerKeys.simklClientId),
+            URLQueryItem(name: "app-name", value: "aster"),
+            URLQueryItem(name: "app-version", value: appVersion),
+        ]
+        return components.url!
+    }
+
+    /// The app's own version, "0.11.0".
+    private static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    private static var userAgent: String { "Aster/\(appVersion)" }
+
     private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil, token: String? = nil) async throws -> (Data, Int) {
-        var request = URLRequest(url: URL(string: "https://api.simkl.com\(path)")!)
+        var request = URLRequest(url: url(path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(TrackerKeys.simklClientId, forHTTPHeaderField: "simkl-api-key")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
         let (data, response) = try await trackerSession.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        #if DEBUG
+        if status >= 300 { print("DEBUG simkl: \(path) -> \(status) \(String(decoding: data.prefix(300), as: UTF8.self))") }
+        #endif
+        return (data, status)
     }
 
     /// Simkl's OAuth 2 sign-in for TVs and devices (RFC 8628): a code to
@@ -190,17 +215,25 @@ nonisolated enum Simkl {
         var expires: Date?
     }
 
+    /// The sign-in's requests, form-encoded as Auth V2 takes them.
     private static func oauth(_ path: String, _ body: [String: String]) async throws -> (Data, Int) {
-        var request = URLRequest(url: URL(string: "https://api.simkl.com\(path)")!)
+        var request = URLRequest(url: url(path))
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data(MyAnimeList.formBody(body).utf8)
         let (data, response) = try await trackerSession.data(for: request)
-        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        #if DEBUG
+        if status != 200 { print("DEBUG simkl: \(path) -> \(status) \(String(decoding: data.prefix(300), as: UTF8.self))") }
+        #endif
+        return (data, status)
     }
 
     static func startSignIn() async throws -> DeviceCode {
-        let (data, status) = try await oauth("/oauth2/device", ["client_id": TrackerKeys.simklClientId])
+        // Reading and writing the viewer's lists: without write, a token is
+        // read-only and history updates quietly fail.
+        let (data, status) = try await oauth("/oauth2/device", ["client_id": TrackerKeys.simklClientId, "scope": "media:read media:write"])
         guard status == 200 else { throw TrackerError.http(status) }
         struct Reply: Decodable {
             var device_code: String; var user_code: String; var verification_uri: String

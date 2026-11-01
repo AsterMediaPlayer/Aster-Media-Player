@@ -48,7 +48,16 @@ struct SeerrSettingsView: View {
                             .disabled(working || SeerrClient.address(address) == nil)
                     }
                 } footer: {
-                    Text("Seerr (or Overseerr, or Jellyseerr) asks your media server's helpers for films and shows it hasn't got. Aster shows nothing of it until you sign in here.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Seerr (or Overseerr, or Jellyseerr) asks your media server's helpers for films and shows it hasn't got. Aster shows nothing of it until you sign in here.")
+                        if Self.isBareName(address) {
+                            // The sign-in syncs to every device, and an Apple
+                            // TV can't find a one-word name ("server") that a
+                            // phone or Mac finds through the local network.
+                            Text("Your other devices may not find a name without dots, the Apple TV especially. Use its IP address (192.168.1.10:5055) or its full name.")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                 }
                 if let options {
                     Section {
@@ -89,6 +98,13 @@ struct SeerrSettingsView: View {
             if address.isEmpty { address = account?.url.absoluteString ?? "" }
             if username.isEmpty { username = session.userName ?? "" }
         }
+    }
+
+    /// A one-word host such as "server", found only through the local
+    /// network's search domain, which not every device uses.
+    static func isBareName(_ text: String) -> Bool {
+        guard let host = SeerrClient.address(text)?.host(), host != "localhost" else { return false }
+        return !host.contains(".") && !host.contains(":")
     }
 
     private func findServer() async {

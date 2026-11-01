@@ -95,5 +95,8 @@ struct SeerrTests {
         #expect(SeerrClient.address("192.168.1.240:5055")?.absoluteString == "http://192.168.1.240:5055")
         #expect(SeerrClient.address(" https://requests.example.com/ ")?.absoluteString == "https://requests.example.com")
         #expect(SeerrClient.address("") == nil)
+        #expect(SeerrSettingsView.isBareName("server:5055"))
+        #expect(!SeerrSettingsView.isBareName("192.168.1.240:5055"))
+        #expect(!SeerrSettingsView.isBareName("requests.example.com"))
     }
 }

@@ -38,10 +38,11 @@ struct UpcomingAgenda: View {
         }
     }
 
-    /// Both kinds are coming, so the switches are worth showing.
+    /// The library has both kinds of show, so the switches are worth
+    /// showing (even when only one kind has episodes coming this week).
     private var hasBothKinds: Bool {
-        let all = model.days.flatMap(\.episodes)
-        return all.contains(where: isAnime) && all.contains { !isAnime($0) }
+        let anime = Set(session.animeLibraries.map(\.id))
+        return !anime.isEmpty && session.showLibraries.contains { !anime.contains($0.id) }
     }
 
     var body: some View {
@@ -59,7 +60,13 @@ struct UpcomingAgenda: View {
                 ProgressView()
             }
         }
-        .task { await reload() }
+        .task {
+            await reload()
+            #if DEBUG
+            let all = model.days.flatMap(\.episodes)
+            print("DEBUG upcoming: \(all.count) episodes, \(all.filter(isAnime).count) anime; anime libraries \(session.animeLibraries.count), TV libraries \(session.showLibraries.count)")
+            #endif
+        }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await reload() }
         }
@@ -94,7 +101,9 @@ struct UpcomingAgenda: View {
                     kindSwitches
                 }
                 if days.isEmpty {
-                    Text("Turn on Anime or TV Shows above to see what's coming.")
+                    Text(showsAnime && showsTV ? "Nothing coming up." : !showsAnime && !showsTV
+                         ? "Turn on Anime or TV Shows above to see what's coming."
+                         : "No \(showsAnime ? "anime" : "TV show") episodes coming up.")
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, Lockup.screenPadding)
                         .padding(.vertical, 60)

@@ -15,6 +15,6 @@
 import Foundation
 
 nonisolated enum TrackerKeys {
-    static let aniListClientId = ""
-    static let myAnimeListClientId = ""
+    static let aniListClientId = "55643"
+    static let myAnimeListClientId = "fdd07f4f85274c4a1e8a466193bfe90c"
 }

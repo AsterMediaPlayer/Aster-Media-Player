@@ -266,6 +266,7 @@ nonisolated extension SeerrClient {
         case 10: "Series Genres"
         case 11: "Upcoming Series"
         case 12: "Networks"
+        case inTheatersType: "In Theaters"
         default: "More to Discover"
         }
     }
@@ -312,6 +313,50 @@ nonisolated extension SeerrClient {
             return title.mediaType == "movie" || title.mediaType == "tv" ? title : nil
         }
         return page
+    }
+
+    /// Discover's own row, not one of Seerr's: films in cinemas now.
+    static let inTheatersType = 1000
+
+    /// Films in cinemas now, as near as Seerr's filters come (it passes on
+    /// no theatrical-release filter): out in the last six weeks with some
+    /// votes, most popular first, less those already on the region's big
+    /// streaming services.
+    static func inTheaters(account: SeerrAccount, region: String = Locale.current.region?.identifier ?? "US", now: Date = Date()) async throws -> [SeerrTitle] {
+        let window = theatricalWindow(from: now)
+        let recent = "/discover/movies?sortBy=popularity.desc&primaryReleaseDateGte=\(window.from)&primaryReleaseDateLte=\(window.to)&voteCountGte=20"
+        // The services most people have there, by TMDB's own ranking.
+        let services = try await providers(.movie, region: region, account: account).prefix(12).map { String($0.id) }
+        async let shown = pages(recent, upTo: 3, account: account)
+        var streaming = Set<Int>()
+        if !services.isEmpty {
+            let path = recent + "&watchRegion=\(region)&watchProviders=\(services.joined(separator: "|"))"
+            streaming = Set(try await pages(path, upTo: 5, account: account).map(\.id))
+        }
+        return try await shown.filter { !streaming.contains($0.id) }
+    }
+
+    /// "2026-09-20" to "2026-11-01": the last six weeks.
+    static func theatricalWindow(from now: Date) -> (from: String, to: String) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let start = calendar.date(byAdding: .day, value: -42, to: now) ?? now
+        let format = DateFormatter()
+        format.calendar = calendar
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        return (format.string(from: start), format.string(from: now))
+    }
+
+    /// Films from up to `count` pages of a list, in order.
+    private static func pages(_ path: String, upTo count: Int, account: SeerrAccount) async throws -> [SeerrTitle] {
+        var found: [SeerrTitle] = []
+        for page in 1 ... count {
+            let reply = try await titles(path + "&page=\(page)", kind: .movie, account: account)
+            found += reply.results
+            if page >= (reply.totalPages ?? 1) { break }
+        }
+        return found
     }
 
     /// What arrived on the server lately, newest first, as titles.

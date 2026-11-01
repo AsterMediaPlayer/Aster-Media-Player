@@ -66,6 +66,16 @@ struct SeerrDiscoverTests {
         #expect(SeerrClient.sliderTitle(SeerrSlider(type: 13, title: "Cyberpunk")) == "Cyberpunk")
     }
 
+    /// In Theaters looks back six weeks from today.
+    @Test func inTheatersWindow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let today = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 9)))
+        #expect(SeerrClient.theatricalWindow(from: today) == ("2026-09-20", "2026-11-01"))
+        #expect(SeerrClient.sliderTitle(SeerrSlider(type: SeerrClient.inTheatersType)) == "In Theaters")
+        #expect(SeerrClient.titlesPath(for: SeerrSlider(type: SeerrClient.inTheatersType)) == nil)
+    }
+
     @Test func requestsAreRead() throws {
         struct Reply: Decodable { var results: [SeerrRequest] }
         let reply = try JSONDecoder().decode(Reply.self, from: Data(#"{"pageInfo": {"pages": 2, "pageSize": 3, "results": 6, "page": 1}, "results": [{"id": 12, "status": 1, "createdAt": "2026-11-01T12:31:29.000Z", "type": "tv", "is4k": false, "media": {"id": 261, "mediaType": "tv", "tmdbId": 35106, "status": 2}, "seasons": [{"id": 19, "seasonNumber": 1, "status": 1}], "requestedBy": {"id": 1, "displayName": "peppy", "permissions": 2}}, {"id": 9, "status": 2, "type": "movie", "media": {"tmdbId": 693134, "mediaType": "movie", "status": 5}}]}"#.utf8))

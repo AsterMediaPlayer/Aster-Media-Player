@@ -174,7 +174,15 @@ private struct DiscoverRows: View {
         .task(id: TrackerAccounts.shared.secrets.seerr?.cookie) {
             guard sliders.isEmpty, let account = seerrAccount() else { return }
             do {
-                sliders = try await SeerrClient.sliders(account: account)
+                var found = try await SeerrClient.sliders(account: account)
+                // In Theaters, Discover's own, after Trending (or first).
+                let theaters = SeerrSlider(type: SeerrClient.inTheatersType)
+                if let trending = found.firstIndex(where: { $0.type == 4 }) {
+                    found.insert(theaters, at: trending + 1)
+                } else {
+                    found.insert(theaters, at: 0)
+                }
+                sliders = found
                 #if DEBUG
                 print("DEBUG seerr: \(sliders.count) Discover rows")
                 #endif
@@ -231,6 +239,8 @@ private struct SliderRow: View {
         guard cards.isEmpty, genres.isEmpty, companies.isEmpty, let account = seerrAccount() else { return }
         do {
             switch slider.type {
+            case SeerrClient.inTheatersType:
+                cards = try await SeerrClient.inTheaters(account: account).map(SeerrCard.init)
             case 1:
                 cards = try await SeerrClient.recentlyAdded(account: account).map(SeerrCard.init)
             case 2:

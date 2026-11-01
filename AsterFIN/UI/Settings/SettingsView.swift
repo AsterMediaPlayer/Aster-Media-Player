@@ -143,8 +143,19 @@ struct MacSettingsView: View {
                 ServerPluginsSettingsView()
                     .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
             }
-            AccountSettingsView()
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            // A stack of its own, for each saved server's page (switch to it,
+            // lock it, remove it): without one its links were greyed out.
+            NavigationStack {
+                AccountSettingsView()
+                    .navigationDestination(for: SettingsDestination.self) { destination in
+                        switch destination {
+                        case .savedServer(let id): SavedServerPage(serverID: id)
+                        case .lockAfter(let id): LockAfterPage(serverID: id)
+                        default: EmptyView()
+                        }
+                    }
+            }
+            .tabItem { Label("Account", systemImage: "person.crop.circle") }
             // A stack of its own, for Open Source & Licenses and its pages.
             NavigationStack {
                 AboutSettingsView()

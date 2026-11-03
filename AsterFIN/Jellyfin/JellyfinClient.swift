@@ -67,7 +67,18 @@ nonisolated final class JellyfinClient: MediaServer {
         self.kind = kind
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
-        configuration.waitsForConnectivity = true
+        if accessToken == nil {
+            // Finding a server and signing in: an address that doesn't exist
+            // fails at once. Waiting for connectivity treated a name that
+            // can't be found as "no network yet" and spun for days.
+            configuration.waitsForConnectivity = false
+            configuration.timeoutIntervalForResource = 30
+        } else {
+            // Signed in, a moment without a network is waited out, but not
+            // forever.
+            configuration.waitsForConnectivity = true
+            configuration.timeoutIntervalForResource = 120
+        }
         session = URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }
 

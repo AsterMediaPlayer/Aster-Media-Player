@@ -20,6 +20,8 @@ struct SignInView: View {
     @State private var quickConnectCode: String?
     @State private var quickConnectTask: Task<Void, Never>?
     @FocusState private var passwordFocused: Bool
+    /// Counts failed tries, so a second wrong password shows afresh.
+    @State private var errorAttempt = 0
 
     private var client: JellyfinClient? { session.anonymousClient }
 
@@ -48,35 +50,25 @@ struct SignInView: View {
                     }
 
                     if !users.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack(spacing: Onboarding.avatarSpacing) {
-                                ForEach(users) { user in
-                                    Button {
-                                        selectedUser = user
-                                        username = user.name
-                                        password = ""
-                                        if user.hasPassword == false {
-                                            signInWithPassword()
-                                        } else {
-                                            focusPassword()
-                                        }
-                                    } label: {
-                                        VStack(spacing: 14) {
-                                            UserAvatar(user: user, client: client)
-                                                .frame(width: Onboarding.avatarSize, height: Onboarding.avatarSize)
-                                            Text(user.name)
-                                                .font(.headline)
-                                        }
-                                        .padding(16)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal, Onboarding.avatarRowPadding)
-                            .padding(.vertical, 20)
+                        // Centred when they fit (one user sat at the far
+                        // left), scrolling sideways when they don't.
+                        ViewThatFits(in: .horizontal) {
+                            userRow
+                            ScrollView(.horizontal) { userRow }
+                                .scrollClipDisabled()
                         }
-                        .scrollClipDisabled()
                         .tvFocusSection()
+                    }
+
+                    // Above the fields, where the keyboard doesn't cover it.
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.callout.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: Onboarding.credentialsWidth)
+                            .id(errorAttempt)
+                            .transition(.opacity)
                     }
 
                     VStack(spacing: Onboarding.controlSpacing) {
@@ -136,6 +128,8 @@ struct SignInView: View {
                             .foregroundStyle(.orange)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: Onboarding.fieldWidth)
+                            // All of it, not cut to one line.
+                            .fixedSize(horizontal: false, vertical: true)
                             #if os(tvOS)
                             .focusable()
                             #endif
@@ -158,12 +152,6 @@ struct SignInView: View {
                         }
                     }
 
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                            .font(.callout)
-                            .multilineTextAlignment(.center)
-                    }
                 }
                 #if os(tvOS)
                 .padding(.vertical, 60)
@@ -177,6 +165,34 @@ struct SignInView: View {
         // back to the server screen, rather than leaving the app.
         .onExitCommand { goBack() }
         #endif
+    }
+
+    private var userRow: some View {
+        HStack(spacing: Onboarding.avatarSpacing) {
+            ForEach(users) { user in
+                Button {
+                    selectedUser = user
+                    username = user.name
+                    password = ""
+                    if user.hasPassword == false {
+                        signInWithPassword()
+                    } else {
+                        focusPassword()
+                    }
+                } label: {
+                    VStack(spacing: 14) {
+                        UserAvatar(user: user, client: client)
+                            .frame(width: Onboarding.avatarSize, height: Onboarding.avatarSize)
+                        Text(user.name)
+                            .font(.headline)
+                    }
+                    .padding(16)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Onboarding.avatarRowPadding)
+        .padding(.vertical, 20)
     }
 
     private func cancelQuickConnect() {
@@ -219,9 +235,19 @@ struct SignInView: View {
             do {
                 let result = try await client.authenticate(username: username, password: password)
                 quickConnectTask?.cancel()
+                UserDefaults.standard.removeObject(forKey: ServerConnectView.pendingAddressKey)
                 session.signIn(result)
             } catch {
-                errorMessage = error.localizedDescription
+                // Said plainly, and the wrong password cleared to type again.
+                let wasEmpty = password.isEmpty
+                errorAttempt += 1
+                withAnimation(.easeOut(duration: 0.2)) {
+                    errorMessage = wasEmpty
+                        ? "\(username) needs a password. Enter it and sign in again."
+                        : (errorAttempt > 1 ? "Still not right: " : "") + error.localizedDescription
+                }
+                password = ""
+                passwordFocused = true
             }
         }
     }
@@ -240,6 +266,7 @@ struct SignInView: View {
                     if state.authenticated {
                         let result = try await client.authenticateWithQuickConnect(secret: initiated.secret)
                         quickConnectCode = nil
+                        UserDefaults.standard.removeObject(forKey: ServerConnectView.pendingAddressKey)
                         session.signIn(result)
                         return
                     }

@@ -114,10 +114,21 @@ nonisolated final class PlexClient: MediaServer {
     func request(_ url: URL, method: String = "GET") -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
+        // Elsewhere (Seerr's pictures, from TMDB): nothing of the server's,
+        // least of all its token.
+        guard isServer(url) else { return request }
         for (name, value) in PlexDevice.headers(token: accessToken) {
             request.setValue(value, forHTTPHeaderField: name)
         }
         return request
+    }
+
+    /// Whether `url` is on this server: the same scheme, host and port.
+    func isServer(_ url: URL) -> Bool {
+        func port(_ url: URL) -> Int? { url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80) }
+        return url.scheme?.lowercased() == baseURL.scheme?.lowercased()
+            && url.host()?.lowercased() == baseURL.host()?.lowercased()
+            && port(url) == port(baseURL)
     }
 
     /// Sends `request`: an error status becomes `PlexError.http`, and

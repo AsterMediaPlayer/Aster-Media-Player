@@ -988,6 +988,8 @@ final class PlaybackCoordinator {
             print("DEBUG playback: giving up at \(entry.fallback) (\(message)); started \(hasStarted), played before \(entry.hasPlayed), reloads \(entry.stallRetries)")
             #endif
             errorMessage = message
+            DebugLog.note("play", "Gave up at \(entry.fallback): \(message) (started \(hasStarted), reloads \(entry.stallRetries))")
+            DebugLog.notePlayback(["error": message, "method": playMethod, "fallback": "\(entry.fallback)"])
             explainPlexFailure(message, wasConverting: alreadyTranscoding || entry.fallback != .none)
             return
         }

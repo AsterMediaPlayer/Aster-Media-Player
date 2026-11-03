@@ -1959,6 +1959,8 @@ private struct LockAfterPage: View {
 // MARK: - About
 
 private struct AboutSettingsView: View {
+    @State private var sendingReport = false
+
     var body: some View {
         SettingsPage(title: "About") {
             // Focusable rows give the page somewhere for focus to land; with
@@ -1975,7 +1977,15 @@ private struct AboutSettingsView: View {
                 NavigationLink(value: OpenSourceRoute.list) {
                     Label("Open Source & Licenses", systemImage: "doc.text")
                 }
+                Button {
+                    sendingReport = true
+                } label: {
+                    Label("Send Debug Report", systemImage: "ladybug")
+                }
             }
+        }
+        .sheet(isPresented: $sendingReport) {
+            DebugReportView()
         }
     }
 }

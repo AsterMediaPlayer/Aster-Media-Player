@@ -88,6 +88,9 @@ struct MainTabView: View {
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
+    /// The last run ended in a crash the system recorded: offered to send.
+    @State private var offeringCrashReport = false
+    @State private var sendingCrashReport = false
     @State private var linkedPlayback: PlaybackRequest?
     #if os(macOS)
     @State private var keyboard = KeyboardNavigation()
@@ -141,6 +144,19 @@ struct MainTabView: View {
             .allowsHitTesting(false)
         }
         #endif
+        // After a crash: the offer to send a report, once.
+        .task {
+            if CrashReports.pending != nil { offeringCrashReport = true }
+        }
+        .alert("Aster Closed Unexpectedly", isPresented: $offeringCrashReport) {
+            Button("Send Report") { sendingCrashReport = true }
+            Button("Not Now", role: .cancel) { CrashReports.clear() }
+        } message: {
+            Text("Sending a debug report helps find out why.")
+        }
+        .sheet(isPresented: $sendingCrashReport) {
+            DebugReportView(afterCrash: true)
+        }
         // A tab hidden while showing hands over to Home.
         .onChange(of: shownTabs) { _, tabs in
             if !tabs.contains(tab) { tab = .home }

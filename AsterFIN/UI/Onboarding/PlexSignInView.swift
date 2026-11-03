@@ -189,12 +189,24 @@ struct PlexSignInView: View {
             ProgressView()
         case .linking(let pin):
             VStack(spacing: Onboarding.controlSpacing) {
+                #if os(tvOS)
                 Text("On your phone or computer, go to")
                     .foregroundStyle(.secondary)
                 Text("plex.tv/link")
                     .font(.title2.weight(.semibold))
                 Text("and enter this code:")
                     .foregroundStyle(.secondary)
+                #else
+                // Here, the link opens: on a phone "go to it on your phone"
+                // pointed at the very device in hand, as plain text.
+                Text("Open plex.tv/link, sign in to Plex there, and enter this code:")
+                    .foregroundStyle(.secondary)
+                Link(destination: URL(string: "https://plex.tv/link")!) {
+                    Label("Open plex.tv/link", systemImage: "safari")
+                        .frame(maxWidth: Onboarding.buttonWidth)
+                }
+                .onboardingPrimaryButton()
+                #endif
                 Text(pin.code)
                     .font(.system(size: Onboarding.quickConnectCodeSize, weight: .bold, design: .monospaced))
                     .tracking(8)

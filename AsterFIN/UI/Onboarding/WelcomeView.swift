@@ -17,7 +17,7 @@ struct WelcomeView: View {
     /// Where the remote starts: the first card, at the top. Every card
     /// takes focus, so the remote walks the whole page.
     private enum Target: Hashable {
-        case firstFeature
+        case firstFeature, start
     }
     @FocusState private var focus: Target?
     @State private var showsLicenses = false
@@ -29,7 +29,7 @@ struct WelcomeView: View {
                 VStack(spacing: Welcome.sectionSpacing) {
                     header
 
-                    WelcomeSection(title: "Ready the moment you sign in") {
+                    WelcomeSection(title: "What's ready for you") {
                         WelcomeGrid {
                             WelcomeCard(systemImage: "play.rectangle.fill", title: "Plays it all, as it was meant to be",
                                         text: "Dolby Vision, HDR, and TrueHD and DTS:X sound, straight from your files. Even fancy anime subtitles look exactly as their makers styled them.")
@@ -80,16 +80,6 @@ struct WelcomeView: View {
                     }
 
                     Button {
-                        session.markWelcomeSeen()
-                    } label: {
-                        Text("Start Watching")
-                            .frame(maxWidth: Onboarding.buttonWidth)
-                    }
-                    .onboardingPrimaryButton()
-                    // Not while the server restarts: the app needs it back.
-                    .disabled(model.restart == .restarting)
-
-                    Button {
                         showsLicenses = true
                     } label: {
                         Label("Open Source & Licenses", systemImage: "doc.text")
@@ -101,7 +91,28 @@ struct WelcomeView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollClipDisabled()
-            .defaultFocus($focus, .firstFeature)
+            // Start Watching stays in view at the foot of the screen; it was
+            // a few screens down, past every card. Focus starts there on the
+            // TV, so the page opens at its top, logo and all.
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    session.markWelcomeSeen()
+                } label: {
+                    Text("Start Watching")
+                        .frame(maxWidth: Onboarding.buttonWidth)
+                }
+                .onboardingPrimaryButton()
+                // Not while the server restarts: the app needs it back.
+                .disabled(model.restart == .restarting)
+                .focused($focus, equals: .start)
+                .padding(.vertical, Welcome.startBarPadding)
+                .frame(maxWidth: .infinity)
+                .background {
+                    LinearGradient(colors: [.black.opacity(0), .black.opacity(0.85)], startPoint: .top, endPoint: .center)
+                        .ignoresSafeArea()
+                }
+            }
+            .defaultFocus($focus, .start)
         }
         .task { await model.load(session) }
         #if os(tvOS)
@@ -155,6 +166,7 @@ private enum Welcome {
     static let cardPadding: CGFloat = 36
     static let cornerRadius: CGFloat = 28
     static let iconSize: CGFloat = 52
+    static let startBarPadding: CGFloat = 30
     #else
     static let sidePadding: CGFloat = 24
     static let verticalPadding: CGFloat = 40
@@ -165,6 +177,7 @@ private enum Welcome {
     static let cardPadding: CGFloat = 22
     static let cornerRadius: CGFloat = 20
     static let iconSize: CGFloat = 30
+    static let startBarPadding: CGFloat = 14
     #endif
 }
 
@@ -232,7 +245,12 @@ private struct WelcomeCard<Accessory: View, Detail: View>: View {
     /// Whether the card (a focusable card, or the button it's the label of)
     /// has focus on Apple TV: it lifts and brightens, so it's clear where
     /// the remote is.
-    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isFocused) private var buttonFocused
+    /// Set by `welcomeFocusable()`: the card's own focus, which the system's
+    /// `isFocused` didn't pass down to it (the remote moved through cards
+    /// that never lit).
+    @Environment(\.welcomeCardFocused) private var cardFocused
+    private var isFocused: Bool { buttonFocused || cardFocused }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -535,9 +553,28 @@ extension View {
     @ViewBuilder
     func welcomeFocusable() -> some View {
         #if os(tvOS)
-        focusable()
+        modifier(WelcomeFocusable())
         #else
         self
         #endif
     }
 }
+
+extension EnvironmentValues {
+    /// Whether the Welcome card around this view has focus (Apple TV).
+    @Entry var welcomeCardFocused = false
+}
+
+#if os(tvOS)
+/// A focusable Welcome card that tells the card when it has focus.
+private struct WelcomeFocusable: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.welcomeCardFocused, focused)
+            .focusable()
+            .focused($focused)
+    }
+}
+#endif

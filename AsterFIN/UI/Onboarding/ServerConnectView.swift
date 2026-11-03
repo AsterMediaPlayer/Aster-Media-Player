@@ -11,6 +11,10 @@ import SwiftUI
 struct ServerConnectView: View {
     @Environment(AppSession.self) private var session
     @State private var address: String = ""
+    /// The address last connected to, until someone signs in there: back
+    /// from the sign-in screen it's filled in again, not lost.
+    @AppStorage(ServerConnectView.pendingAddressKey) private var pendingAddress = ""
+    static let pendingAddressKey = "AsterFIN.pendingServerAddress"
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var switchRequest: SavedServer?
@@ -33,6 +37,13 @@ struct ServerConnectView: View {
                     }
 
                     VStack(spacing: Onboarding.controlSpacing) {
+                        #if os(tvOS)
+                        // The TV's field is faint until focused: say what it's for.
+                        Text("Server address")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: Onboarding.fieldWidth, alignment: .leading)
+                        #endif
                         TextField("https://jellyfin.example.com", text: $address)
                             #if os(macOS)
                             .textContentType(.URL)
@@ -97,6 +108,9 @@ struct ServerConnectView: View {
                 }
             }
         }
+        .onAppear {
+            if address.isEmpty { address = pendingAddress }
+        }
         .savedServerSwitcher(request: $switchRequest)
         #if os(macOS)
         .sheet(isPresented: $showingPlexSignIn) {
@@ -121,6 +135,7 @@ struct ServerConnectView: View {
             defer { isConnecting = false }
             do {
                 let info = try await JellyfinClient(baseURL: url).publicSystemInfo()
+                pendingAddress = address
                 session.useServer(url, info: info)
             } catch {
                 // Retry over plain HTTP for LAN servers typed without a scheme.
@@ -129,12 +144,31 @@ struct ServerConnectView: View {
                     components.scheme = "http"
                     if components.port == nil { components.port = 8096 }
                     if let fallback = components.url, let info = try? await JellyfinClient(baseURL: fallback).publicSystemInfo() {
+                        pendingAddress = address
                         session.useServer(fallback, info: info)
                         return
                     }
                 }
-                errorMessage = "Could not reach a Jellyfin or Emby server at that address. \(error.localizedDescription)"
+                errorMessage = Self.unreachableMessage(error)
             }
+        }
+    }
+
+    /// What went wrong, in words: a name that doesn't exist, no answer, or
+    /// no network, each with what to check.
+    static func unreachableMessage(_ error: Error) -> String {
+        let code = (error as? URLError)?.code
+        switch code {
+        case .cannotFindHost, .dnsLookupFailed:
+            return "No server has that name. Check the address for typos."
+        case .notConnectedToInternet, .networkConnectionLost:
+            return "This device isn't connected to a network."
+        case .timedOut, .cannotConnectToHost:
+            return "Nothing answered at that address. Check it, and that the server is running."
+        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot:
+            return "The server's https:// certificate wasn't accepted. Try its http:// address."
+        default:
+            return "Could not reach a Jellyfin or Emby server at that address. \(error.localizedDescription)"
         }
     }
 

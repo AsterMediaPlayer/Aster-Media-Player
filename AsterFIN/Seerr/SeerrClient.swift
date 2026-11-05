@@ -2,13 +2,11 @@
 //  SeerrClient.swift
 //  AsterFIN
 //
-//  Seerr (the joined Overseerr and Jellyseerr): asking the viewer's own
-//  request server for films and shows their media server hasn't got.
-//  Signed in to the way Seerr's own site does (a Jellyfin or Emby user and
-//  password, the Plex account's token, or a Seerr account), which leaves a
-//  session cookie; that cookie is all that's kept, synced to the viewer's
-//  other devices like the tracking accounts. Nothing here shows until a
-//  Seerr address is given in Settings.
+//  Seerr (the joined Overseerr and Jellyseerr): asking for films and shows
+//  the media server hasn't got. Reached through the Aster Discovery and
+//  Tracking plugin on the Jellyfin server, as the signed-in person, so
+//  Seerr's own permissions and quotas apply and no app signs in to Seerr
+//  (see AsterTracking.swift). Nothing here shows without the plugin.
 //
 
 import Foundation
@@ -89,61 +87,57 @@ nonisolated struct SeerrShow: Decodable, Sendable {
     }
 }
 
-/// Signed in to Seerr: its address, the session, and who.
-nonisolated struct SeerrAccount: Codable, Sendable, Equatable {
+/// Seerr as the signed-in person reaches it: through the server's plugin,
+/// at its address, with the Jellyfin authorization header (no Seerr
+/// sign-in, no cookie), and who that person is in Seerr.
+nonisolated struct SeerrAccount: Sendable, Equatable {
     var url: URL
-    var cookie: String
+    var authorization: String
     var name: String
     var userId: Int
+
+    init(base: URL, authorization: String, name: String, userId: Int) {
+        url = base
+        self.authorization = authorization
+        self.name = name
+        self.userId = userId
+    }
 }
 
 nonisolated enum SeerrError: LocalizedError, Equatable {
+    /// The server turned the Jellyfin sign-in down (401).
     case signedOut
     case refused(String?)
     case http(Int)
+    /// The server's admin has switched requests off (503).
+    case off
+    /// The server couldn't reach Seerr (502): never "sign in".
+    case unreachable
+    /// A title the admin keeps out of Discover (404).
+    case notOnServer(String)
 
     var errorDescription: String? {
         switch self {
-        case .signedOut: "The Seerr sign-in has run out. Sign in again in Settings."
+        case .signedOut: "Your sign-in to the server has run out."
         case .refused(let message): message ?? "Seerr turned that down."
         case .http(let code): "Seerr answered \(code)."
+        case .off: "Requests are turned off on this server."
+        case .unreachable: "Requests aren't available right now."
+        case .notOnServer(let message): message
         }
     }
 }
 
 nonisolated enum SeerrClient {
-    /// How a Seerr server lets people sign in.
-    struct Sign: Decodable, Sendable {
-        /// 1 Plex, 2 Jellyfin, 3 Emby, 4 none.
-        var mediaServerType: Int?
-        var localLogin: Bool?
-        var mediaServerLogin: Bool?
-        var applicationTitle: String?
-
-        var signsInWithPlex: Bool { mediaServerType == 1 && mediaServerLogin != false }
-        var signsInWithJellyfinOrEmby: Bool { (mediaServerType == 2 || mediaServerType == 3) && mediaServerLogin != false }
-    }
-
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 15
-        // The cookie's kept and sent by hand, so it can sync.
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
+        configuration.timeoutIntervalForRequest = 20
         return URLSession(configuration: configuration)
     }()
 
-    /// "192.168.1.240:5055" or "https://requests.example.com/" as an address.
-    static func address(_ text: String) -> URL? {
-        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        while trimmed.hasSuffix("/") { trimmed.removeLast() }
-        guard !trimmed.isEmpty else { return nil }
-        if !trimmed.contains("://") { trimmed = "http://" + trimmed }
-        guard let url = URL(string: trimmed), url.host() != nil else { return nil }
-        return url
-    }
-
-    static func send(_ base: URL, _ path: String, method: String = "GET", body: [String: Any]? = nil, cookie: String? = nil) async throws -> (Data, HTTPURLResponse) {
+    /// A call on Seerr's API through the server's plugin: its own paths,
+    /// with the Jellyfin authorization header and no Seerr cookie.
+    static func send(_ base: URL, _ path: String, method: String = "GET", body: [String: Any]? = nil, authorization: String? = nil) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: base.absoluteString + "/api/v1" + path) else { throw SeerrError.http(0) }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -152,96 +146,35 @@ nonisolated enum SeerrClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
-        if let cookie { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        if let authorization {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+            request.setValue(authorization, forHTTPHeaderField: "X-Emby-Authorization")
+        }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw SeerrError.http(0) }
         return (data, http)
     }
 
+    /// What a failing answer through the plugin means: 401 the server's own
+    /// sign-in, 502 Seerr out of reach, 503 requests off, 404 a title kept
+    /// out of Discover, with the plugin's own words.
+    static func failure(_ status: Int, _ data: Data) -> SeerrError {
+        struct Body: Decodable { var message: String? }
+        let message = (try? JSONDecoder().decode(Body.self, from: data))?.message
+        switch status {
+        case 401: return .signedOut
+        case 404 where message?.localizedCaseInsensitiveContains("Not available on this server") == true:
+            return .notOnServer(message ?? "Not available on this server.")
+        case 502: return .unreachable
+        case 503: return .off
+        default: return status == 400 || status == 403 || status == 409 ? .refused(message) : .http(status)
+        }
+    }
+
     static func get<T: Decodable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
-        let (data, response) = try await send(account.url, path, cookie: account.cookie)
-        if response.statusCode == 401 { throw SeerrError.signedOut }
-        if response.statusCode == 403 {
-            // Seerr says 403 both to no session and to a user who may not
-            // see this; only the first is being signed out.
-            let (_, me) = try await send(account.url, "/auth/me", cookie: account.cookie)
-            #if DEBUG
-            print("DEBUG seerr: 403 for \(path); /auth/me answered \(me.statusCode)")
-            #endif
-            throw me.statusCode == 200 ? SeerrError.http(403) : SeerrError.signedOut
-        }
-        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
+        let (data, response) = try await send(account.url, path, authorization: account.authorization)
+        guard response.statusCode == 200 else { throw failure(response.statusCode, data) }
         return try JSONDecoder().decode(T.self, from: data)
-    }
-
-    // MARK: Signing in
-
-    static func signInOptions(_ base: URL) async throws -> Sign {
-        let (data, response) = try await send(base, "/settings/public")
-        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
-        return try JSONDecoder().decode(Sign.self, from: data)
-    }
-
-    /// With the media server's user and password (Jellyfin, Emby).
-    static func signIn(_ base: URL, username: String, password: String) async throws -> SeerrAccount {
-        try await signIn(base, "/auth/jellyfin", ["username": username, "password": password])
-    }
-
-    /// With the Plex account's own token, nothing to type.
-    static func signIn(_ base: URL, plexToken: String) async throws -> SeerrAccount {
-        try await signIn(base, "/auth/plex", ["authToken": plexToken])
-    }
-
-    /// Quick Connect through Seerr's Jellyfin: a code to approve there (or
-    /// for this app to approve itself, being signed in to it), and a secret
-    /// to ask after it with.
-    static func quickConnectStart(_ base: URL) async throws -> (code: String, secret: String) {
-        struct Reply: Decodable { var code: String; var secret: String }
-        let (data, response) = try await send(base, "/auth/jellyfin/quickconnect/initiate", method: "POST")
-        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
-        let reply = try JSONDecoder().decode(Reply.self, from: data)
-        return (reply.code, reply.secret)
-    }
-
-    /// Whether the code's been approved yet.
-    static func quickConnectApproved(_ base: URL, secret: String) async throws -> Bool {
-        struct Reply: Decodable { var authenticated: Bool }
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        let encoded = secret.addingPercentEncoding(withAllowedCharacters: allowed) ?? secret
-        let (data, response) = try await send(base, "/auth/jellyfin/quickconnect/check?secret=\(encoded)")
-        guard response.statusCode == 200 else { throw SeerrError.http(response.statusCode) }
-        return try JSONDecoder().decode(Reply.self, from: data).authenticated
-    }
-
-    /// Signed in once the code's approved.
-    static func signIn(_ base: URL, quickConnectSecret secret: String) async throws -> SeerrAccount {
-        try await signIn(base, "/auth/jellyfin/quickconnect/authenticate", ["secret": secret])
-    }
-
-    /// With a Seerr account of its own (an email address and password).
-    static func signIn(_ base: URL, email: String, password: String) async throws -> SeerrAccount {
-        try await signIn(base, "/auth/local", ["email": email, "password": password])
-    }
-
-    private static func signIn(_ base: URL, _ path: String, _ body: [String: Any]) async throws -> SeerrAccount {
-        let (data, response) = try await send(base, path, method: "POST", body: body)
-        guard response.statusCode == 200 else {
-            struct Failure: Decodable { var message: String? }
-            let message = (try? JSONDecoder().decode(Failure.self, from: data))?.message
-            throw response.statusCode == 401 || response.statusCode == 403
-                ? SeerrError.refused(message ?? "That user name or password wasn't right.")
-                : SeerrError.refused(message)
-        }
-        let headers = response.allHeaderFields.reduce(into: [String: String]()) { all, pair in
-            if let key = pair.key as? String, let value = pair.value as? String { all[key] = value }
-        }
-        let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: base)
-        guard let cookie = cookies.first(where: { $0.name == "connect.sid" }) ?? cookies.first else { throw SeerrError.http(response.statusCode) }
-        struct User: Decodable { var id: Int; var displayName: String?; var username: String?; var jellyfinUsername: String?; var plexUsername: String?; var email: String? }
-        let user = try JSONDecoder().decode(User.self, from: data)
-        let name = user.displayName ?? user.jellyfinUsername ?? user.plexUsername ?? user.username ?? user.email ?? "Seerr"
-        return SeerrAccount(url: base, cookie: "\(cookie.name)=\(cookie.value)", name: name, userId: user.id)
     }
 
     // MARK: Finding and asking
@@ -311,11 +244,7 @@ nonisolated enum SeerrClient {
         var body: [String: Any] = ["mediaType": title.isMovie ? "movie" : "tv", "mediaId": title.id]
         if !title.isMovie { body["seasons"] = seasons }
         options?.add(to: &body)
-        let (data, response) = try await send(account.url, "/request", method: "POST", body: body, cookie: account.cookie)
-        if response.statusCode == 401 { throw SeerrError.signedOut }
-        guard response.statusCode == 201 || response.statusCode == 200 else {
-            struct Failure: Decodable { var message: String? }
-            throw SeerrError.refused((try? JSONDecoder().decode(Failure.self, from: data))?.message)
-        }
+        let (data, response) = try await send(account.url, "/request", method: "POST", body: body, authorization: account.authorization)
+        guard response.statusCode == 201 || response.statusCode == 200 else { throw failure(response.statusCode, data) }
     }
 }

@@ -189,7 +189,8 @@ final class AppSession {
         case .channels: hasChannels
         // Seerr's, once signed in to it (Settings › Requests).
         // (Signed out since, it stays, to sign in again from the tab.)
-        case .discover: hasUpcoming || TrackerAccounts.shared.secrets.seerr != nil
+        // Upcoming, and with the server's plugin Seerr and Discover's rows.
+        case .discover: hasUpcoming || AsterTracking.shared.isPresent || AsterTracking.shared.seerr != nil
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false
@@ -576,6 +577,7 @@ final class AppSession {
 
     /// What was learned about the last server, cleared for the next.
     private func resetServerState() {
+        AsterTracking.shared.clear()
         animeLibraries = []
         animeItemIds = []
         animeDetected = false

@@ -481,7 +481,7 @@ struct SeerrTitlePage: View {
     }
 
     private func load() async {
-        guard let account = accounts.secrets.seerr else { return }
+        guard let account = AsterTracking.shared.seerr else { return }
         managesRequests = await SeerrPermissions.managesRequests(account)
         if managesRequests, title.isMovie {
             has4KServer = !((try? await SeerrClient.services(.movie, fourK: true, account: account)) ?? []).isEmpty
@@ -503,7 +503,7 @@ struct SeerrTitlePage: View {
     /// Asks for it; `options` where an admin chose it to go. Throws for the
     /// destination sheet to show; the page shows the problem too.
     private func request(options: SeerrRequestOptions? = nil) async throws {
-        guard let account = accounts.secrets.seerr else { return }
+        guard let account = AsterTracking.shared.seerr else { return }
         working = true
         defer { working = false }
         do {
@@ -521,7 +521,7 @@ struct SeerrTitlePage: View {
             chosen = []
             problem = nil
         } catch SeerrError.signedOut {
-            accounts.seerrSignedOut()
+            AsterTracking.shared.noteRefused()
             problem = SeerrError.signedOut.localizedDescription
             throw SeerrError.signedOut
         } catch {

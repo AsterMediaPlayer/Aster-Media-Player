@@ -187,6 +187,11 @@ struct MainTabView: View {
                 await TrackerAccounts.shared.load(client: client, userId: user)
             }
         }
+        // The server's Aster Discovery and Tracking plugin: whether Seerr is
+        // on and Discover has rows. Asked again on the app's return below.
+        .task {
+            await AsterTracking.shared.refresh(session: session)
+        }
         .task {
             guard let client = session.client else { return }
             // The anime libraries as last found, so Movies and TV Shows can
@@ -212,6 +217,8 @@ struct MainTabView: View {
             guard phase == .active, old == .background else { return }
             if let client = session.client, let user = session.userId {
                 Task { await TrackerAccounts.shared.load(client: client, userId: user) }
+                // A long while away: the plugin may have changed.
+                Task { await AsterTracking.shared.refresh(session: session) }
             }
             guard let client = session.jellyfin else { return }
             Task {
@@ -846,6 +853,10 @@ struct BrowseStack<Root: View>: View {
             // A title to request from Seerr, pushed as a library title's page is.
             .navigationDestination(for: SeerrTitle.self) { title in
                 pushed(SeerrTitlePage(title: title))
+            }
+            // A title from the server's Discover page: Seerr's page for it, or its library item.
+            .navigationDestination(for: TrackedItem.self) { item in
+                pushed(TrackedItemPage(item: item))
             }
             // A genre's, studio's or network's titles from Seerr, with filters.
             .navigationDestination(for: SeerrBrowse.self) { browse in

@@ -23,7 +23,7 @@ struct SearchView: View {
             return MessageView(systemImage: "magnifyingglass", title: "Search", detail: "Find movies, TV shows, episodes and music in your library.")
         } else if results.isEmpty, !isSearching {
             // With Seerr set up, what the library hasn't got is below to request.
-            if TrackerAccounts.shared.secrets.seerr != nil {
+            if AsterTracking.shared.seerr != nil {
                 return MessageView(systemImage: "questionmark.circle", title: "Not in Your Library", detail: "Nothing in your library matched \"\(query)\". Anything you can request is below.")
             }
             return MessageView(systemImage: "questionmark.circle", title: "No Results", detail: "Nothing matched \"\(query)\".")

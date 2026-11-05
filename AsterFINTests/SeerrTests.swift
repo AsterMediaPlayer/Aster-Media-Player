@@ -12,12 +12,6 @@ import Testing
 @testable import AsterFIN
 
 struct SeerrTests {
-    @Test func signInIsOffered() throws {
-        let sign = try JSONDecoder().decode(SeerrClient.Sign.self, from: Data(#"{"mediaServerType": 2, "localLogin": true, "mediaServerLogin": true, "applicationTitle": "Seerr"}"#.utf8))
-        #expect(sign.signsInWithJellyfinOrEmby)
-        #expect(!sign.signsInWithPlex)
-    }
-
     @Test func searchResultsAreRead() throws {
         struct Page: Decodable { var results: [SeerrTitle] }
         let page = try JSONDecoder().decode(Page.self, from: Data(#"{"page": 1, "results": [{"id": 438631, "mediaType": "movie", "title": "Dune", "releaseDate": "2021-09-15", "posterPath": "/v1tRXZ4JtD2Iv6fjkPvT4GiwslV.jpg", "overview": "Paul Atreides, a brilliant and gifted young man born into a great destiny beyond his understanding, must travel to the most dangerous planet in the universe to ensure the future of his family and his people. As malevolent forces explode into conflict over the planet's exclusive supply of the most precious resource in existence - a commodity capable of unlocking humanity's greatest potential - only those who can conquer their fear will survive."}, {"id": 90228, "mediaType": "tv", "name": "Dune: Prophecy", "firstAirDate": "2024-11-17", "posterPath": "/oWVohNsxkxA3u92EzRo8fTuXIS0.jpg", "overview": "Ten thousand years before the ascension of Paul Atreides, sisters Valya and Tula Harkonnen establish the fabled sect and female order that would become known as the Bene Gesserit to control the future of humankind."}]}"#.utf8))
@@ -102,12 +96,11 @@ struct SeerrTests {
         #expect(AniList.plainText("A <i>night</i> &amp; day.<br><br><br>(Source: Shogakukan)") == "A night & day.\n\n(Source: Shogakukan)")
     }
 
-    @Test func addressesAreRead() {
-        #expect(SeerrClient.address("192.168.1.240:5055")?.absoluteString == "http://192.168.1.240:5055")
-        #expect(SeerrClient.address(" https://requests.example.com/ ")?.absoluteString == "https://requests.example.com")
-        #expect(SeerrClient.address("") == nil)
-        #expect(SeerrSettingsView.isBareName("server:5055"))
-        #expect(!SeerrSettingsView.isBareName("192.168.1.240:5055"))
-        #expect(!SeerrSettingsView.isBareName("requests.example.com"))
+    /// Seerr's address through the server's plugin: its proxy path, less the
+    /// "/api/v1" the Seerr client adds itself.
+    @Test func seerrIsReachedThroughThePlugin() {
+        let server = URL(string: "https://media.example.org/")!
+        #expect(AsterTracking.seerrBase(server: server, proxy: "/AsterTracking/Seerr/api/v1").absoluteString == "https://media.example.org/AsterTracking/Seerr")
+        #expect(AsterTracking.seerrBase(server: URL(string: "http://192.0.2.1:8096")!, proxy: nil).absoluteString == "http://192.0.2.1:8096/AsterTracking/Seerr")
     }
 }

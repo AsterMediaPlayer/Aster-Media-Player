@@ -471,12 +471,8 @@ nonisolated extension SeerrClient {
     }
 
     private static func act(_ path: String, method: String, account: SeerrAccount) async throws {
-        let (data, response) = try await send(account.url, path, method: method, cookie: account.cookie)
-        if response.statusCode == 401 { throw SeerrError.signedOut }
-        guard (200..<300).contains(response.statusCode) else {
-            struct Failure: Decodable { var message: String? }
-            throw SeerrError.refused((try? JSONDecoder().decode(Failure.self, from: data))?.message)
-        }
+        let (data, response) = try await send(account.url, path, method: method, authorization: account.authorization)
+        guard (200..<300).contains(response.statusCode) else { throw failure(response.statusCode, data) }
     }
 }
 
@@ -648,11 +644,7 @@ nonisolated extension SeerrClient {
             body["seasons"] = (request.seasons ?? []).map(\.seasonNumber)
         }
         options.add(to: &body)
-        let (data, response) = try await send(account.url, "/request/\(request.id)", method: "PUT", body: body, cookie: account.cookie)
-        if response.statusCode == 401 { throw SeerrError.signedOut }
-        guard (200..<300).contains(response.statusCode) else {
-            struct Failure: Decodable { var message: String? }
-            throw SeerrError.refused((try? JSONDecoder().decode(Failure.self, from: data))?.message)
-        }
+        let (data, response) = try await send(account.url, "/request/\(request.id)", method: "PUT", body: body, authorization: account.authorization)
+        guard (200..<300).contains(response.statusCode) else { throw failure(response.statusCode, data) }
     }
 }

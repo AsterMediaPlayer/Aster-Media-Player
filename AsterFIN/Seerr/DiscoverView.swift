@@ -14,9 +14,6 @@ struct DiscoverView: View {
     enum Section: String, CaseIterable, Identifiable {
         case discover = "Discover", upcoming = "Upcoming", movies = "Movies", series = "Series", requests = "Requests"
         var id: Self { self }
-
-        /// Seerr's own; Upcoming is the library's (new episodes on the way).
-        var isSeerr: Bool { self != .upcoming }
     }
 
     @Environment(AppSession.self) private var session
@@ -24,14 +21,20 @@ struct DiscoverView: View {
     @State private var movieFilter = SeerrFilter(kind: .movie)
     @State private var seriesFilter = SeerrFilter(kind: .tv)
 
-    private let accounts = TrackerAccounts.shared
+    private var tracking: AsterTracking { AsterTracking.shared }
 
-    /// What there is: Seerr's sections once signed in to it, and Upcoming
-    /// when shows in the library have episodes coming.
+    /// What there is. Discover's rows come from the server's plugin and
+    /// Seerr's own; Movies, Series and Requests are Seerr's, through the
+    /// plugin; Upcoming is the library's episodes and the films asked for.
     private var sections: [Section] {
-        let seerr = accounts.secrets.seerr != nil
-        // Upcoming holds films asked for through Seerr too.
-        return Section.allCases.filter { $0.isSeerr ? seerr : (session.hasUpcoming || seerr) }
+        let seerr = tracking.seerr != nil
+        return Section.allCases.filter { section in
+            switch section {
+            case .discover: tracking.isPresent || seerr
+            case .upcoming: session.hasUpcoming || seerr
+            case .movies, .series, .requests: seerr
+            }
+        }
     }
 
     private var shown: Section? {
@@ -45,15 +48,11 @@ struct DiscoverView: View {
             switch shown {
             case .upcoming:
                 UpcomingAgenda(topInset: pickerRoom)
-            case let seerr?:
-                if let account = accounts.secrets.seerr, accounts.needsSignIn.contains("Seerr") {
-                    signInAgain(account)
-                } else {
-                    seerrPage(seerr)
-                }
+            case let page?:
+                seerrPage(page)
             case nil:
                 MessageView(systemImage: "safari", title: "Nothing to discover yet",
-                            detail: "Upcoming episodes show here, and with Seerr set up in Settings › Requests, films and shows to request.")
+                            detail: "Upcoming episodes show here, and with the Aster Discovery and Tracking plugin on your Jellyfin server, recommendations and films and shows to request.")
             }
             if sections.count > 1 {
                 sectionPicker
@@ -78,26 +77,6 @@ struct DiscoverView: View {
 
     /// Room above a page for the sections.
     private var pickerRoom: CGFloat { sections.count > 1 ? Self.pickerHeight : 0 }
-
-    /// Seerr's session ran out: sign in again right here.
-    private func signInAgain(_ account: SeerrAccount) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("Sign In to Seerr Again")
-                .font(.largeTitle.weight(.bold))
-            Text("Seerr ended the session for \(account.name) at \(account.url.host() ?? account.url.absoluteString).")
-                .foregroundStyle(.secondary)
-            SeerrQuickConnect(base: account.url) { account in
-                accounts.signedInToSeerr(account)
-            }
-            Text("Or sign in with a password in Settings › Requests.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: 1000, alignment: .leading)
-        .padding(Lockup.screenPadding)
-        .padding(.top, pickerRoom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
 
     private func seerrPage(_ section: Section) -> some View {
         ScrollView(.vertical) {
@@ -128,17 +107,16 @@ struct DiscoverView: View {
     #endif
 }
 
-/// The Seerr account, or nothing (with Settings asked to sign in again when
-/// Seerr says the session's over).
+/// The Seerr account (through the server's plugin), or nothing.
 @MainActor
 private func seerrAccount() -> SeerrAccount? {
-    let accounts = TrackerAccounts.shared
-    return accounts.needsSignIn.contains("Seerr") ? nil : accounts.secrets.seerr
+    AsterTracking.shared.seerr
 }
 
 @MainActor
 private func noteSeerrFailure(_ error: Error, _ what: String) {
-    if case SeerrError.signedOut = error { TrackerAccounts.shared.seerrSignedOut() }
+    if case SeerrError.signedOut = error { AsterTracking.shared.noteRefused() }
+    DebugLog.note("seerr", "\(what) failed: \((error as? SeerrError)?.errorDescription ?? error.localizedDescription)")
     #if DEBUG
     print("DEBUG seerr: \(what) failed: \(error)")
     #endif
@@ -146,12 +124,22 @@ private func noteSeerrFailure(_ error: Error, _ what: String) {
 
 // MARK: - Discover rows
 
-/// Seerr's Discover page: its rows, in the order and with the names its
-/// admin gave them. Rows with nothing in them are left out.
+/// The Discover page: what the server's plugin built for this person
+/// (continue, recommended, because you watched, on your server, watchlists,
+/// trending, this season) and Seerr's own rows in its admin's order, mixed as
+/// the Aster contract says. Seerr's rows don't wait for the server's page:
+/// if it isn't back within a second and a half they show alone, and it
+/// fills in when it comes.
 private struct DiscoverRows: View {
-    @State private var sliders: [SeerrSlider] = []
+    @Environment(AppSession.self) private var session
+    @State private var tracked: [TrackedRow] = []
+    @State private var sliders: [SeerrSlider]?
     @State private var loaded = false
     @State private var problem: String?
+
+    private var entries: [DiscoverEntry] {
+        TrackedDiscover.order(rows: tracked, sliders: sliders, theaters: AsterTracking.shared.seerr != nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -160,38 +148,152 @@ private struct DiscoverRows: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 120)
             }
-            if loaded, sliders.isEmpty, let problem {
-                Text(problem)
+            if loaded, entries.isEmpty {
+                Text(problem ?? "Nothing to suggest yet. Watch something and link your accounts in the plugin's dashboard, and Discover learns what you like.")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Lockup.screenPadding)
                     .padding(.vertical, 60)
+            } else if loaded, let problem {
+                Text(problem)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Lockup.screenPadding)
             }
-            ForEach(sliders, id: \.stableID) { slider in
-                SliderRow(slider: slider)
+            ForEach(entries) { entry in
+                switch entry {
+                case .tracked(let row):
+                    TrackedShelf(row: row)
+                case .slider(let slider):
+                    SliderRow(slider: slider)
+                case .inTheaters:
+                    SliderRow(slider: SeerrSlider(type: SeerrClient.inTheatersType))
+                }
             }
         }
-        // Again once the account's here: on the TV it comes from the media
-        // server a moment after launch, and a first look found none.
-        .task(id: TrackerAccounts.shared.secrets.seerr?.cookie) {
-            guard sliders.isEmpty, let account = seerrAccount() else { return }
+        // Again once the plugin's answered: the server's features come a
+        // moment after launch, and a first look found none.
+        .task(id: "\(AsterTracking.shared.seerr?.authorization ?? "")|\(AsterTracking.shared.isPresent)") { await load() }
+    }
+
+    private func load() async {
+        guard let jellyfin = session.jellyfin else {
+            loaded = true
+            return
+        }
+        let homeTask = Task { () -> TrackedHome? in
+            do { return try await TrackedDiscover.home(client: jellyfin) }
+            catch {
+                DebugLog.note("discover", "The server's page failed: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        var found: [SeerrSlider]?
+        problem = nil
+        if let account = seerrAccount() {
             do {
-                var found = try await SeerrClient.sliders(account: account)
-                // In Theaters, Discover's own, after Trending (or first).
-                let theaters = SeerrSlider(type: SeerrClient.inTheatersType)
-                if let trending = found.firstIndex(where: { $0.type == 4 }) {
-                    found.insert(theaters, at: trending + 1)
-                } else {
-                    found.insert(theaters, at: 0)
-                }
-                sliders = found
-                #if DEBUG
-                print("DEBUG seerr: \(sliders.count) Discover rows")
-                #endif
+                found = try await SeerrClient.sliders(account: account)
+                DebugLog.note("discover", "\(found?.count ?? 0) Seerr rows")
             } catch {
                 noteSeerrFailure(error, "Discover rows")
-                problem = "Seerr didn't send its Discover page (\((error as? LocalizedError)?.errorDescription ?? error.localizedDescription))."
+                problem = (error as? SeerrError)?.errorDescription ?? "Seerr's rows couldn't be read."
             }
+        }
+        // The server's page, if it's quick; else Seerr's rows alone first.
+        let quick = await Self.within(1.5, homeTask)
+        sliders = found
+        if let quick {
+            tracked = quick?.rows ?? []
             loaded = true
+        } else {
+            loaded = found != nil
+            let late = await homeTask.value
+            tracked = late?.rows ?? []
+            loaded = true
+        }
+    }
+
+    /// The task's answer if it comes within `seconds`: nil if it doesn't.
+    /// (An answer of no page at all is `.some(nil)`.)
+    private static func within(_ seconds: Double, _ task: Task<TrackedHome?, Never>) async -> TrackedHome?? {
+        await withTaskGroup(of: TrackedHome??.self) { group in
+            group.addTask { .some(await task.value) }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return .none
+            }
+            let first = await group.next() ?? .none
+            group.cancelAll()
+            return first
+        }
+    }
+}
+
+// MARK: - The server's own rows
+
+/// One of the server's rows, as Seerr cards: each opens its page by its
+/// TMDB id, or the library's item when requests are off.
+private struct TrackedShelf: View {
+    let row: TrackedRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Shelf(title: row.title, items: row.items.filter { $0.tmdbId != nil || $0.inLibrary != nil }) { item in
+                TrackedLockup(item: item)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A title from the server's page, like a library title: its picture, its
+/// name, and how far along it is (or its year and kind), with "On Server"
+/// when it's there to play.
+struct TrackedLockup: View {
+    let item: TrackedItem
+
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NavigationLink(value: item) {
+                ZStack(alignment: .topTrailing) {
+                    RemoteImage(url: item.posterURL(server: session.serverURL), systemImage: item.isMovie ? "film" : "tv")
+                        .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
+                    if item.inLibrary != nil {
+                        Text("On Server")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .padding(8)
+                    }
+                }
+                .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
+            }
+            .cardButtonStyle()
+            .accessibilityLabel([item.title, item.subtitle, item.inLibrary != nil ? "On your server" : nil].compactMap { $0 }.joined(separator: ", "))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.callout.weight(.medium)).lineLimit(1)
+                Text(item.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(width: Lockup.posterWidth, alignment: .leading)
+        }
+    }
+}
+
+/// Where a server title opens: Seerr's page by its TMDB id, with the Request
+/// button; or, with requests off, its place in the library.
+struct TrackedItemPage: View {
+    let item: TrackedItem
+
+    var body: some View {
+        if AsterTracking.shared.seerr != nil, let title = item.seerrTitle {
+            SeerrTitlePage(title: title)
+        } else if let library = item.inLibrary {
+            ItemDetailView(item: BaseItem(id: library.itemId, name: library.name ?? item.title,
+                                          type: library.type ?? (item.isMovie ? ItemKind.movie.rawValue : ItemKind.series.rawValue)))
+        } else {
+            MessageView(systemImage: "questionmark.circle", title: item.title, detail: "This title can't be opened here.")
         }
     }
 }

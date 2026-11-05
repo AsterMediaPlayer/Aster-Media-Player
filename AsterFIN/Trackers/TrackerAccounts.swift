@@ -74,8 +74,6 @@ nonisolated struct TrackerSecrets: Codable, Sendable, Equatable {
     var myAnimeList: MyAnimeListAccount?
     var trakt: TraktAccount?
     var simkl: SimklAccount?
-    /// The request server (Seerr), kept and synced with the accounts.
-    var seerr: SeerrAccount?
     /// When last changed anywhere: the newer copy wins.
     var updated: Date = .distantPast
 }
@@ -159,7 +157,7 @@ final class TrackerAccounts {
         self.client = client
         self.userId = userId
         guard let blob = await Self.readServer(client), let server = TrackerVault.open(blob, user: userId) else {
-            if isSignedIn || secrets.seerr != nil { await writeServer() }
+            if isSignedIn { await writeServer() }
             return
         }
         if server.updated > secrets.updated {
@@ -260,21 +258,6 @@ final class TrackerAccounts {
             change { $0.trakt = refreshed }
         }
         return account.tokens.access
-    }
-
-    func signedInToSeerr(_ account: SeerrAccount) {
-        needsSignIn.remove("Seerr")
-        change { $0.seerr = account }
-    }
-
-    func signOutOfSeerr() {
-        needsSignIn.remove("Seerr")
-        change { $0.seerr = nil }
-    }
-
-    /// The Seerr session ran out: it's asked for again in Settings.
-    func seerrSignedOut() {
-        needsSignIn.insert("Seerr")
     }
 
     func signOutOfAniList() {

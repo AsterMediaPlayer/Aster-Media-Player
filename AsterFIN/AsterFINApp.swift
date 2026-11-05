@@ -13,6 +13,8 @@ struct AsterFINApp: App {
     @State private var session = AppSession.shared
 
     init() {
+        CrashReports.start()
+        DebugLog.note("app", "Opened")
         #if !os(macOS)
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         #endif

@@ -240,6 +240,8 @@ final class AetherPlayback {
     }
 
     func start() async {
+        DebugLog.startedPlayback()
+        DebugLog.note("play", "Starting a title with Aster's player (converted: \(entry.fallback == .none ? "no" : "fallback \(entry.fallback)"))")
         do {
             let ready = prepared?.item.id == entry.itemId ? prepared : nil
             prepared = nil
@@ -951,6 +953,8 @@ final class AetherPlayback {
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
         guard !stopped, !fellBack else { return }
+        DebugLog.note("play", "Fell back: \(reason)")
+        DebugLog.notePlayback(["error": reason, "method": playMethod])
         // A live channel's stream can be briefly missing on the server (a
         // tuner still being let go, an encode not ready): one fresh try in
         // this player before handing it over.

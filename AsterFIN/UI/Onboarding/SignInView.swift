@@ -238,6 +238,7 @@ struct SignInView: View {
                 UserDefaults.standard.removeObject(forKey: ServerConnectView.pendingAddressKey)
                 session.signIn(result)
             } catch {
+                DebugLog.note("signin", "Sign-in failed: \(error.localizedDescription)")
                 // Said plainly, and the wrong password cleared to type again.
                 let wasEmpty = password.isEmpty
                 errorAttempt += 1

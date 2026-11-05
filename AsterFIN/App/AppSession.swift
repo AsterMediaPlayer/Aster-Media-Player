@@ -418,6 +418,7 @@ final class AppSession {
     }
 
     func useServer(_ url: URL, info: PublicSystemInfo) {
+        DebugLog.note("server", "Found a \(info.kind.rawValue) server, version \(info.version ?? "unknown")")
         serverURL = url
         serverName = info.serverName
         serverKind = info.kind
@@ -596,6 +597,7 @@ final class AppSession {
 
     func signIn(_ result: AuthenticationResult) {
         guard let serverURL else { return }
+        DebugLog.note("signin", "Signed in to a \(serverKind.rawValue) server")
         let stored = StoredSession(serverURL: serverURL, serverName: serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: serverKind)
         stored.save()
         userId = result.user.id
@@ -644,6 +646,7 @@ final class AppSession {
 
     /// Signed in through plex.tv, to the server and Home user picked.
     func signIn(plex stored: StoredSession) {
+        DebugLog.note("signin", "Signed in with Plex")
         stopMedia()
         stored.save()
         serverURL = stored.serverURL

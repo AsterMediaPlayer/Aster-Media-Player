@@ -143,7 +143,7 @@ struct DebugReportView: View {
         let crash = CrashReports.pending
         let report = await DebugReport.build(session: session, description: description, crash: crash, contactEmail: isTV ? nil : email)
         do {
-            code = try await DebugReport.send(report)
+            code = try await DebugReport.send(report, platform: DebugReport.platform)
             if crash != nil { CrashReports.clear() }
         } catch {
             failure = (error as? LocalizedError)?.errorDescription ?? "The report couldn't be sent."

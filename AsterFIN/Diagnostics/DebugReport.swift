@@ -44,6 +44,8 @@ nonisolated enum DebugReport {
     /// What goes in it, said to the viewer before it's sent.
     static let contents = "It holds the app's version, this device's model and what it can play, your server's kind and version, what was last played, the app's settings, and the app's recent log. Server addresses, sign-ins, passwords, your name and your library's file names are taken out before it leaves this device."
 
+    /// "tvos", "macos", "ipados" or "ios". (UIDevice is the main actor's.)
+    @MainActor
     static var platform: String {
         #if os(tvOS)
         "tvos"
@@ -153,7 +155,7 @@ nonisolated enum DebugReport {
     // MARK: Sending
 
     /// Sends `report`; the id the service gave it.
-    static func send(_ report: [String: Any]) async throws -> String {
+    static func send(_ report: [String: Any], platform: String) async throws -> String {
         var request = URLRequest(url: endpoint, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

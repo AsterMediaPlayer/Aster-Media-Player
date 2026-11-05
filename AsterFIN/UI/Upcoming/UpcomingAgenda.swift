@@ -13,8 +13,8 @@
 import SwiftUI
 
 struct UpcomingAgenda: View {
-    /// Room left above for Discover's sections.
-    var topInset: CGFloat = 0
+    /// Discover's title and sections, across the top of the page.
+    var header: AnyView = AnyView(EmptyView())
 
     /// One thing on a day: an episode, or a film the viewer asked for.
     enum Entry: Identifiable, Hashable {
@@ -78,14 +78,20 @@ struct UpcomingAgenda: View {
             backdrop
             if hasAnything {
                 agenda
-            } else if let error = model.errorMessage {
-                MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error) {
-                    Task { await reload() }
-                }
-            } else if model.hasLoaded {
-                MessageView(systemImage: "calendar", title: "Nothing coming up", detail: "Episodes of shows in your library that air soon show up here, and films you've asked for until they're out.")
             } else {
-                ProgressView()
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    if let error = model.errorMessage {
+                        MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error) {
+                            Task { await reload() }
+                        }
+                    } else if model.hasLoaded {
+                        MessageView(systemImage: "calendar", title: "Nothing coming up", detail: "Episodes of shows in your library that air soon show up here, and films you've asked for until they're out.")
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         }
         .task {
@@ -141,6 +147,8 @@ struct UpcomingAgenda: View {
     private var agenda: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: Self.daySpacing) {
+                header
+                    .padding(.bottom, 12)
                 if hasBothKinds || !films.isEmpty {
                     kindSwitches
                 }
@@ -154,8 +162,7 @@ struct UpcomingAgenda: View {
                     day(entry.day, entry.entries)
                 }
             }
-            .padding(.top, topInset + Lockup.pageTopPadding)
-            .padding(.bottom, Lockup.pageBottomPadding)
+            .padding(.bottom, 80)
         }
         .scrollClipDisabled()
     }

@@ -42,51 +42,62 @@ struct DiscoverView: View {
     }
 
     var body: some View {
-        // The sections sit over the page (over Upcoming's full-screen
-        // picture, as the TV app's own tabs do), so each page keeps its look.
-        ZStack(alignment: .top) {
+        // As the Music page: the title and the sections across the top of the
+        // page, scrolling with it, with no bar of their own.
+        Group {
             switch shown {
             case .upcoming:
-                UpcomingAgenda(topInset: pickerRoom)
+                UpcomingAgenda(header: AnyView(header))
             case let page?:
                 seerrPage(page)
             case nil:
-                MessageView(systemImage: "safari", title: "Nothing to discover yet",
-                            detail: "Upcoming episodes show here, and with the Aster Discovery and Tracking plugin on your Jellyfin server, recommendations and films and shows to request.")
-            }
-            if sections.count > 1 {
-                sectionPicker
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    MessageView(systemImage: "safari", title: "Nothing to discover yet",
+                                detail: "Upcoming episodes show here, and with the Aster Discovery and Tracking plugin on your Jellyfin server, recommendations and films and shows to request.")
+                }
             }
         }
-        #if !os(tvOS)
-        // The title sits in the bar beside the back arrow, not above the
-        // page in a tall large-title bar of its own.
-        .navigationTitle("Discover")
-        .toolbarTitleDisplayMode(.inline)
-        #endif
     }
 
-    private var sectionPicker: some View {
-        Picker("Section", selection: Binding(get: { shown ?? .discover }, set: { section = $0 })) {
+    /// The title and the sections: side by side on a TV, the sections across
+    /// the full width below the title on a phone.
+    private var header: some View {
+        let title = Text("Discover")
+            .font(.largeTitle.weight(.bold))
+        let picker = Picker("Section", selection: Binding(get: { shown ?? .discover }, set: { section = $0 })) {
             ForEach(sections) { section in
                 Text(section.rawValue).tag(section)
             }
         }
         .pickerStyle(.segmented)
-        .frame(maxWidth: Self.pickerWidth)
-        // A little backing, so the pills read over the page's pictures.
-        .padding(Self.pickerBacking)
-        .background(Color.black.opacity(0.35), in: Capsule())
+        return Group {
+            #if os(tvOS)
+            HStack(alignment: .firstTextBaseline) {
+                title
+                Spacer()
+                if sections.count > 1 { picker.frame(width: 1100) }
+            }
+            #else
+            VStack(alignment: .leading, spacing: 12) {
+                title
+                if sections.count > 1 { picker }
+            }
+            #endif
+        }
         .padding(.horizontal, Lockup.screenPadding)
-        .padding(.top, Self.pickerTop)
+        #if os(tvOS)
+        .padding(.top, 40)
+        #else
+        .padding(.top, 8)
+        #endif
+        .tvFocusSection()
     }
-
-    /// Room above a page for the sections.
-    private var pickerRoom: CGFloat { sections.count > 1 ? Self.pickerHeight : 0 }
 
     private func seerrPage(_ section: Section) -> some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                header
                 switch section {
                 case .movies:
                     DiscoverGrid(filter: $movieFilter)
@@ -98,23 +109,10 @@ struct DiscoverView: View {
                     DiscoverRows()
                 }
             }
-            .padding(.top, pickerRoom + Lockup.pageTopPadding)
-            .padding(.bottom, Lockup.pageBottomPadding)
+            .padding(.bottom, 80)
         }
         .scrollClipDisabled()
     }
-
-    #if os(tvOS)
-    private static let pickerWidth: CGFloat = 1100
-    private static let pickerHeight: CGFloat = 90
-    private static let pickerBacking: CGFloat = 8
-    private static let pickerTop: CGFloat = Lockup.pageTopPadding
-    #else
-    private static let pickerWidth: CGFloat = 560
-    private static let pickerHeight: CGFloat = 52
-    private static let pickerBacking: CGFloat = 4
-    private static let pickerTop: CGFloat = 4
-    #endif
 }
 
 /// The Seerr account (through the server's plugin), or nothing.

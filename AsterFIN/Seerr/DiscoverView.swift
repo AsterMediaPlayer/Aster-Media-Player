@@ -59,7 +59,10 @@ struct DiscoverView: View {
             }
         }
         #if !os(tvOS)
+        // The title sits in the bar beside the back arrow, not above the
+        // page in a tall large-title bar of its own.
         .navigationTitle("Discover")
+        .toolbarTitleDisplayMode(.inline)
         #endif
     }
 
@@ -71,8 +74,11 @@ struct DiscoverView: View {
         }
         .pickerStyle(.segmented)
         .frame(maxWidth: Self.pickerWidth)
+        // A little backing, so the pills read over the page's pictures.
+        .padding(Self.pickerBacking)
+        .background(Color.black.opacity(0.35), in: Capsule())
         .padding(.horizontal, Lockup.screenPadding)
-        .padding(.top, Lockup.pageTopPadding)
+        .padding(.top, Self.pickerTop)
     }
 
     /// Room above a page for the sections.
@@ -101,9 +107,13 @@ struct DiscoverView: View {
     #if os(tvOS)
     private static let pickerWidth: CGFloat = 1100
     private static let pickerHeight: CGFloat = 90
+    private static let pickerBacking: CGFloat = 8
+    private static let pickerTop: CGFloat = Lockup.pageTopPadding
     #else
     private static let pickerWidth: CGFloat = 560
-    private static let pickerHeight: CGFloat = 44
+    private static let pickerHeight: CGFloat = 52
+    private static let pickerBacking: CGFloat = 4
+    private static let pickerTop: CGFloat = 4
     #endif
 }
 

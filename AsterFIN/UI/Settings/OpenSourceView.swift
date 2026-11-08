@@ -38,7 +38,7 @@ nonisolated struct OpenSourceComponent: Identifiable, Hashable, Sendable {
                 name: "FFmpeg", role: "Opens and decodes the files AetherEngine plays, built as FFmpegBuild.",
                 license: "LGPL-2.1 or later", url: "https://github.com/superuser404notfound/FFmpegBuild",
                 files: ["LGPL-2.1"],
-                note: "Built without GPL parts, with a few published patches; the configuration and patches are in FFmpegBuild's build script. FFmpeg is a trademark of Fabrice Bellard."
+                note: "Built without GPL parts, with a few published patches; the configuration and patches are in FFmpegBuild's build script. It also decodes DTS, DTS-HD Master Audio and DTS:X sound, heights included. FFmpeg is a trademark of Fabrice Bellard. DTS, DTS-HD, DTS-HD Master Audio and DTS:X are trademarks of DTS, Inc., which isn't affiliated with or endorsing this software."
             ),
             OpenSourceComponent(
                 name: "dav1d", role: "Decodes AV1 video.",
@@ -63,12 +63,6 @@ nonisolated struct OpenSourceComponent: Identifiable, Hashable, Sendable {
                 license: "MIT; the truehd and oamd crates under Apache-2.0", url: "https://github.com/superuser404notfound/LibTrueHD",
                 files: ["LibTrueHD", "LibTrueHD-NOTICE", "Apache-2.0"],
                 note: "Dolby, Dolby Atmos and Dolby TrueHD are trademarks of Dolby Laboratories, which isn't affiliated with or endorsing this software."
-            ),
-            OpenSourceComponent(
-                name: "DTS:X decoder", role: "Decodes DTS, DTS-HD Master Audio and DTS:X sound, built as LibDTSX.",
-                license: "Apache-2.0", url: "https://github.com/superuser404notfound/LibDTSX",
-                files: ["LibDTSX-NOTICE", "Apache-2.0"],
-                note: "DTS, DTS-HD, DTS-HD Master Audio and DTS:X are trademarks of DTS, Inc., which isn't affiliated with or endorsing this software."
             ),
             OpenSourceComponent(
                 name: "SMBClient", role: "Reads files from network shares.",

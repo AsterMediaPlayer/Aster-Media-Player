@@ -815,9 +815,9 @@ struct AlbumView: View {
                             .font(Lockup.iconButtonFont)
                             .frame(width: Lockup.iconButtonSize, height: Lockup.iconButtonSize)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(white: 0.3))
-                    .foregroundStyle(.white)
+                    // As its neighbours: on the TV the system style washed
+                    // its white symbol out when focused.
+                    .actionButtonStyle()
                     .accessibilityLabel("More")
                 }
                 .disabled(tracks.isEmpty)
@@ -1197,8 +1197,11 @@ struct NowPlayingView: View {
 
     // MARK: Pieces shared by the TV and phone layouts
 
-    private func artwork(_ track: BaseItem, size: CGFloat) -> some View {
-        RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 800), systemImage: "music.note")
+    private func artwork(_ track: BaseItem, size proposed: CGFloat) -> some View {
+        // The screen's size is zero for a moment as the player opens, which
+        // made the size from it negative.
+        let size = proposed.isFinite ? max(proposed, 0) : 0
+        return RemoteImage(url: session.jellyfin?.posterURL(for: track, width: 800), systemImage: "music.note")
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: size > 300 ? 20 : 14))
             .shadow(color: .black.opacity(0.6), radius: size > 300 ? 40 : 20, y: size > 300 ? 16 : 8)
@@ -1252,6 +1255,25 @@ struct NowPlayingView: View {
     /// Whether the lyrics are on screen (turned on, and the song has some).
     private var lyricsShowing: Bool { showLyrics && player.lyrics != nil }
 
+    /// Where the sound goes: AirPlay (a HomePod, a TV) and Sonos rooms.
+    @ViewBuilder
+    private var outputButtons: some View {
+        #if os(iOS)
+        HStack(spacing: PlayerControl.spacing) {
+            AirPlayControl()
+            SonosControl(target: .music)
+        }
+        #endif
+    }
+
+    /// "Playing on Living Room", while a Sonos room is.
+    @ViewBuilder
+    private var outputLabel: some View {
+        #if os(iOS)
+        SonosPlayingLabel(target: .music)
+        #endif
+    }
+
     /// Lyrics when they're turned on, else what's coming up. `lyricsHeight`
     /// overrides the panel's usual height.
     @ViewBuilder
@@ -1293,6 +1315,11 @@ struct NowPlayingView: View {
                             progress
                             controls
                                 .frame(maxWidth: .infinity)
+                            // Upright the row is full: under it, centred.
+                            outputButtons
+                                .frame(maxWidth: .infinity)
+                            outputLabel
+                                .frame(maxWidth: .infinity)
                             errorText
                         }
                         .padding(.horizontal, 24)
@@ -1302,7 +1329,13 @@ struct NowPlayingView: View {
                             VStack(alignment: .leading, spacing: 14) {
                                 trackInfo(track, titleSize: 22)
                                 progress
-                                controls
+                                // Beside the controls, where the row has room.
+                                HStack(spacing: 16) {
+                                    controls
+                                    Spacer(minLength: 0)
+                                    outputButtons
+                                }
+                                outputLabel
                                 errorText
                             }
                         }
@@ -1438,11 +1471,10 @@ struct PlayerControl: View {
             .font(.system(size: prominent ? Self.iconSize.prominent : Self.iconSize.regular, weight: .semibold))
             .frame(width: diameter, height: diameter)
         #if os(tvOS)
+        // Its own style: the system's turned white when focused under a
+        // symbol set white.
         Button(action: action) { icon }
-            .buttonStyle(.borderedProminent)
-            .tint(fill)
-            .foregroundStyle(prominent ? .black : .white)
-            .clipShape(Circle())
+            .buttonStyle(TVRoundButtonStyle(fill: fill, prominent: prominent))
             .accessibilityLabel(label)
         #else
         // The system's filled style pads the button out past its circle,

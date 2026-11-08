@@ -206,11 +206,15 @@ extension EnvironmentValues {
 extension View {
     /// A lockup's artwork as the keyboard's selection: outlined and lifted,
     /// like a focused card on Apple TV.
-    func keyboardSelectionHighlight(_ selected: Bool) -> some View {
+    func keyboardSelectionHighlight(_ selected: Bool, capsule: Bool = false) -> some View {
         overlay {
             if selected {
-                Rectangle()
-                    .strokeBorder(.white, lineWidth: 3)
+                // A button's outline follows its capsule; a card's is square.
+                if capsule {
+                    Capsule().strokeBorder(.white, lineWidth: 3)
+                } else {
+                    Rectangle().strokeBorder(.white, lineWidth: 3)
+                }
             }
         }
         .scaleEffect(selected ? 1.05 : 1)
@@ -705,6 +709,8 @@ struct MetadataLine: View {
     let item: BaseItem
     /// A show's page: how many episodes are left to watch, after the years.
     var showsUnwatched = false
+    /// Scores found beyond the server's (MDBList's), which take their sites' place.
+    var addedScores: [TitleScore] = []
 
     private var parts: [String] {
         var parts = item.metadataLine
@@ -722,13 +728,7 @@ struct MetadataLine: View {
             } else if item.isHD {
                 Badge(text: "HD")
             }
-            if let rating = item.communityRating {
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill").font(.caption).accessibilityHidden(true)
-                    Text(String(format: "%.1f", rating))
-                }
-                .accessibilityLabel("Rated \(String(format: "%.1f", rating)) out of 10")
-            }
+            TitleScoreRow(scores: TitleScore.merged(item.serverScores, addedScores))
         }
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -840,7 +840,7 @@ struct ActionButton: View {
         .optionallyFocused(focus, equals: focusID)
         // The prominent button is the page's main action (Play), where the
         // keyboard starts.
-        .keyboardTarget(isDefault: prominent, action: action)
+        .keyboardTarget(isDefault: prominent, capsule: true, action: action)
     }
 }
 
@@ -894,7 +894,7 @@ struct IconButton: View {
         .actionButtonStyle()
         .accessibilityLabel(accessibilityLabel)
         .optionallyFocused(focus, equals: focusID)
-        .keyboardTarget(action: action)
+        .keyboardTarget(capsule: true, action: action)
     }
 }
 
@@ -909,13 +909,121 @@ extension View {
             .menuStyle(.button)
         #else
         buttonStyle(.borderedProminent)
+            // iOS draws these as capsules; the Mac's rounded rectangles looked square beside them.
+            .buttonBorderShape(.capsule)
             .tint(prominent ? .white : Color(white: 0.3))
             .foregroundStyle(prominent ? .black : .white)
+            .alwaysActiveControl()
+        #endif
+    }
+
+    /// The Mac greys a tinted button out while its window isn't the active
+    /// one, which left Resume's black label on dark grey. Drawn as in the
+    /// active window instead.
+    func alwaysActiveControl() -> some View {
+        #if os(macOS)
+        environment(\.controlActiveState, .key)
+        #else
+        self
+        #endif
+    }
+
+    /// A row's pick, as a capsule: the chosen one white with black text,
+    /// the rest a faint white. On the Mac it's drawn here rather than by
+    /// the bordered style, which dropped the tint (and so the chosen one)
+    /// whenever the window wasn't the active one.
+    func chipStyle(selected: Bool) -> some View {
+        #if os(macOS)
+        buttonStyle(ChipButtonStyle(selected: selected))
+        #elseif os(tvOS)
+        // Drawn here: the system's focused chip turned white under a label
+        // set white, so an unpicked chip with focus read white on white.
+        buttonStyle(TVChipButtonStyle(selected: selected))
+            .menuStyle(.button)
+        #else
+        buttonStyle(.bordered)
+            .tint(selected ? .white : Color(white: 0.3))
+            .foregroundStyle(selected ? .black : .white)
         #endif
     }
 }
 
+#if os(macOS)
+private struct ChipButtonStyle: ButtonStyle {
+    var selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(selected ? Color.black : Color.white)
+            .background(Capsule().fill(selected ? Color.white : Color.white.opacity(0.14)))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(Capsule())
+    }
+}
+#endif
+
 #if os(tvOS)
+/// A chip on the TV: white with black text when picked or focused (and
+/// lifted when focused), else a faint white with white text.
+private struct TVChipButtonStyle: ButtonStyle {
+    var selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, selected: selected)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let selected: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            let lit = isFocused || selected
+            configuration.label
+                .foregroundStyle(lit ? Color.black : Color.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(lit ? Color.white : Color.white.opacity(0.16)))
+                .scaleEffect(isFocused && !configuration.isPressed ? 1.08 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: isFocused)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+
+/// A round button on the TV (the players' transport controls): white with
+/// a black symbol when focused, else its own fill.
+struct TVRoundButtonStyle: ButtonStyle {
+    var fill: Color
+    var prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, fill: fill, prominent: prominent)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let fill: Color
+        let prominent: Bool
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            let lit = isFocused || prominent
+            configuration.label
+                .foregroundStyle(lit ? Color.black : Color.white)
+                .background(Circle().fill(isFocused ? Color.white : fill))
+                .contentShape(Circle())
+                .scaleEffect(isFocused && !configuration.isPressed ? 1.12 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: isFocused)
+                .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+
 private struct TVActionButtonStyle: ButtonStyle {
     var prominent: Bool
 

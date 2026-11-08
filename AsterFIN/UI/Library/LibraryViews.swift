@@ -346,6 +346,8 @@ struct LibraryGridView: View {
     @State private var loadedKey: String?
 
     private func reloadIfNeeded(for key: String) async {
+        // Once, with anime known and left out, not again when it's found.
+        guard session.animeDetected else { return }
         guard loadedKey != key || model.items.isEmpty else { return }
         await reload()
         guard !Task.isCancelled else { return }
@@ -400,6 +402,14 @@ struct TypeGridView: View {
 
     private var title: String { kind == .movie ? "Movies" : "TV Shows" }
 
+    /// TV Shows' Libraries row: the TV libraries, less the anime ones (the
+    /// Anime tab's). None on Movies.
+    private var libraries: [BaseItem] {
+        guard kind == .series else { return [] }
+        let anime = Set(session.animeLibraries.map(\.id))
+        return session.showLibraries.filter { !anime.contains($0.id) }
+    }
+
     private var indexed: Bool { sort == .name && !sections.isEmpty }
 
     private var query: ItemQuery {
@@ -441,9 +451,9 @@ struct TypeGridView: View {
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
+        .task(id: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
-        .task(id: session.animeItemIds.count) { await loadHero() }
+        .task(id: "\(session.animeDetected)|\(session.animeItemIds.count)") { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
         }
@@ -453,6 +463,7 @@ struct TypeGridView: View {
         TypeGridHeader(
             title: title,
             featured: featured,
+            libraries: libraries,
             recent: recent,
             sort: $sort,
             letters: indexed ? sections.map(\.key) : [],
@@ -470,7 +481,7 @@ struct TypeGridView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !featured.isEmpty {
                         HeroCarousel(items: featured, moveDown: {
-                            focusedLockup = recent.first?.id
+                            focusedLockup = libraries.first?.id ?? recent.first?.id
                         }, focusChanged: { focused in
                             if focused { focusedLockup = nil }
                             heroFocused = focused
@@ -497,9 +508,9 @@ struct TypeGridView: View {
         // Full-bleed under the hero, as on Home; the rows keep their margins.
         .ignoresSafeArea(edges: featured.isEmpty ? [] : .all)
         // Reloads once anime detection finishes, so its titles drop out.
-        .task(id: "\(sort.rawValue)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeItemIds.count)") }
+        .task(id: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") { await reloadIfNeeded(for: "\(sort.rawValue)|\(session.animeDetected)|\(session.animeItemIds.count)") }
         .onChange(of: model.items.count) { _, _ in updateSections() }
-        .task(id: session.animeItemIds.count) { await loadHero() }
+        .task(id: "\(session.animeDetected)|\(session.animeItemIds.count)") { await loadHero() }
         .onChange(of: session.userDataRevision) { _, _ in
             Task { await loadHero() }
         }
@@ -507,6 +518,13 @@ struct TypeGridView: View {
 
     @ViewBuilder
     private func page(_ reader: ScrollViewProxy) -> some View {
+        if !libraries.isEmpty {
+            Shelf(title: "Libraries", items: libraries) { library in
+                LibraryTile(library: library, focus: $focusedLockup)
+            }
+            .heroLanding($focusedLockup, on: libraries.first?.id, fromHero: heroFocused)
+            .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 0)
+        }
         HStack(alignment: .firstTextBaseline) {
             Text(title)
                 .font(.largeTitle.weight(.bold))
@@ -519,12 +537,12 @@ struct TypeGridView: View {
             .pickerStyle(.menu)
         }
         .padding(.horizontal, Lockup.screenPadding)
-        .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 20)
+        .padding(.top, featured.isEmpty && libraries.isEmpty ? Lockup.pageTopPadding : 20)
 
         Shelf(title: "Recently Added", items: recent) { item in
             LandscapeLockup(item: item, focus: $focusedLockup)
         }
-        .heroLanding($focusedLockup, on: recent.first?.id, fromHero: heroFocused)
+        .heroLanding($focusedLockup, on: libraries.isEmpty ? recent.first?.id : nil, fromHero: heroFocused)
 
         if model.items.isEmpty, let error = model.errorMessage {
             MessageView(systemImage: "exclamationmark.triangle", title: "Couldn't load", detail: error)
@@ -591,9 +609,25 @@ struct TypeGridView: View {
         sections = sort == .name && !model.hasMore ? LibraryIndex.sections(model.items) : []
     }
 
+    /// The hero and Recently Added as last shown, kept on disk.
+    nonisolated private struct HeroSnapshot: Codable, Sendable {
+        var featured: [BaseItem]
+        var recent: [BaseItem]
+    }
+
+    private var heroSnapshotName: String { kind == .movie ? "movies-hero" : "shows-hero" }
+
     /// Recently Added, and from it and what's in progress, the hero.
     private func loadHero() async {
-        guard let client = session.client else { return }
+        guard let client = session.client, session.animeDetected else { return }
+        // As last time at once, rather than a spinner, while it's asked for.
+        if !heroLoaded, let userId = session.userId,
+           let kept = await ResponseCache.load(HeroSnapshot.self, heroSnapshotName, server: client.baseURL, user: userId)?.value,
+           !heroLoaded {
+            recent = kept.recent
+            featured = kept.featured
+            heroLoaded = true
+        }
         let anime = session.animeItemIds
         // Ask for extra, as anime ones are taken out.
         async let latest = client.latest(parentId: nil, limit: 40, kinds: [kind])
@@ -617,9 +651,14 @@ struct TypeGridView: View {
         for item in inProgress.prefix(kind == .movie ? 4 : 3) + upNext.prefix(3) + newest.prefix(5) where !picks.contains(where: { $0.id == item.id }) {
             picks.append(item)
         }
-        recent = newest
-        featured = Array(picks.prefix(8))
+        // Only what changed is replaced, so focus stays where it is.
+        if recent != newest { recent = newest }
+        let hero = Array(picks.prefix(8))
+        if featured != hero { featured = hero }
         heroLoaded = true
+        if let userId = session.userId, !Task.isCancelled {
+            ResponseCache.save(HeroSnapshot(featured: featured, recent: recent), heroSnapshotName, server: client.baseURL, user: userId)
+        }
     }
 }
 
@@ -632,6 +671,8 @@ struct TypeGridView: View {
 private struct TypeGridHeader: View {
     let title: String
     let featured: [BaseItem]
+    /// TV Shows' Libraries row, right below the hero.
+    let libraries: [BaseItem]
     let recent: [BaseItem]
     @Binding var sort: LibrarySort
     let letters: [String]
@@ -646,11 +687,19 @@ private struct TypeGridHeader: View {
         VStack(alignment: .leading, spacing: 0) {
             if !featured.isEmpty {
                 HeroCarousel(items: featured, moveDown: {
-                    focusedLockup = recent.first?.id
+                    focusedLockup = libraries.first?.id ?? recent.first?.id
                 }, focusChanged: { focused in
                     if focused { focusedLockup = nil }
                     heroFocused = focused
                 })
+            }
+            if !libraries.isEmpty {
+                Shelf(title: "Libraries", items: libraries) { library in
+                    LibraryTile(library: library, focus: $focusedLockup)
+                }
+                .heroLanding($focusedLockup, on: libraries.first?.id, fromHero: heroFocused)
+                .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 0)
+                .modifier(MiniPlayerRoom())
             }
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
@@ -664,13 +713,13 @@ private struct TypeGridHeader: View {
                 .pickerStyle(.menu)
             }
             .padding(.horizontal, Lockup.screenPadding)
-            .padding(.top, featured.isEmpty ? Lockup.pageTopPadding : 20)
+            .padding(.top, featured.isEmpty && libraries.isEmpty ? Lockup.pageTopPadding : 20)
             .modifier(MiniPlayerRoom())
 
             Shelf(title: "Recently Added", items: recent) { item in
                 LandscapeLockup(item: item, focus: $focusedLockup)
             }
-            .heroLanding($focusedLockup, on: recent.first?.id, fromHero: heroFocused)
+            .heroLanding($focusedLockup, on: libraries.isEmpty ? recent.first?.id : nil, fromHero: heroFocused)
 
             Text("All \(title)")
                 .font(.title3.weight(.semibold))

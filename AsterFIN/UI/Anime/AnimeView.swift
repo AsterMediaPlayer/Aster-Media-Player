@@ -22,13 +22,41 @@ final class AnimeModel {
     /// Whether a load has finished, so the page knows the hero isn't coming.
     private(set) var hasLoaded = false
 
-    struct MusicVideoShelf: Identifiable {
+    nonisolated struct MusicVideoShelf: Identifiable, Equatable, Codable, Sendable {
         let library: BaseItem
         let items: [BaseItem]
         var id: String { library.id }
     }
 
-    func load(client: any MediaServer, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = []) async {
+    /// The tab as last shown, kept on disk to show at once next time.
+    nonisolated private struct Snapshot: Codable, Sendable {
+        var continueWatching: [BaseItem]
+        var nextUp: [BaseItem]
+        var recentlyAdded: [BaseItem]
+        var musicVideoShelves: [MusicVideoShelf]
+        var featured: [BaseItem]
+    }
+
+    private static let snapshotName = "anime"
+
+    /// The tab as it was last time, while the server's answer comes.
+    func restore(client: any MediaServer, userId: String?) async {
+        guard !hasLoaded, featured.isEmpty, let userId,
+              let kept = await ResponseCache.load(Snapshot.self, Self.snapshotName, server: client.baseURL, user: userId)?.value,
+              !hasLoaded, featured.isEmpty else { return }
+        continueWatching = kept.continueWatching
+        nextUp = kept.nextUp
+        recentlyAdded = kept.recentlyAdded
+        musicVideoShelves = kept.musicVideoShelves
+        featured = kept.featured
+    }
+
+    /// Sets `value` only when it differs, so an unchanged row isn't redrawn.
+    private static func update<Value: Equatable>(_ value: inout Value, _ new: Value) {
+        if value != new { value = new }
+    }
+
+    func load(client: any MediaServer, libraries: [BaseItem], musicVideoLibraries: [BaseItem] = [], userId: String? = nil) async {
         isLoading = featured.isEmpty && !libraries.isEmpty
         let ids = libraries.map(\.id)
         let showIds = libraries.filter { $0.collectionType == "tvshows" }.map(\.id)
@@ -50,18 +78,23 @@ final class AnimeModel {
 
         // Newest first across libraries; ISO 8601 dates sort as text.
         let resumed = await resume
-        continueWatching = Array(resumed.sorted { ($0.userData?.lastPlayedDate ?? "") > ($1.userData?.lastPlayedDate ?? "") }.prefix(20))
-        nextUp = Array(await next.filter { episode in !resumed.contains { $0.id == episode.id } }.prefix(20))
-        recentlyAdded = await latest
-        musicVideoShelves = await musicVideos
+        Self.update(&continueWatching, Array(resumed.sorted { ($0.userData?.lastPlayedDate ?? "") > ($1.userData?.lastPlayedDate ?? "") }.prefix(20)))
+        Self.update(&nextUp, Array(await next.filter { episode in !resumed.contains { $0.id == episode.id } }.prefix(20)))
+        Self.update(&recentlyAdded, await latest)
+        Self.update(&musicVideoShelves, await musicVideos)
 
         var picks: [BaseItem] = []
         for item in continueWatching.prefix(3) + nextUp.prefix(3) + recentlyAdded.prefix(5) where !picks.contains(where: { $0.id == item.id }) {
             picks.append(item)
         }
-        featured = Array(picks.prefix(8))
+        Self.update(&featured, Array(picks.prefix(8)))
         hasLoaded = true
         isLoading = false
+        if let userId, !libraries.isEmpty {
+            ResponseCache.save(Snapshot(continueWatching: continueWatching, nextUp: nextUp, recentlyAdded: recentlyAdded,
+                                        musicVideoShelves: musicVideoShelves, featured: featured),
+                               Self.snapshotName, server: client.baseURL, user: userId)
+        }
     }
 
     /// The newest series and films across the anime libraries. Home's
@@ -184,12 +217,24 @@ struct AnimeView: View {
                             LandscapeLockup(item: item, showSeriesTitle: false)
                         }
                     }
+                    // Starting this season and next, to request from Seerr
+                    // (when it's set up): last at the foot of the page.
+                    SeerrDiscoverShelf(title: "Upcoming Anime") { account in
+                        try await SeerrClient.upcomingAnime(account: account)
+                    }
                     }
                     .padding(.trailing, themeMiniInset)
                     .animation(.smooth(duration: 0.4), value: themeMiniInset)
                 }
             }
+            // The page runs under the tab bar (it ignores the safe area for
+            // the hero), so on a phone or tablet the last row's titles need
+            // the bar's height and the home indicator's below them.
+            #if os(iOS)
+            .padding(.bottom, 110)
+            #else
             .padding(.bottom, Lockup.pageBottomPadding)
+            #endif
         }
         .scrollClipDisabled()
         .ignoresSafeArea()
@@ -277,6 +322,7 @@ struct AnimeView: View {
 
     private func reload() async {
         guard let client = session.client else { return }
-        await model.load(client: client, libraries: session.animeLibraries, musicVideoLibraries: session.animeMusicVideoLibraries)
+        await model.restore(client: client, userId: session.userId)
+        await model.load(client: client, libraries: session.animeLibraries, musicVideoLibraries: session.animeMusicVideoLibraries, userId: session.userId)
     }
 }

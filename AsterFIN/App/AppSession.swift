@@ -49,6 +49,8 @@ final class AppSession {
     }
     /// A Plex sign-in's plex.tv side; nil on Jellyfin and Emby.
     private(set) var plexLink: PlexLink?
+    /// The plex.tv account's token, for services that sign in with Plex (Seerr).
+    var plexAccountToken: String? { plexLink?.accountToken }
     private(set) var userName: String?
     private(set) var userId: String?
 
@@ -149,6 +151,8 @@ final class AppSession {
     private(set) var hasLiveTV = false
     /// The server's book libraries, which the Audiobooks tab browses.
     private(set) var bookLibraries: [BaseItem] = []
+    /// The TV show libraries, for the TV Shows page's Libraries row.
+    private(set) var showLibraries: [BaseItem] = []
 
     /// Whether shows in the library have episodes airing soon, which the
     /// Upcoming tab needs. Checked when the main screen loads.
@@ -170,6 +174,7 @@ final class AppSession {
         hasMusic = views.contains { $0.collectionType == "music" }
         hasLiveTV = views.contains { $0.collectionType == "livetv" }
         bookLibraries = views.filter { $0.collectionType == "books" }
+        showLibraries = views.filter { $0.collectionType == "tvshows" }
     }
 
     /// The tabs this server has something for.
@@ -179,8 +184,13 @@ final class AppSession {
         case .music: hasMusic
         case .liveTV: hasLiveTV
         case .audiobooks: !bookLibraries.isEmpty
-        case .upcoming: hasUpcoming
+        // Upcoming is a section of Discover now.
+        case .upcoming: false
         case .channels: hasChannels
+        // Seerr's, once signed in to it (Settings › Requests).
+        // (Signed out since, it stays, to sign in again from the tab.)
+        // Upcoming, and with the server's plugin Seerr and Discover's rows.
+        case .discover: hasUpcoming || AsterTracking.shared.isPresent || AsterTracking.shared.seerr != nil
         #if !os(iOS)
         // Apple TV has no storage to download to; the Mac doesn't download yet.
         case .downloads: false
@@ -221,12 +231,43 @@ final class AppSession {
         id.lowercased().replacingOccurrences(of: "-", with: "")
     }
 
+    /// Whether the anime libraries are known (found, or as last found), so
+    /// Movies and TV Shows can load once, with anime already left out.
+    private(set) var animeDetected = false
+
+    nonisolated private struct AnimeDetection: Codable, Sendable {
+        var libraries: [BaseItem]
+        var ids: [String]
+    }
+
+    /// The anime libraries as last found on this server, at once, while
+    /// they're looked for again.
+    func restoreAnimeDetection() async {
+        guard !animeDetected, let server = client?.baseURL, let userId,
+              let kept = await ResponseCache.load(AnimeDetection.self, "anime-detection", server: server, user: userId) else { return }
+        // Not if the look-up finished first.
+        guard !animeDetected else { return }
+        animeLibraries = kept.value.libraries
+        animeItemIds = Set(kept.value.ids)
+        animeDetected = true
+    }
+
     func detectAnimeLibraries(among views: [BaseItem]) async {
-        guard let client else { return }
+        guard let client else {
+            animeDetected = true
+            return
+        }
         let libraries = await client.animeLibraries(among: views)
         let ids = await client.itemIds(inLibraries: libraries.map(\.id), types: "Series,Movie")
-        animeLibraries = libraries
-        animeItemIds = ids
+        // Unchanged, as it usually is: left alone, so nothing reloads.
+        if libraries.map(\.id) != animeLibraries.map(\.id) { animeLibraries = libraries }
+        if ids != animeItemIds { animeItemIds = ids }
+        animeDetected = true
+        if let userId {
+            ResponseCache.save(AnimeDetection(libraries: libraries, ids: Array(ids)), "anime-detection", server: client.baseURL, user: userId)
+        }
+        // Their shows' songs, from AnimeThemes, got ready in the background.
+        SongWarmer.shared.warmInBackground(client: client, libraries: libraries)
     }
 
     /// The one session, shared with scenes outside SwiftUI (CarPlay).
@@ -377,6 +418,7 @@ final class AppSession {
     }
 
     func useServer(_ url: URL, info: PublicSystemInfo) {
+        DebugLog.note("server", "Found a \(info.kind.rawValue) server, version \(info.version ?? "unknown")")
         serverURL = url
         serverName = info.serverName
         serverKind = info.kind
@@ -536,8 +578,10 @@ final class AppSession {
 
     /// What was learned about the last server, cleared for the next.
     private func resetServerState() {
+        AsterTracking.shared.clear()
         animeLibraries = []
         animeItemIds = []
+        animeDetected = false
         hasMusic = false
         hasLiveTV = false
         bookLibraries = []
@@ -553,6 +597,7 @@ final class AppSession {
 
     func signIn(_ result: AuthenticationResult) {
         guard let serverURL else { return }
+        DebugLog.note("signin", "Signed in to a \(serverKind.rawValue) server")
         let stored = StoredSession(serverURL: serverURL, serverName: serverName, userId: result.user.id, userName: result.user.name, accessToken: result.accessToken, serverKind: serverKind)
         stored.save()
         userId = result.user.id
@@ -601,6 +646,7 @@ final class AppSession {
 
     /// Signed in through plex.tv, to the server and Home user picked.
     func signIn(plex stored: StoredSession) {
+        DebugLog.note("signin", "Signed in with Plex")
         stopMedia()
         stored.save()
         serverURL = stored.serverURL
@@ -631,6 +677,8 @@ final class AppSession {
             SavedServers.save(savedServers)
         }
         StoredSession.clear()
+        // What its pages last showed goes too.
+        ResponseCache.clear()
         client = nil
         userId = nil
         userName = nil
@@ -655,6 +703,9 @@ final class AppSession {
 /// User-adjustable preferences, stored in UserDefaults.
 enum AppSettings {
     static let preferDiscMenuKey = "AsterFIN.preferDiscMenu"
+    /// Mac: show how to scroll with two fingers while the window is on an
+    /// iPad used as a display (Sidecar), where one finger can't.
+    static let sidecarHintKey = "AsterFIN.sidecarHint"
     /// The saved servers (`SavedServer.id`) whose welcome screen was seen.
     static let welcomeSeenKey = "AsterFIN.welcomeSeen"
     /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
@@ -678,6 +729,10 @@ enum AppSettings {
     static let openingSoundKey = "AsterFIN.openingSound"
     /// The song card as an episode's opening or ending plays. On by default.
     static let themeCardsKey = "AsterFIN.themeCards"
+    /// Whether song names may be asked of AnimeThemes, on a server without
+    /// the OP/ED plugin (see `AnimeThemesLookup`). On by default; kept on
+    /// the device.
+    static let songLookupsKey = "AsterFIN.songLookups"
     /// Openings and endings picked on a show's Music tab play in the Now
     /// Playing panel (and keep playing, slim, while browsing); off, they
     /// play full screen. On by default.
@@ -746,6 +801,17 @@ enum AppSettings {
 
     static var themeCards: Bool {
         UserDefaults.standard.object(forKey: themeCardsKey) as? Bool ?? true
+    }
+
+    /// Watched anime episodes and films sent to the tracking accounts.
+    /// On by default; kept on the device.
+    static let trackWatchingKey = "AsterFIN.trackWatching"
+    static var trackWatching: Bool {
+        UserDefaults.standard.object(forKey: trackWatchingKey) as? Bool ?? true
+    }
+
+    static var songLookups: Bool {
+        UserDefaults.standard.object(forKey: songLookupsKey) as? Bool ?? true
     }
 
     static var styledSubtitles: Bool {

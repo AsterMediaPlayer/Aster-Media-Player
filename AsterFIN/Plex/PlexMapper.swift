@@ -55,6 +55,7 @@ nonisolated enum PlexMapper {
         item.dateCreated = metadata.addedAt.map { isoDate(TimeInterval($0)) }
         item.officialRating = metadata.contentRating
         item.communityRating = metadata.audienceRating ?? metadata.rating
+        item.scores = scores(metadata.ratings)
         item.runTimeTicks = metadata.duration.map { Int64($0) * ticksPerMillisecond }
         item.indexNumber = metadata.index
         item.genres = metadata.genre?.map(\.tag)
@@ -62,7 +63,7 @@ nonisolated enum PlexMapper {
         item.people = people(metadata)
         item.providerIds = providerIds(metadata)
         item.chapters = metadata.chapter?.map { chapter in
-            ChapterInfo(startPositionTicks: Int64(chapter.startTimeOffset) * ticksPerMillisecond, name: chapter.tag)
+            ChapterInfo(startPositionTicks: Int64(chapter.startTimeOffset) * ticksPerMillisecond, name: chapter.tag, imageTag: chapter.thumb)
         }
         item.mediaStreams = metadata.media?.first?.part?.first?.stream?.map(stream)
         item.container = metadata.media?.first?.container
@@ -151,7 +152,34 @@ nonisolated enum PlexMapper {
         return all.isEmpty ? nil : all
     }
 
-    /// "tmdb://5439847" as Tmdb, and so on; Shoko's own id marks anime.
+    /// The scores a title page carries, attributed by their pictures' names;
+    /// nil when there are none (lists), leaving the plain rating.
+    static func scores(_ ratings: [PlexRating]?) -> [TitleScore]? {
+        guard let ratings, !ratings.isEmpty else { return nil }
+        var found: [TitleScore.Source: TitleScore] = [:]
+        for rating in ratings {
+            let image = (rating.image ?? "").lowercased()
+            let critic = rating.type?.lowercased() == "critic"
+            let source: TitleScore.Source? = if image.hasPrefix("imdb://") {
+                .imdb
+            } else if image.hasPrefix("rottentomatoes://") {
+                critic ? .tomatometer : .popcorn
+            } else if image.hasPrefix("themoviedb://") || image.hasPrefix("tmdb://") {
+                .tmdb
+            } else {
+                nil
+            }
+            // Plex writes every score out of ten.
+            guard let source, found[source] == nil, let score = TitleScore(source, rating.value, outOf: 10) else { continue }
+            found[source] = score
+        }
+        return found.isEmpty ? nil : TitleScore.ordered(Array(found.values))
+    }
+
+    /// "tmdb://5439847" as Tmdb, and so on, the anime sites as Jellyfin
+    /// names them; Shoko's own id marks anime, and so does the AniDB entry
+    /// the HAMA agent writes into the guid itself
+    /// ("com.plexapp.agents.hama://anidb-1234?lang=en").
     private static func providerIds(_ metadata: PlexMetadata) -> [String: String]? {
         var ids: [String: String] = [:]
         for guid in metadata.guids ?? [] {
@@ -161,12 +189,20 @@ nonisolated enum PlexMapper {
             case "tmdb": "Tmdb"
             case "imdb": "Imdb"
             case "tvdb": "Tvdb"
+            case "anidb": "AniDB"
+            case "anilist": "AniList"
+            case "myanimelist": "MyAnimeList"
             default: parts[0].capitalized
             }
             ids[name] = parts[1]
         }
-        if let guid = metadata.guid, guid.contains(".shoko://") {
-            ids["Shoko"] = guid.components(separatedBy: "/").last
+        if let guid = metadata.guid {
+            if guid.contains(".shoko://") {
+                ids["Shoko"] = guid.components(separatedBy: "/").last
+            }
+            if ids["AniDB"] == nil, let match = guid.firstMatch(of: /anidb\d?-(\d+)/) {
+                ids["AniDB"] = String(match.1)
+            }
         }
         return ids.isEmpty ? nil : ids
     }

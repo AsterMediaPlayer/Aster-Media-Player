@@ -271,7 +271,7 @@ final class AudiobookLibrary {
 /// The listening speed chosen for each book, kept on this device.
 enum AudiobookRates {
     private static let key = "AsterFIN.audiobookRates"
-    static let choices: [Float] = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    static let choices: [Float] = [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
     static func rate(for bookId: String) -> Float {
         let stored = UserDefaults.standard.dictionary(forKey: key)?[bookId] as? Double

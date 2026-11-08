@@ -146,6 +146,8 @@ final class AetherNowPlaying {
         Task { [weak self] in
             await Task.detached {
                 do {
+                    // A video's sound, after a song may have set the session up for audio.
+                    AudioSessionUse.prepare(.video)
                     try AVAudioSession.sharedInstance().setActive(true)
                 } catch {
                     #if DEBUG

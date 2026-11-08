@@ -57,7 +57,26 @@ nonisolated extension PlexClient {
         // unless the same session first asked for its decision, with the
         // same settings, as Plex's own apps do.
         if willConvert {
-            _ = try? await send(url("/video/:/transcode/universal/decision", query: transcode))
+            let decisionURL = url("/video/:/transcode/universal/decision", query: transcode)
+            #if DEBUG
+            // What Plex says, and why it refuses when it does.
+            if let (body, response) = try? await self.session.data(for: self.request(decisionURL)) {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                   let container = json["MediaContainer"] as? [String: Any] {
+                    let keys = ["generalDecisionCode", "generalDecisionText", "transcodeDecisionCode", "transcodeDecisionText",
+                                "directPlayDecisionCode", "directPlayDecisionText", "mdeDecisionCode", "mdeDecisionText"]
+                    let said = keys.compactMap { key in container[key].map { "\(key)=\($0)" } }.joined(separator: " ")
+                    print("DEBUG plex: decision \(status) for \(request.itemId) at \(Double(request.startTicks) / 10_000_000)s: \(said)")
+                } else {
+                    print("DEBUG plex: decision \(status) for \(request.itemId): \(String(decoding: body.prefix(400), as: UTF8.self))")
+                }
+            } else {
+                print("DEBUG plex: decision for \(request.itemId) couldn't be asked")
+            }
+            #else
+            _ = try? await send(decisionURL)
+            #endif
         }
         source.transcodingUrl = url("/video/:/transcode/universal/start.m3u8", query: transcode).absoluteString
         source.transcodingContainer = "ts"
@@ -130,7 +149,12 @@ nonisolated extension PlexClient {
 
     func trickplayTileURL(itemId: String, width: Int, index: Int, mediaSourceId: String) -> URL { baseURL }
     func chapterImageURL(itemId: String, index: Int, stamp: Int64?) -> URL { baseURL }
-    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL { baseURL }
+    /// A chapter's picture, by its own path (the `tag`), fetched as it is:
+    /// it's small already, and Plex's photo transcoder refuses a chapter's path.
+    func chapterImageURL(itemId: String, index: Int, tag: String) -> URL {
+        guard tag.hasPrefix("/") else { return baseURL }
+        return url(tag, query: ["X-Plex-Token": accessToken])
+    }
 
     // MARK: Helpers
 
@@ -189,7 +213,7 @@ nonisolated extension PlexClient {
             "X-Plex-Session-Identifier": session,
             "X-Plex-Client-Identifier": PlexDevice.clientIdentifier,
             "X-Plex-Product": PlexDevice.product,
-            "X-Plex-Platform": PlexDevice.platform,
+            "X-Plex-Platform": PlexDevice.transcodePlatform,
             "X-Plex-Token": accessToken,
         ]
         if keepsSurround {

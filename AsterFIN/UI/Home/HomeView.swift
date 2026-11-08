@@ -9,7 +9,7 @@ import SwiftUI
 
 @Observable
 final class HomeModel {
-    struct LibraryShelf: Identifiable, Hashable {
+    nonisolated struct LibraryShelf: Identifiable, Hashable, Codable, Sendable {
         var id: String { library.id }
         var library: BaseItem
         var items: [BaseItem]
@@ -26,6 +26,11 @@ final class HomeModel {
     private var libraries: [BaseItem] = []
     private var moviesLibraryId: String?
     private var showsLibraryId: String?
+
+    /// Sets `value` only when it differs, so an unchanged row isn't redrawn.
+    private static func update<Value: Equatable>(_ value: inout Value, _ new: Value) {
+        if value != new { value = new }
+    }
 
     /// Anime libraries are found after Home first loads. Fills the anime
     /// row and swaps the Movies or TV row only if it came from one of them,
@@ -46,16 +51,61 @@ final class HomeModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    func load(client: any MediaServer, animeLibraries: [BaseItem] = []) async {
+    /// Home as last shown, kept on disk to show at once on the next launch.
+    nonisolated private struct Snapshot: Codable, Sendable {
+        var featured: [BaseItem]
+        var continueWatching: [BaseItem]
+        var nextUp: [BaseItem]
+        var latestMovies: [BaseItem]
+        var latestShows: [BaseItem]
+        var latestAnime: [BaseItem]
+        var libraryShelves: [LibraryShelf]
+        var libraries: [BaseItem]
+        var moviesLibraryId: String?
+        var showsLibraryId: String?
+    }
+
+    private static let snapshotName = "home"
+
+    /// Home as it was last time, while the server's answer comes: no spinner.
+    func restore(client: any MediaServer, userId: String?) async {
+        guard featured.isEmpty, let userId,
+              let kept = await ResponseCache.load(Snapshot.self, Self.snapshotName, server: client.baseURL, user: userId)?.value,
+              featured.isEmpty else { return }
+        featured = kept.featured
+        continueWatching = kept.continueWatching
+        nextUp = kept.nextUp
+        latestMovies = kept.latestMovies
+        latestShows = kept.latestShows
+        latestAnime = kept.latestAnime
+        libraryShelves = kept.libraryShelves
+        libraries = kept.libraries
+        moviesLibraryId = kept.moviesLibraryId
+        showsLibraryId = kept.showsLibraryId
+    }
+
+    private func keep(client: any MediaServer, userId: String?) {
+        guard let userId, !featured.isEmpty else { return }
+        ResponseCache.save(Snapshot(featured: featured, continueWatching: continueWatching, nextUp: nextUp,
+                                    latestMovies: latestMovies, latestShows: latestShows, latestAnime: latestAnime,
+                                    libraryShelves: libraryShelves, libraries: libraries,
+                                    moviesLibraryId: moviesLibraryId, showsLibraryId: showsLibraryId),
+                           Self.snapshotName, server: client.baseURL, user: userId)
+    }
+
+    func load(client: any MediaServer, animeLibraries: [BaseItem] = [], userId: String? = nil) async {
         isLoading = featured.isEmpty
         errorMessage = nil
+        defer { keep(client: client, userId: userId) }
         do {
             async let resume = client.resume(limit: 20)
             async let next = client.nextUp(limit: 20)
             async let views = client.libraries()
             let (resumeItems, nextItems, libraries) = try await (resume, next, views)
-            continueWatching = resumeItems
-            nextUp = nextItems.filter { episode in !resumeItems.contains { $0.id == episode.id } }
+            // Only what changed is replaced: the rows shown from last time
+            // stay as they are, and focus with them.
+            Self.update(&continueWatching, resumeItems)
+            Self.update(&nextUp, nextItems.filter { episode in !resumeItems.contains { $0.id == episode.id } })
 
             // Anime has its own row, so the Movies and TV rows skip its libraries.
             let animeIds = Set(animeLibraries.map(\.id))
@@ -67,23 +117,31 @@ final class HomeModel {
             async let movies = client.latest(parentId: moviesLibraryId, limit: 20, kinds: [.movie])
             async let shows = client.latest(parentId: showsLibraryId, limit: 20, kinds: [.series])
             async let anime = AnimeModel.recentlyAdded(client: client, libraries: animeLibraries)
-            latestMovies = (try? await movies) ?? []
-            latestShows = (try? await shows) ?? []
-            latestAnime = await anime
+            Self.update(&latestMovies, (try? await movies) ?? [])
+            Self.update(&latestShows, (try? await shows) ?? [])
+            Self.update(&latestAnime, await anime)
 
-            var shelves: [LibraryShelf] = []
-            for library in libraries where !["movies", "tvshows", "music", "playlists", "livetv", "books", "photos"].contains(library.collectionType ?? "") {
-                if let items = try? await client.latest(parentId: library.id, limit: 20), !items.isEmpty {
-                    shelves.append(LibraryShelf(library: library, items: items))
-                }
-            }
-            libraryShelves = shelves
-
+            // The hero as soon as its rows are in, not after every shelf.
             var picks: [BaseItem] = []
             for item in continueWatching.prefix(3) + nextUp.prefix(3) + latestMovies.prefix(4) + latestShows.prefix(3) where !picks.contains(where: { $0.id == item.id }) {
                 picks.append(item)
             }
-            featured = Array(picks.prefix(8))
+            Self.update(&featured, Array(picks.prefix(8)))
+
+            // The other libraries' shelves side by side, kept in library order.
+            let others = libraries.filter { !["movies", "tvshows", "music", "playlists", "livetv", "books", "photos"].contains($0.collectionType ?? "") }
+            let shelves = await withTaskGroup(of: (Int, LibraryShelf?).self) { group in
+                for (position, library) in others.enumerated() {
+                    group.addTask {
+                        let items = (try? await client.latest(parentId: library.id, limit: 20)) ?? []
+                        return (position, items.isEmpty ? nil : LibraryShelf(library: library, items: items))
+                    }
+                }
+                var found: [(Int, LibraryShelf?)] = []
+                for await shelf in group { found.append(shelf) }
+                return found.sorted { $0.0 < $1.0 }.compactMap(\.1)
+            }
+            Self.update(&libraryShelves, shelves)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -383,7 +441,8 @@ struct HomeView: View {
 
     private func reload() async {
         guard let client = session.client else { return }
-        await model.load(client: client, animeLibraries: session.animeLibraries)
+        await model.restore(client: client, userId: session.userId)
+        await model.load(client: client, animeLibraries: session.animeLibraries, userId: session.userId)
     }
 }
 
@@ -458,6 +517,16 @@ struct HeroCarousel: View {
         openItem?(target)
     }
 
+    /// A click on the banner itself opens the title's page and nothing more
+    /// (on the Mac, where the Play button is the one thing that plays).
+    private func open(_ item: BaseItem) {
+        if let onSelect {
+            onSelect(item)
+            return
+        }
+        openItem?(destination(item))
+    }
+
     private func noteHorizontalMove() {
         lastHorizontalMoveAt = Date()
         pendingMoveDown?.cancel()
@@ -511,6 +580,34 @@ struct HeroCarousel: View {
     }
 
     #if !os(tvOS)
+    /// One page of the touch and Mac banner.
+    @ViewBuilder
+    private func bannerPage(_ item: BaseItem, in size: CGSize) -> some View {
+        if let card {
+            card(item, false)
+        } else {
+            HeroCard(
+                item: item,
+                isFocused: false,
+                isPortrait: size.height > size.width,
+                screenPixels: pixels(size),
+                tag: tag(item),
+                action: action(item),
+                onPlay: playButtonAction(item)
+            )
+        }
+    }
+
+    /// The Play button's own action where it's a button of its own (the
+    /// Mac), nil where the whole banner is the button.
+    private func playButtonAction(_ item: BaseItem) -> (() -> Void)? {
+        #if os(macOS)
+        return { select(item) }
+        #else
+        return nil
+        #endif
+    }
+
     /// What the hero prefetches for: the featured titles at a banner size.
     private struct PrefetchKey: Equatable {
         var ids: [String]
@@ -533,25 +630,24 @@ struct HeroCarousel: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 0) {
                         ForEach(items) { item in
+                            #if os(macOS)
+                            // Clicking the art, title or text opens the page; only the
+                            // Play / Resume button inside the card plays.
+                            bannerPage(item, in: proxy.size)
+                                .contentShape(Rectangle())
+                                .onTapGesture { open(item) }
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .id(item.id)
+                            #else
                             Button {
                                 select(item)
                             } label: {
-                                if let card {
-                                    card(item, false)
-                                } else {
-                                    HeroCard(
-                                        item: item,
-                                        isFocused: false,
-                                        isPortrait: proxy.size.height > proxy.size.width,
-                                        screenPixels: pixels(proxy.size),
-                                        tag: tag(item),
-                                        action: action(item)
-                                    )
-                                }
+                                bannerPage(item, in: proxy.size)
                             }
                             .buttonStyle(.plain)
                             .frame(width: proxy.size.width, height: proxy.size.height)
                             .id(item.id)
+                            #endif
                         }
                     }
                     .scrollTargetLayout()
@@ -628,14 +724,23 @@ struct HeroCarousel: View {
     /// Follows the pointer while dragging, then pages on when the drag went
     /// a quarter of the way (or was flung that far), else springs back. Past
     /// the first or last page it gives a little, like a scroll view's edge.
+    /// A mostly vertical drag isn't the banner's: the page scrolls with it
+    /// (see `DragScroller`).
     private func heroDrag(pageWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
+                // A mostly vertical drag doesn't slide the pages.
+                guard abs(value.translation.width) >= abs(value.translation.height) else {
+                    dragOffset = 0
+                    return
+                }
                 let distance = value.translation.width
                 let pastEdge = (index == 0 && distance > 0) || (index == items.count - 1 && distance < 0)
                 dragOffset = pastEdge ? distance / 3 : distance
             }
             .onEnded { value in
+                // A vertical drag leaves the banner where it is.
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 let threshold = pageWidth / 4
                 let flung = value.predictedEndTranslation.width
                 var target = index
@@ -814,6 +919,9 @@ struct HeroCard: View {
     var tag: String? = nil
     /// The button's wording and symbol, in place of Play / Resume.
     var action: Action? = nil
+    /// Where the Play button is a button of its own, what it does; nil where
+    /// the whole banner is the button.
+    var onPlay: (() -> Void)? = nil
 
     struct Action {
         var title: String
@@ -887,6 +995,27 @@ struct HeroCard: View {
     static let bottomPadding: CGFloat = 110
     #endif
 
+    /// The white Play / Resume capsule.
+    private var playPill: some View {
+        HStack(spacing: 14) {
+            if let action {
+                Image(systemName: action.systemImage)
+                Text(action.title)
+            } else {
+                Image(systemName: "play.fill")
+                Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
+                if let remaining = item.remainingText {
+                    Text("·  \(remaining)").foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.headline)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
+        .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
+        .foregroundStyle(.black)
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
@@ -937,23 +1066,12 @@ struct HeroCard: View {
                         .lineLimit(3)
                         .frame(maxWidth: Self.overviewWidth, alignment: .leading)
                 }
-                HStack(spacing: 14) {
-                    if let action {
-                        Image(systemName: action.systemImage)
-                        Text(action.title)
-                    } else {
-                        Image(systemName: "play.fill")
-                        Text(item.canResume ? "Resume" : (item.kind == .series ? "Watch Now" : "Play"))
-                        if let remaining = item.remainingText {
-                            Text("·  \(remaining)").foregroundStyle(.secondary)
-                        }
-                    }
+                if let onPlay {
+                    Button(action: onPlay) { playPill }
+                        .buttonStyle(.plain)
+                } else {
+                    playPill
                 }
-                .font(.headline)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 14)
-                .background(.white.opacity(isFocused ? 1 : 0.9), in: Capsule())
-                .foregroundStyle(.black)
             }
             .padding(.horizontal, Lockup.screenPadding)
             .padding(.bottom, Self.bottomPadding)

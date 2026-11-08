@@ -149,6 +149,7 @@ struct ServerConnectView: View {
                         return
                     }
                 }
+                DebugLog.note("server", "Couldn't reach a server: \((error as? URLError).map { "URLError \($0.code.rawValue)" } ?? "\(error)")")
                 errorMessage = Self.unreachableMessage(error)
             }
         }

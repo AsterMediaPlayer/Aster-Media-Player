@@ -213,6 +213,10 @@ final class PlaybackCoordinator {
             return
         }
         player.allowsExternalPlayback = true
+        #if !os(macOS)
+        // A video's sound, after a song may have set the session up for audio.
+        AudioSessionUse.prepare(.video)
+        #endif
         pauseObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -258,6 +262,7 @@ final class PlaybackCoordinator {
         if hasStarted, reportsPlayback, let item = currentItem {
             let report = makeReport(itemId: item.id, position: position, paused: true)
             Task { await client.reportStopped(report) }
+            TrackerAccounts.shared.stopped(report, client: client)
         }
         if let liveStreamId {
             let id = liveStreamId
@@ -594,17 +599,19 @@ final class PlaybackCoordinator {
         return (plugin, known)
     }
 
-    static func knownThemes(for item: BaseItem, client: any MediaServer) async -> [KnownTheme] {
-        guard item.kind == .episode, let seriesName = item.seriesName,
-              item.isAnime || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
+    /// `isAnime` says the show is known to be anime already (a kept clip's
+    /// episode, read without its chapters), so that isn't checked again.
+    static func knownThemes(for item: BaseItem, client: any MediaServer, isAnime: Bool = false) async -> [KnownTheme] {
+        guard AppSettings.songLookups, item.kind == .episode, let seriesName = item.seriesName,
+              isAnime || item.isAnime(on: client.kind) || !OpeningsEndings.find(in: [item]).isEmpty else { return [] }
         var season: BaseItem?
         if let seasonId = item.seasonId { season = try? await client.item(seasonId) }
-        let aniDB = season?.providerIds?["AniDB"]
+        let aniDB = season?.providerId("AniDB")
         let year = season?.productionYear
             ?? JellyfinDate.parse(season?.premiereDate).map { Calendar.current.component(.year, from: $0) }
             ?? JellyfinDate.parse(item.premiereDate).map { Calendar.current.component(.year, from: $0) }
             ?? item.productionYear
-        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year)
+        return await AnimeThemesLookup.themes(aniDBId: aniDB, seriesName: seriesName, year: year, server: AnimeThemesLookup.serverKey(client))
     }
 
     /// A music video is one song from start to finish, so its card covers
@@ -935,6 +942,7 @@ final class PlaybackCoordinator {
         guard reportsPlayback else { return }
         let report = makeReport(itemId: item.id, position: currentPositionTicks, paused: true)
         Task { await client.reportStopped(report) }
+        TrackerAccounts.shared.stopped(report, client: client)
     }
 
     // MARK: Falling back
@@ -980,6 +988,8 @@ final class PlaybackCoordinator {
             print("DEBUG playback: giving up at \(entry.fallback) (\(message)); started \(hasStarted), played before \(entry.hasPlayed), reloads \(entry.stallRetries)")
             #endif
             errorMessage = message
+            DebugLog.note("play", "Gave up at \(entry.fallback): \(message) (started \(hasStarted), reloads \(entry.stallRetries))")
+            DebugLog.notePlayback(["error": message, "method": playMethod, "fallback": "\(entry.fallback)"])
             explainPlexFailure(message, wasConverting: alreadyTranscoding || entry.fallback != .none)
             return
         }

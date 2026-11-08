@@ -976,8 +976,12 @@ struct AudiobookNowPlayingView: View {
         }
     }
 
+    /// What's wrong, if anything, and which Sonos room is playing.
     @ViewBuilder
     private var errorText: some View {
+        #if os(iOS)
+        SonosPlayingLabel(target: .audiobook)
+        #endif
         if let error = player.errorMessage {
             Text(error)
                 .font(.caption)
@@ -1036,6 +1040,11 @@ struct AudiobookNowPlayingView: View {
             }
             .focused($focusedControl, equals: "chapters")
         }
+        #if os(iOS)
+        // AirPlay 2 (a HomePod, a TV), and Sonos rooms directly.
+        AirPlayControl()
+        SonosControl(target: .audiobook)
+        #endif
         #if os(tvOS)
         // No close button on the TV: Stop ends it (its place saved), and
         // Back just hides it.

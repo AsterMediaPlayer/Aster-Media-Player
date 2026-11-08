@@ -65,6 +65,20 @@ nonisolated enum PlexDevice {
         return headers
     }
 
+    /// The platform the transcoder is told. Plex picks a conversion profile
+    /// by it and has none for a Mac app, answering a bare 400 to every
+    /// conversion asked for as "macOS"; the Apple TV's profile (HLS, H.264
+    /// and HEVC, AAC and Dolby) fits what the Mac plays, so the Mac
+    /// converts as one. The header outranks the query parameter, so both
+    /// say it (see `PlexClient.request`).
+    static var transcodePlatform: String {
+        #if os(macOS)
+        "tvOS"
+        #else
+        platform
+        #endif
+    }
+
     static var platform: String {
         #if os(tvOS)
         "tvOS"
@@ -120,6 +134,10 @@ nonisolated final class PlexClient: MediaServer {
         for (name, value) in PlexDevice.headers(token: accessToken) {
             request.setValue(value, forHTTPHeaderField: name)
         }
+        // The transcoder goes by the header's platform over the query's.
+        if url.path().hasPrefix("/video/:/transcode/") {
+            request.setValue(PlexDevice.transcodePlatform, forHTTPHeaderField: "X-Plex-Platform")
+        }
         return request
     }
 
@@ -135,11 +153,11 @@ nonisolated final class PlexClient: MediaServer {
     /// nothing answering becomes `PlexError.unreachable`, whose message
     /// says why that usually happens.
     @discardableResult
-    func perform(_ request: URLRequest) async throws -> Data {
+    func perform(_ request: URLRequest, on session: URLSession? = nil) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await (session ?? self.session).data(for: request)
         } catch let error as URLError where PlexError.meansUnreachable(error) {
             throw PlexError.unreachable(serverName)
         }
@@ -149,10 +167,15 @@ nonisolated final class PlexClient: MediaServer {
         return data
     }
 
+    /// Pictures and other files, through the same disk cache as Jellyfin's
+    /// (they were fetched again on every launch before).
     func data(from url: URL, fresh: Bool) async throws -> Data {
         var request = request(url)
-        if fresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
-        return try await perform(request)
+        if fresh {
+            JellyfinClient.imageSession.configuration.urlCache?.removeCachedResponse(for: request)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
+        return try await perform(request, on: JellyfinClient.imageSession)
     }
 
     /// Whether this session reaches the server through Plex's relay.
@@ -186,7 +209,9 @@ nonisolated final class PlexClient: MediaServer {
             "width": ref.maxWidth.map(String.init) ?? ref.maxHeight.map { String($0 * 3) },
             "height": ref.maxHeight.map(String.init) ?? ref.maxWidth.map { String($0 * 3) },
             "minSize": "0",
-            "upscale": "1",
+            // Enlarging costs the server about 2.5 times the work and the
+            // bytes (Plezy measured it); the picture's scaled to fit here.
+            "upscale": "0",
             "quality": String(ref.quality),
             "format": ref.kind == .logo ? "png" : nil,
             "X-Plex-Token": accessToken,
@@ -310,13 +335,25 @@ nonisolated final class PlexClient: MediaServer {
             })
             wanted = sections.filter { types.isEmpty || $0.type.map(types.contains) == true }
         }
+        // Each library's size, asked of all of them at once.
+        let fixed = parameters
+        let sizes = try await withThrowingTaskGroup(of: (String, Int).self) { group in
+            for section in wanted {
+                group.addTask {
+                    (section.key, try await self.container("/library/sections/\(section.key)/all", query: fixed, start: 0, size: 0).totalSize ?? 0)
+                }
+            }
+            var sizes: [String: Int] = [:]
+            for try await (key, size) in group { sizes[key] = size }
+            return sizes
+        }
         var start = query.startIndex ?? 0
         var remaining = query.limit ?? Int.max
         var found: [BaseItem] = []
         var total = 0
         for section in wanted {
             let path = "/library/sections/\(section.key)/all"
-            let size = try await container(path, query: parameters, start: 0, size: 0).totalSize ?? 0
+            let size = sizes[section.key] ?? 0
             total += size
             guard remaining > 0, start < size else {
                 start = max(0, start - size)
@@ -338,14 +375,22 @@ nonisolated final class PlexClient: MediaServer {
             ?? sections.filter { section in
                 kinds.isEmpty || kinds.contains { kind in (kind == .movie) == (section.type == "movie") }
             }
-        var found: [BaseItem] = []
-        for section in wanted {
-            let isShows = section.type == "show"
-            found += try await titles("/library/sections/\(section.key)/all", query: [
-                "type": isShows ? "2" : "1",
-                "sort": isShows ? "episode.addedAt:desc" : "addedAt:desc",
-            ], start: 0, size: limit)
+        // Every library at once, kept in library order.
+        let pages = try await withThrowingTaskGroup(of: (Int, [BaseItem]).self) { group in
+            for (position, section) in wanted.enumerated() {
+                let isShows = section.type == "show"
+                group.addTask {
+                    (position, try await self.titles("/library/sections/\(section.key)/all", query: [
+                        "type": isShows ? "2" : "1",
+                        "sort": isShows ? "episode.addedAt:desc" : "addedAt:desc",
+                    ], start: 0, size: limit))
+                }
+            }
+            var pages: [(Int, [BaseItem])] = []
+            for try await page in group { pages.append(page) }
+            return pages
         }
+        let found = pages.sorted { $0.0 < $1.0 }.flatMap(\.1)
         return Array(found.prefix(limit))
     }
 
@@ -382,6 +427,37 @@ nonisolated final class PlexClient: MediaServer {
         return try await titles("/library/metadata/\(seriesId)/allLeaves")
     }
 
+    /// The show's episodes with their chapters (and their pictures). Plex's
+    /// lists carry no chapters, only an episode's own metadata does, so the
+    /// episodes are asked for again by id, a batch to a request; should that
+    /// bring none either, the first few of each season are asked for one by
+    /// one (openings repeat from one episode to the next, so a sample does).
+    func episodesWithChapters(seriesId: String) async throws -> [BaseItem] {
+        let listed = try await titles("/library/metadata/\(seriesId)/allLeaves")
+        let ids = listed.map(\.id)
+        var byId: [String: BaseItem] = [:]
+        for chunk in stride(from: 0, to: ids.count, by: 40).map({ Array(ids[$0 ..< min($0 + 40, ids.count)]) }) {
+            let batch = (try? await titles("/library/metadata/\(chunk.joined(separator: ","))", query: ["includeChapters": "1"])) ?? []
+            for episode in batch { byId[episode.id] = episode }
+        }
+        if byId.values.contains(where: { !($0.chapters ?? []).isEmpty }) {
+            return listed.map { byId[$0.id] ?? $0 }
+        }
+        let sample = Set(Dictionary(grouping: listed.filter { ($0.parentIndexNumber ?? 0) > 0 }, by: { $0.parentIndexNumber ?? 0 })
+            .values.flatMap { $0.prefix(3) }.map(\.id))
+        let fetched = await withTaskGroup(of: BaseItem?.self) { group in
+            for id in sample {
+                group.addTask { try? await self.item(id) }
+            }
+            var found: [String: BaseItem] = [:]
+            for await episode in group {
+                if let episode { found[episode.id] = episode }
+            }
+            return found
+        }
+        return listed.map { fetched[$0.id] ?? $0 }
+    }
+
     func similar(to id: String, limit: Int) async throws -> [BaseItem] {
         try await titles("/library/metadata/\(id)/similar", query: ["count": String(limit)])
     }
@@ -413,16 +489,68 @@ nonisolated final class PlexClient: MediaServer {
     /// Plex has no per-device sign-in to end on the server.
     func logout() async {}
 
+    // MARK: Aster's own settings
+
+    /// The playlist Aster keeps its synced settings in: Plex keeps nothing
+    /// for an app, but a playlist is the Plex user's own, and may be empty.
+    /// Its description holds them (the tracking accounts, scrambled). The
+    /// Aster apps leave it out of their playlist lists.
+    static let settingsPlaylistTitle = "Aster Settings (keep)"
+
+    private func settingsPlaylist() async -> PlexMetadata? {
+        let all = (try? await container("/playlists", query: ["playlistType": "video"]).metadata) ?? []
+        return all.first { $0.title == Self.settingsPlaylistTitle }
+    }
+
+    /// The settings playlist's description, nil when there's none yet.
+    func asterSettingsNote() async -> String? {
+        guard let playlist = await settingsPlaylist() else { return nil }
+        // The list may leave the description out: the playlist's own page has it.
+        if let summary = playlist.summary, !summary.isEmpty { return summary }
+        return try? await container("/playlists/\(playlist.ratingKey)").metadata?.first?.summary
+    }
+
+    /// Writes the settings playlist's description, making the playlist first.
+    func setAsterSettingsNote(_ note: String) async {
+        var key = await settingsPlaylist()?.ratingKey
+        if key == nil {
+            let made = try? await perform(request(url("/playlists", query: [
+                "type": "video", "title": Self.settingsPlaylistTitle, "smart": "0", "uri": "",
+            ]), method: "POST"))
+            key = made.flatMap { try? JSONDecoder().decode(PlexReply.self, from: $0) }?.mediaContainer.metadata?.first?.ratingKey
+        }
+        guard let key else { return }
+        _ = try? await perform(request(url("/playlists/\(key)", query: ["summary": note]), method: "PUT"))
+    }
+
     // MARK: Anime
 
-    /// Libraries matched by an anime agent: Shoko, HAMA or AniDB.
+    /// Libraries matched by an anime agent (Shoko, HAMA or AniDB), and
+    /// without one (Plex's own agent), those where at least half of a few
+    /// sampled titles carry an anime genre or an AniDB, AniList or
+    /// MyAnimeList id, or that are named for anime.
     func animeLibraries(among libraries: [BaseItem]) async -> [BaseItem] {
         guard let sections = try? await sections() else { return [] }
-        let anime = Set(sections.filter { section in
+        let byAgent = Set(sections.filter { section in
             let agent = (section.agent ?? "").lowercased()
             return ["shoko", "hama", "anidb"].contains { agent.contains($0) }
         }.map(\.key))
-        return libraries.filter { anime.contains($0.id) }
+        let candidates = libraries.filter { library in
+            !byAgent.contains(library.id) && sections.contains { $0.key == library.id }
+        }
+        let sampled = await withTaskGroup(of: (String, Bool).self) { group in
+            for library in candidates {
+                group.addTask {
+                    let sample = (try? await self.titles("/library/sections/\(library.id)/all", query: ["includeGuids": "1"], size: 5)) ?? []
+                    let anime = sample.filter { $0.isAnime(on: .plex) }.count
+                    return (library.id, !sample.isEmpty && (anime * 2 >= sample.count || library.isNamedForAnime))
+                }
+            }
+            var found: Set<String> = []
+            for await (id, isAnime) in group where isAnime { found.insert(id) }
+            return found
+        }
+        return libraries.filter { byAgent.contains($0.id) || sampled.contains($0.id) }
     }
 
     func itemIds(inLibraries libraryIds: [String], types: String) async -> Set<String> {

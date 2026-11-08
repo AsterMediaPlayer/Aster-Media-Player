@@ -26,7 +26,7 @@ final class ThemePlayer {
     private var loadTask: Task<Void, Never>?
     private var hideTask: Task<Void, Never>?
     /// The server transcode behind an opening used as the theme video.
-    private var clipTranscode: (client: JellyfinClient, playSessionId: String)?
+    private var clipTranscode: (client: any MediaServer, playSessionId: String)?
     /// Which opening is standing in as the theme video. Nil while the
     /// title's own theme video plays (or none does), which is never swapped.
     private var fallbackId: String?
@@ -36,7 +36,7 @@ final class ThemePlayer {
 
     /// Starts the theme for a title. Pages pass their own toggles; music that
     /// the viewer is already listening to always wins.
-    func show(item: BaseItem, client: JellyfinClient, music wantsMusic: Bool, video wantsVideo: Bool, musicPlaying: Bool) {
+    func show(item: BaseItem, client: any MediaServer, music wantsMusic: Bool, video wantsVideo: Bool, musicPlaying: Bool) {
         guard wantsMusic || wantsVideo, !musicPlaying else {
             hide()
             return
@@ -50,6 +50,9 @@ final class ThemePlayer {
         }
         release()
         key = themeKey
+        // Theme songs and videos are Jellyfin's and Emby's; on Plex only an
+        // opening can stand in (see `showOpeningIfNoVideo`), for this page.
+        guard let client = client as? JellyfinClient else { return }
         loadTask = Task { [weak self] in
             let song = wantsMusic ? (try? await client.themeSongs(itemId: item.id))?.first : nil
             let video = wantsVideo ? (try? await client.themeVideos(itemId: item.id))?.first : nil
@@ -67,7 +70,7 @@ final class ThemePlayer {
     /// (found in the episodes' chapters) behind the page instead. Waits for
     /// the server's theme video first, which always wins. With `sound`, the
     /// opening plays at theme-music volume and replaces any theme song.
-    func showOpeningIfNoVideo(_ clip: ThemeClip, for item: BaseItem, client: JellyfinClient, sound: Bool = false) {
+    func showOpeningIfNoVideo(_ clip: ThemeClip, for item: BaseItem, client: any MediaServer, sound: Bool = false) {
         let range = CMTimeRange(
             start: CMTime(value: clip.startTicks, timescale: 10_000_000),
             end: CMTime(value: clip.endTicks, timescale: 10_000_000)
@@ -122,18 +125,26 @@ final class ThemePlayer {
         for item: BaseItem,
         sound: Bool,
         timeRange: CMTimeRange,
-        resolve: @escaping () async -> (url: URL, transcode: (JellyfinClient, String)?)?
+        resolve: @escaping () async -> (url: URL, transcode: (any MediaServer, String)?)?
     ) {
         let themeKey = item.seriesId ?? item.id
         Task { [weak self] in
             await self?.loadTask?.value
-            guard let self, self.key == themeKey, self.canShowFallback(id) else { return }
+            guard let self, self.key == themeKey, self.canShowFallback(id) else {
+                #if DEBUG
+                print("DEBUG theme: opening \(id) not shown: key=\(self?.key ?? "nil") wanted=\(themeKey) canShow=\(self?.canShowFallback(id) ?? false)")
+                #endif
+                return
+            }
             guard let stream = await resolve() else {
                 #if DEBUG
                 print("DEBUG theme: no stream for opening \(id)")
                 #endif
                 return
             }
+            #if DEBUG
+            print("DEBUG theme: opening \(id) stream \(stream.url.absoluteString.prefix(120))")
+            #endif
             guard self.key == themeKey, self.canShowFallback(id) else { return }
             if self.videoPlayer != nil {
                 // Swapping one opening for another.
@@ -224,20 +235,62 @@ final class ThemePlayer {
 
     /// Episodes are mostly MKV, which Apple TV can't open, so the server's
     /// stream (usually a cheap remux) is used unless the file plays as is.
-    static func stream(for clip: ThemeClip, client: JellyfinClient) async -> (url: URL, playSessionId: String?)? {
+    static func stream(for clip: ThemeClip, client: any MediaServer) async -> (url: URL, playSessionId: String?)? {
         guard let info = try? await client.playbackInfo(
             itemId: clip.episode.id,
-            startTicks: clip.startTicks,
+            // Jellyfin's stream keeps the episode's own clock when started
+            // partway; Plex's starts its clock over, so it's started at the
+            // beginning and the player seeks to the clip.
+            startTicks: client.kind == .plex ? 0 : clip.startTicks,
             maxBitrate: AppSettings.maxBitrate,
             subtitleStreamIndex: -1
-        ), let source = info.mediaSources.first else { return nil }
+        ), let source = info.mediaSources.first else {
+            #if DEBUG
+            print("DEBUG theme: no playback info for clip \(clip.id)")
+            #endif
+            return nil
+        }
         let container = (source.container ?? "").lowercased()
         if source.supportsDirectPlay == true, ["mp4", "m4v", "mov"].contains(where: { container.contains($0) }) {
             return (client.directStreamURL(itemId: clip.episode.id, mediaSourceId: source.id, playSessionId: info.playSessionId, container: source.container), nil)
         }
-        guard let path = source.transcodingUrl, let url = client.absoluteURL(serverRelative: path) else { return nil }
+        guard let path = source.transcodingUrl, let url = client.absoluteURL(serverRelative: path) else {
+            #if DEBUG
+            print("DEBUG theme: clip \(clip.id) is \(container) with no transcode offered")
+            #endif
+            return nil
+        }
         return (url, info.playSessionId)
     }
+
+    #if DEBUG
+    /// Says how a player item fares: ready, or failed and why, and any
+    /// error the stream logs. Debug builds only.
+    static func watch(_ item: AVPlayerItem, label: String) {
+        Task {
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.newErrorLogEntryNotification, object: item) {
+                if let event = item.errorLog()?.events.last {
+                    print("DEBUG theme: \(label) stream error \(event.errorStatusCode) \(event.errorComment ?? "") at \(event.uri ?? "")")
+                }
+            }
+        }
+        Task {
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.failedToPlayToEndTimeNotification, object: item) {
+                print("DEBUG theme: \(label) failed to play to the end: \(item.error?.localizedDescription ?? "unknown")")
+            }
+        }
+        Task {
+            while item.status == .unknown {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            switch item.status {
+            case .readyToPlay: print("DEBUG theme: \(label) ready, \(item.duration.seconds.isFinite ? "\(Int(item.duration.seconds)) s" : "no duration")")
+            case .failed: print("DEBUG theme: \(label) failed: \(item.error?.localizedDescription ?? "unknown") \(item.error.map { String(describing: $0) } ?? "")")
+            default: break
+            }
+        }
+    }
+    #endif
 
     /// Title pages showing each theme (by series or item id). The Mac can
     /// build a page twice and drop the spare at once; counting means that
@@ -349,6 +402,10 @@ final class ThemePlayer {
         if !muted { player.player.volume = volume }
         videoPlayer = player
         if !suspended { player.play() }
+        #if DEBUG
+        print("DEBUG theme: video \(id) started\(suspended ? " (suspended)" : "")")
+        if let item = player.player.currentItem { Self.watch(item, label: "opening \(id)") }
+        #endif
     }
 
     private func fade(_ player: AVQueuePlayer, to target: Float, over seconds: Double, completion: (() -> Void)? = nil) {

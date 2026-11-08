@@ -16,7 +16,7 @@ let sidebarDebugLog = Logger(subsystem: "app.asterfin.debug", category: "sidebar
 #endif
 
 enum AppTab: String, CaseIterable, Hashable {
-    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, channels, library, downloads, settings, search
+    case home, movies, shows, anime, music, audiobooks, upcoming, liveTV, channels, library, downloads, discover, settings, search
 
     var title: String {
         switch self {
@@ -28,15 +28,10 @@ enum AppTab: String, CaseIterable, Hashable {
         case .music: "Music"
         case .audiobooks: "Audiobooks"
         case .liveTV: "Live TV"
-        // Still in beta. An iPhone's tab bar has no room for the tag, so
-        // there it's on the page title instead.
-        #if os(iOS)
-        case .channels: UIDevice.current.userInterfaceIdiom == .phone ? "Channels" : "Channels (Beta)"
-        #else
-        case .channels: "Channels (Beta)"
-        #endif
+        case .channels: "Channels"
         case .library: "Library"
         case .downloads: "Downloads"
+        case .discover: "Discover"
         case .settings: "Settings"
         case .search: "Search"
         }
@@ -55,6 +50,7 @@ enum AppTab: String, CaseIterable, Hashable {
         case .channels: "tv.and.mediabox"
         case .library: "square.stack.fill"
         case .downloads: "arrow.down.circle.fill"
+        case .discover: "safari.fill"
         case .settings: "gearshape.fill"
         case .search: "magnifyingglass"
         }
@@ -92,11 +88,15 @@ struct MainTabView: View {
     @AppStorage(AppSettings.downloadsEnabledKey) private var downloadsEnabled = true
     @State private var tab: AppTab = .home
     @State private var homePath = NavigationPath()
+    /// The last run ended in a crash the system recorded: offered to send.
+    @State private var offeringCrashReport = false
+    @State private var sendingCrashReport = false
     @State private var linkedPlayback: PlaybackRequest?
     #if os(macOS)
     @State private var keyboard = KeyboardNavigation()
     @FocusState private var keyboardFocused: Bool
     @Environment(\.openSettings) private var openSettings
+    private var sidebar: MacSidebarState { MacSidebarState.shared }
     #endif
 
     /// The tabs to show, in order: tvOS's fixed sidebar, or on iPhone and
@@ -119,7 +119,6 @@ struct MainTabView: View {
         @Bindable var player = session.music
         @Bindable var audiobooks = session.audiobooks
         tabView
-        .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
         // The song or book playing, under the tab bar on every tab.
         .tabViewBottomAccessory(isEnabled: session.isAudioLoaded) {
@@ -145,33 +144,27 @@ struct MainTabView: View {
             .allowsHitTesting(false)
         }
         #endif
-        #if os(macOS)
-        // Settings lives in its own window on the Mac (⌘,); this opens it
-        // from the foot of the sidebar too, under the song or book playing.
-        .tabViewSidebarBottomBar {
-            if session.isAudioLoaded {
-                AudioAccessory()
-                Divider()
-            }
-            Button {
-                openSettings()
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .help("Settings (⌘,)")
-            // Where it is, for the keyboard's outline (below the last tab).
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                keyboard.settingsButtonFrame = frame
-                #if DEBUG
-                sidebarDebugLog.notice("settings button frame=\(String(describing: frame), privacy: .public)")
-                #endif
-            }
+        // After a crash: the offer to send a report, once.
+        .task {
+            if CrashReports.pending != nil { offeringCrashReport = true }
         }
-        #endif
+        .alert("Tracking Now Lives on Your Server", isPresented: Binding(
+            get: { !TrackerAccounts.shared.movedToServer.isEmpty },
+            set: { if !$0 { TrackerAccounts.shared.movedToServer = [] } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your server now sends what you watch and listen to. Link \(TrackerAccounts.shared.movedToServer.joined(separator: ", ")) again in Settings › Tracking, once for every Aster app.")
+        }
+        .alert("Aster Closed Unexpectedly", isPresented: $offeringCrashReport) {
+            Button("Send Report") { sendingCrashReport = true }
+            Button("Not Now", role: .cancel) { CrashReports.clear() }
+        } message: {
+            Text("Sending a debug report helps find out why.")
+        }
+        .sheet(isPresented: $sendingCrashReport) {
+            DebugReportView(afterCrash: true)
+        }
         // A tab hidden while showing hands over to Home.
         .onChange(of: shownTabs) { _, tabs in
             if !tabs.contains(tab) { tab = .home }
@@ -212,14 +205,37 @@ struct MainTabView: View {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }
             await session.refreshChannels()
         }
+        // The tracking accounts, as any Aster app last left them.
+        .task {
+            if let client = session.client, let user = session.userId {
+                await TrackerAccounts.shared.load(client: client, userId: user)
+                // With the plugin there, the accounts it serves are linked on
+                // the server, not kept here.
+                await AsterTracking.shared.refresh(session: session)
+                if let services = AsterTracking.shared.features?.services {
+                    TrackerAccounts.shared.moveToServer(services: services.map { $0.lowercased() })
+                }
+            }
+        }
+        // The server's Aster Discovery and Tracking plugin: whether Seerr is
+        // on and Discover has rows. Asked again on the app's return below.
+        .task {
+            await AsterTracking.shared.refresh(session: session)
+        }
         .task {
             guard let client = session.client else { return }
-            await session.refreshUserConfiguration()
+            // The anime libraries as last found, so Movies and TV Shows can
+            // load at once rather than wait for the look-up below.
+            await session.restoreAnimeDetection()
+            // Side by side: only anime detection needs the libraries, and
+            // Movies, TV Shows and Anime wait on it.
+            async let configuration: Void = session.refreshUserConfiguration()
+            async let upcoming: Void = session.refreshUpcoming()
             let views = (try? await client.libraries()) ?? []
             session.noteLibraries(views)
-            await session.refreshUpcoming()
-            await session.detectAnimeLibraries(among: views)
-            await session.detectAnimeMusic(among: views)
+            async let anime: Void = session.detectAnimeLibraries(among: views)
+            async let animeMusic: Void = session.detectAnimeMusic(among: views)
+            _ = await (configuration, upcoming, anime, animeMusic)
             await followPendingLinks()
         }
         // Back from the background: changes made on another device since.
@@ -228,7 +244,13 @@ struct MainTabView: View {
             // Leaving: a fresh twelve hours for the On Now widget.
             if phase == .background { ChannelTuner.writeOnNowGuide() }
             #endif
-            guard phase == .active, old == .background, let client = session.jellyfin else { return }
+            guard phase == .active, old == .background else { return }
+            if let client = session.client, let user = session.userId {
+                Task { await TrackerAccounts.shared.load(client: client, userId: user) }
+                // A long while away: the plugin may have changed.
+                Task { await AsterTracking.shared.refresh(session: session) }
+            }
+            guard let client = session.jellyfin else { return }
             Task {
                 await SettingsSync.pull(client: client)
                 await session.refreshChannels()
@@ -259,10 +281,20 @@ struct MainTabView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($keyboardFocused)
-        .onAppear { claimKeyboard() }
+        .onAppear {
+            claimKeyboard()
+            // A pen on an iPad used as a display scrolls the page; a finger
+            // can't, and the page says to use two.
+            DragScroller.shared.install { WindowCovers.shared.covers.isEmpty }
+            SidecarHint.shared.install()
+        }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
-            claimKeyboard()
+            // Away once a tab is chosen, however it was (a click, the
+            // keyboard, a link), then the page gets the keyboard back.
+            sidebar.hide()
+            clearKeyboardInSidebar()
+            restoreKeyboardFocus()
         }
         .onKeyPress(.upArrow) { routeKey(.up) }
         .onKeyPress(.downArrow) { routeKey(.down) }
@@ -286,23 +318,6 @@ struct MainTabView: View {
             openSettings()
             return .handled
         }
-        .overlay {
-            // The keyboard's tab in the sidebar, before Return opens it,
-            // measured from the window's top left, so it ignores the safe area.
-            ZStack(alignment: .topLeading) {
-                if let frame = keyboard.highlightFrame {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(.tint, lineWidth: 2.5)
-                        .background(.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
-                        .frame(width: frame.width, height: frame.height)
-                        .offset(x: frame.minX, y: frame.minY)
-                        .animation(.easeOut(duration: 0.15), value: frame)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-        }
         #endif
     }
 
@@ -311,14 +326,6 @@ struct MainTabView: View {
     /// appears, focus doesn't take), so no click is needed first.
     private func claimKeyboard() {
         Task { keyboardFocused = true }
-        #if DEBUG
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            sidebarDebugLog.notice("window at launch tabs=\(shownTabs.map(\.rawValue).joined(separator: ","), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
-            let appMenu = NSApp.mainMenu?.items.first?.submenu?.items.map { "\($0.title)[\($0.keyEquivalent)|\($0.keyEquivalentModifierMask.rawValue)|enabled=\($0.isEnabled)]" } ?? []
-            sidebarDebugLog.notice("app menu: \(appMenu.joined(separator: "  "), privacy: .public)")
-        }
-        #endif
     }
 
     /// The page showing gets the key first. Left past its leading edge, or
@@ -351,7 +358,6 @@ struct MainTabView: View {
                         keyboard.sidebarHighlight = tabs[key == .up ? max(current - 1, 0) : min(current + 1, tabs.count - 1)]
                     }
                 }
-                measureHighlight()
             case .select:
                 if keyboard.settingsHighlighted {
                     openSettings()
@@ -390,56 +396,31 @@ struct MainTabView: View {
     }
 
     private func enterSidebar() {
-        #if DEBUG
-        sidebarDebugLog.notice("enterSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)\n\(WindowSidebar.debugDescribeWindow(), privacy: .public)")
-        #endif
         keyboard.inSidebar = true
         keyboard.sidebarHighlight = tab
-        // Slides out if hidden; it's put away again on the way out.
-        WindowSidebar.setShown(true)
-        measureHighlight()
-        // Again once the sidebar has slid out.
-        Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            measureHighlight()
-        }
-    }
-
-    /// Where the keyboard's tab sits in the sidebar, for drawing its outline.
-    /// The system draws the sidebar's rows itself and ignores styling on
-    /// our tab labels, so the outline is drawn over the row instead.
-    private func measureHighlight() {
-        if keyboard.inSidebar, keyboard.settingsHighlighted {
-            keyboard.highlightFrame = keyboard.settingsButtonFrame
-            return
-        }
-        guard keyboard.inSidebar, let highlight = keyboard.sidebarHighlight,
-              let index = shownTabs.firstIndex(of: highlight) else {
-            keyboard.highlightFrame = nil
-            return
-        }
-        keyboard.highlightFrame = WindowSidebar.rowFrame(index)
+        // Slides out if it's away; it's put away again on the way out.
+        sidebar.show()
     }
 
     private func leaveSidebar() {
-        #if DEBUG
-        sidebarDebugLog.notice("leaveSidebar isShown=\(String(describing: WindowSidebar.isShown), privacy: .public)")
-        #endif
-        keyboard.inSidebar = false
-        keyboard.sidebarHighlight = nil
-        keyboard.settingsHighlighted = false
-        keyboard.highlightFrame = nil
+        clearKeyboardInSidebar()
         // As on Apple TV, the sidebar goes away once the keyboard leaves it,
-        // however it came to be open. Collapsing it takes the window's key
-        // focus with it, so the content is given it back, now and again
-        // once the slide is over.
-        WindowSidebar.setShown(false)
+        // however it came to be open.
+        sidebar.hide()
         restoreKeyboardFocus()
     }
 
+    /// The keyboard is no longer in the sidebar (it left, a tab was picked
+    /// with the mouse, or the sidebar was closed another way).
+    private func clearKeyboardInSidebar() {
+        keyboard.inSidebar = false
+        keyboard.sidebarHighlight = nil
+        keyboard.settingsHighlighted = false
+    }
+
     /// Gives the keyboard back to the page after something took the window's
-    /// key focus with it (the sidebar collapsing, a page closing): now, and
-    /// again once the animation is over.
+    /// key focus with it (a page closing): now, and again once the
+    /// animation is over.
     private func restoreKeyboardFocus() {
         WindowSidebar.returnKeyboardToContent()
         claimKeyboard()
@@ -447,9 +428,74 @@ struct MainTabView: View {
             try? await Task.sleep(for: .milliseconds(400))
             WindowSidebar.returnKeyboardToContent()
             claimKeyboard()
-            #if DEBUG
-            sidebarDebugLog.notice("restoreKeyboardFocus firstResponder=\(String(describing: (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder.map { type(of: $0) }), privacy: .public)")
-            #endif
+        }
+    }
+
+    /// The window on the Mac: the tab showing, with the sidebar sliding out
+    /// over it from the left (Apple TV's, drawn here: see `MacSidebar`).
+    /// Only the tab showing is kept; Home's place is held in `homePath`.
+    private var macTabs: some View {
+        ZStack(alignment: .leading) {
+            content(for: tab)
+                .environment(\.keyboardTab, tab)
+                .id(tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if sidebar.isShown {
+                // While the sidebar's out, a click on the page only puts it
+                // away; it never reaches what's under it (a Play button, say).
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { sidebar.hide() }
+                    .transition(.opacity)
+                MacSidebar(
+                    tabs: shownTabs, selected: tab,
+                    keyboardTab: keyboard.inSidebar ? keyboard.sidebarHighlight : nil,
+                    keyboardOnSettings: keyboard.inSidebar && keyboard.settingsHighlighted,
+                    choose: { tab = $0 },
+                    openSettings: { openSettings() }
+                )
+                // Back in when the mouse leaves it, if the mouse brought it out.
+                .onHover { inside in
+                    if !inside, sidebar.revealedByMouse { sidebar.hide() }
+                }
+                .transition(.move(edge: .leading))
+                .zIndex(1)
+            } else {
+                // The mouse reaching the window's left edge brings it out.
+                Color.clear
+                    .frame(width: 6)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside, WindowCovers.shared.covers.isEmpty { sidebar.show(byMouse: true) }
+                    }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if SidecarHint.shared.isShown, WindowCovers.shared.covers.isEmpty {
+                SidecarScrollHintView()
+                    .padding(.bottom, 28)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    sidebar.toggle()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help("Show or hide the sidebar (⌃⌘S)")
+            }
+        }
+        // Closed by its own button or the menu while the keyboard was in it.
+        .onChange(of: sidebar.isShown) { _, shown in
+            if !shown, keyboard.inSidebar {
+                clearKeyboardInSidebar()
+                restoreKeyboardFocus()
+            }
         }
     }
     #endif
@@ -471,13 +517,19 @@ struct MainTabView: View {
     /// The tabs themselves, apart from the modifiers below so the compiler
     /// can type-check the body in reasonable time.
     private var tabView: some View {
+        #if os(macOS)
+        macTabs
+        #else
         TabView(selection: $tab) {
             ForEach(shownTabs, id: \.self) { item in
                 tab(for: item)
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        #endif
     }
 
+    #if !os(macOS)
     private func tab(for item: AppTab) -> some TabContent<AppTab> {
         let role: TabRole? = item == .search ? .search : nil
         #if os(iOS)
@@ -486,17 +538,13 @@ struct MainTabView: View {
             content(for: item)
         }
         .badge(badgeCount(for: item))
-        #elseif os(macOS)
-        return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
-            content(for: item)
-                .environment(\.keyboardTab, item)
-        }
         #else
         return Tab(item.title, systemImage: item.systemImage, value: item, role: role) {
             content(for: item)
         }
         #endif
     }
+    #endif
 
     /// Downloads in progress, on the Downloads tab (and so on More when it's
     /// there). Zero shows no badge.
@@ -530,6 +578,7 @@ struct MainTabView: View {
             #else
             EmptyView()
             #endif
+        case .discover: BrowseStack { DiscoverView() }
         case .settings: BrowseStack { SettingsView() }
         case .search: BrowseStack { SearchView() }
         }
@@ -725,12 +774,8 @@ final class KeyboardNavigation {
     var inSidebar = false
     /// The tab the keyboard is on in the sidebar, opened with Return.
     var sidebarHighlight: AppTab?
-    /// Where the highlighted tab's row is, in the window from its top left.
-    var highlightFrame: CGRect?
     /// The Settings button under the tabs is highlighted instead of a tab.
     var settingsHighlighted = false
-    /// Where that button is, for its outline.
-    @ObservationIgnored var settingsButtonFrame: CGRect?
 
     @ObservationIgnored private var handlers: [AppTab: (Key) -> KeyPress.Result] = [:]
 
@@ -834,6 +879,18 @@ struct BrowseStack<Root: View>: View {
             }
             .navigationDestination(for: AudiobookShelf.self) { shelf in
                 pushed(AudiobookShelfView(shelf: shelf))
+            }
+            // A title to request from Seerr, pushed as a library title's page is.
+            .navigationDestination(for: SeerrTitle.self) { title in
+                pushed(SeerrTitlePage(title: title))
+            }
+            // A title from the server's Discover page: Seerr's page for it, or its library item.
+            .navigationDestination(for: TrackedItem.self) { item in
+                pushed(TrackedItemPage(item: item))
+            }
+            // A genre's, studio's or network's titles from Seerr, with filters.
+            .navigationDestination(for: SeerrBrowse.self) { browse in
+                pushed(SeerrBrowsePage(browse: browse))
             }
     }
 

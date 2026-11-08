@@ -240,6 +240,8 @@ final class AetherPlayback {
     }
 
     func start() async {
+        DebugLog.startedPlayback()
+        DebugLog.note("play", "Starting a title with Aster's player (converted: \(entry.fallback == .none ? "no" : "fallback \(entry.fallback)"))")
         do {
             let ready = prepared?.item.id == entry.itemId ? prepared : nil
             prepared = nil
@@ -951,6 +953,8 @@ final class AetherPlayback {
     /// where this got to, on the same tracks.
     func fallBack(_ reason: String) {
         guard !stopped, !fellBack else { return }
+        DebugLog.note("play", "Fell back: \(reason)")
+        DebugLog.notePlayback(["error": reason, "method": playMethod])
         // A live channel's stream can be briefly missing on the server (a
         // tuner still being let go, an encode not ready): one fresh try in
         // this player before handing it over.
@@ -1027,6 +1031,7 @@ final class AetherPlayback {
             let final = report(paused: true)
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         } else if isConverted, let playSessionId {
             let client = client
             Task { await client.stopTranscoding(playSessionId: playSessionId) }
@@ -1089,6 +1094,7 @@ final class AetherPlayback {
         if hasStarted, !stopReported, reportsPlayback {
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         } else if isConverted, let playSessionId {
             // Nothing reports a channel's stream, so its encode is ended here.
             let client = client
@@ -1122,6 +1128,7 @@ final class AetherPlayback {
             if engine.duration > 0 { final.positionTicks = Int64(engine.duration * 10_000_000) }
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         }
         guard upNext != nil else { return false }
         endCardVisible = true
@@ -1141,6 +1148,7 @@ final class AetherPlayback {
             let final = report(paused: true)
             let client = client
             Task { await client.reportStopped(final) }
+            TrackerAccounts.shared.stopped(final, client: client)
         }
         play(next, entry: PlaybackQueueItem(itemId: next.id, startTicks: next.userData?.playbackPositionTicks ?? 0))
     }

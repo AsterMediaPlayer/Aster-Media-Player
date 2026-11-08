@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The pages the Settings root opens.
 private enum SettingsDestination: Hashable {
-    case playback, audioSubtitles, discMenus, titlePages, channels, serverPlugins, tabBar, downloads, account, about
+    case playback, audioSubtitles, discMenus, titlePages, tracking, channels, serverPlugins, tabBar, downloads, account, about
     /// A saved server's page under Account, and its Lock After choices, by
     /// the server's id. Registered here at the root with the others: pages
     /// registered further in froze Apple TV when they opened one more.
@@ -40,9 +40,15 @@ struct SettingsView: View {
                 NavigationLink(value: SettingsDestination.titlePages) {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
+                // Only once Aster has the services' app ids (see TrackerKeys).
+                if TrackerAccounts.isAvailable || AsterTracking.shared.isPresent {
+                    NavigationLink(value: SettingsDestination.tracking) {
+                        Label("Tracking", systemImage: "checklist")
+                    }
+                }
                 if session.isJellyfin {
                     NavigationLink(value: SettingsDestination.channels) {
-                        Label("Channels (Beta)", systemImage: "tv.and.mediabox")
+                        Label("Channels", systemImage: "tv.and.mediabox")
                     }
                     NavigationLink(value: SettingsDestination.serverPlugins) {
                         Label("Server Plugins", systemImage: "puzzlepiece.extension")
@@ -76,6 +82,7 @@ struct SettingsView: View {
             case .audioSubtitles: AudioSubtitleSettingsView()
             case .discMenus: DiscMenuSettingsView()
             case .titlePages: TitlePageSettingsView()
+            case .tracking: TrackingSettingsView()
             case .channels: ChannelSettingsView()
             case .serverPlugins: ServerPluginsSettingsView()
             case .tabBar:
@@ -120,8 +127,12 @@ struct MacSettingsView: View {
                 .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
+            if TrackerAccounts.isAvailable || AsterTracking.shared.isPresent {
+                TrackingSettingsView()
+                    .tabItem { Label("Tracking", systemImage: "checklist") }
+            }
             ChannelSettingsView()
-                .tabItem { Label("Channels (Beta)", systemImage: "tv.and.mediabox") }
+                .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
             if session.isJellyfin {
                 ServerPluginsSettingsView()
                     .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
@@ -146,7 +157,9 @@ struct MacSettingsView: View {
             }
             .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 560)
+        // Wide enough for every pane's tab in the bar (eight on Jellyfin);
+        // at 560 the last ones fell off the end.
+        .frame(width: 820)
         .frame(minHeight: 380)
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }
@@ -420,6 +433,7 @@ private struct PlaybackSettingsView: View {
     #endif
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
+    @AppStorage(AppSettings.sidecarHintKey) private var sidecarHint = true
     #endif
 
     private let bitrates: [(String, Int)] = [
@@ -489,6 +503,8 @@ private struct PlaybackSettingsView: View {
             Section("Window") {
                 Toggle("Play videos full screen", isOn: $fullScreenPlayback)
                 SettingsNote("A video takes the whole screen as it starts, and the window comes back as it closes. Off, it plays inside the window.")
+                Toggle("Show the two-finger scroll tip on an iPad display", isOn: $sidecarHint)
+                SettingsNote("On an iPad used as a display (Sidecar), one finger doesn't move the page; two do. The tip shows once each time the app opens there, until you've scrolled that way.")
             }
             #endif
             Section("Episodes") {
@@ -779,7 +795,7 @@ struct ChannelSettingsView: View {
     }
 
     private var everything: some View {
-        SettingsPage(title: "Channels (Beta)") {
+        SettingsPage(title: "Channels") {
             Section {
                 SettingsNote("Turn video playlists into TV-style channels. Each plays its movies and episodes around the clock, the same on every device; tune in and you join whatever's on. Watching a channel doesn't touch your watch history. The Channels tab appears once there is one.")
             }
@@ -1529,9 +1545,13 @@ private struct ChannelNameField: View {
 }
 
 private struct TitlePageSettingsView: View {
+    @Environment(AppSession.self) private var session
     @AppStorage(AppSettings.themeMusicKey) private var themeMusic = false
     @AppStorage(AppSettings.themeVideosKey) private var themeVideos = false
     @AppStorage(AppSettings.openingSoundKey) private var openingSound = false
+    @AppStorage(AppSettings.songLookupsKey) private var songLookups = true
+    /// Kept in the Keychain, not in settings.
+    @State private var mdbListKey = ""
 
     var body: some View {
         SettingsPage(title: "Title Pages") {
@@ -1544,8 +1564,41 @@ private struct TitlePageSettingsView: View {
                 Toggle("Opening plays with sound", isOn: $openingSound)
                     .disabled(!themeVideos)
                 SettingsNote("Anime with no theme video of its own loops its first opening behind the series page, when Theme videos is on. With sound, it plays quietly, like theme music.")
+                Toggle("Look up song names", isOn: $songLookups)
+                    .onChange(of: songLookups) { _, on in
+                        if on, let client = session.client { SongWarmer.shared.warmInBackground(client: client) }
+                    }
+                SettingsNote("Without the OP/ED plugin, the songs of a show's openings and endings are asked of AnimeThemes (animethemes.moe): in the background for every show in your anime libraries, and kept on this device so a show is looked up once. Off, Aster doesn't contact AnimeThemes, and clips are named by their season.")
+                HStack {
+                    Button("Refresh Songs") {
+                        Task { _ = await SongWarmer.shared.refreshSongs() }
+                    }
+                    .disabled(!songLookups || SongWarmer.shared.refresh == .refreshing)
+                    Spacer()
+                    switch SongWarmer.shared.refresh {
+                    case .idle: EmptyView()
+                    case .refreshing: Text("Refreshing…").foregroundStyle(.secondary)
+                    case .done: Text("Done").foregroundStyle(.secondary)
+                    case .failed: Text("Couldn't reach AnimeThemes").foregroundStyle(.secondary)
+                    }
+                }
+                SettingsNote("Forgets what's kept for this server and asks AnimeThemes again for every show, for songs it has named since.")
+            }
+            Section("Ratings") {
+                SecureField("MDBList API key", text: $mdbListKey)
+                    .textContentType(.password)
+                    #if !os(macOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                    .autocorrectionDisabled()
+                    .onSubmit { MDBList.apiKey = mdbListKey }
+                    .onChange(of: mdbListKey) { _, key in MDBList.apiKey = key }
+                SettingsNote(mdbListKey.isEmpty
+                    ? "Title pages show the scores your server has. With a free MDBList key (from mdblist.com, under Preferences › API Access), films and shows also get IMDb, Rotten Tomatoes (critics and audience), Metacritic, Letterboxd and TMDB scores. The key stays on this device."
+                    : "Films and shows get IMDb, Rotten Tomatoes, Metacritic, Letterboxd and TMDB scores from MDBList. Clear the key to stop asking it.")
             }
         }
+        .onAppear { mdbListKey = MDBList.apiKey ?? "" }
     }
 }
 
@@ -1900,6 +1953,8 @@ private struct LockAfterPage: View {
 // MARK: - About
 
 private struct AboutSettingsView: View {
+    @State private var sendingReport = false
+
     var body: some View {
         SettingsPage(title: "About") {
             // Focusable rows give the page somewhere for focus to land; with
@@ -1916,7 +1971,15 @@ private struct AboutSettingsView: View {
                 NavigationLink(value: OpenSourceRoute.list) {
                     Label("Open Source & Licenses", systemImage: "doc.text")
                 }
+                Button {
+                    sendingReport = true
+                } label: {
+                    Label("Send Debug Report", systemImage: "ladybug")
+                }
             }
+        }
+        .sheet(isPresented: $sendingReport) {
+            DebugReportView()
         }
     }
 }

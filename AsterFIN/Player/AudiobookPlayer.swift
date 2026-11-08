@@ -57,7 +57,15 @@ final class AudiobookPlayer {
         return (chapter.start, max(end, chapter.start))
     }
 
-    private let player = AVPlayer()
+    /// The sound is decoded here and sent to an AirPlay speaker, never
+    /// fetched by the speaker itself: Listen Ahead serves the book from a
+    /// scheme of the app's own, which a speaker can't reach (it connected
+    /// and stayed silent).
+    private let player: AVPlayer = {
+        let player = AVPlayer()
+        player.allowsExternalPlayback = false
+        return player
+    }()
     private var client: JellyfinClient?
     private var playSessionId = UUID().uuidString
     /// Where to start once the part is ready.
@@ -119,6 +127,15 @@ final class AudiobookPlayer {
 
     func pause() {
         guard book != nil else { return }
+        #if os(iOS)
+        if sonos != nil {
+            isPlaying = false
+            sonosCommand { try await $0.pause() }
+            report(paused: true, saving: .now)
+            updateNowPlayingPlayback()
+            return
+        }
+        #endif
         player.pause()
         playWhenReady = false
         isPlaying = false
@@ -131,6 +148,15 @@ final class AudiobookPlayer {
 
     func resume() {
         guard book != nil else { return }
+        #if os(iOS)
+        if sonos != nil {
+            isPlaying = true
+            sonosCommand { try await $0.play() }
+            report(paused: false)
+            updateNowPlayingPlayback()
+            return
+        }
+        #endif
         Self.activateAudioSession()
         playWhenReady = true
         if hasStarted {
@@ -160,6 +186,14 @@ final class AudiobookPlayer {
     func seek(to seconds: TimeInterval) {
         let clamped = max(0, duration > 0 ? min(seconds, duration) : seconds)
         currentTime = clamped
+        #if os(iOS)
+        if sonos != nil {
+            sonosCommand { try await $0.seek(to: clamped) }
+            report(paused: !isPlaying)
+            updateNowPlayingPlayback()
+            return
+        }
+        #endif
         guard hasStarted else {
             pendingStart = clamped
             return
@@ -214,6 +248,10 @@ final class AudiobookPlayer {
         guard book != nil else { return }
         #if os(iOS)
         ListenAhead.shared.pause()
+        if sonos != nil {
+            sonosCommand { try await $0.stop() }
+            leaveSonos()
+        }
         #endif
         finishCurrent()
         removeObservers()
@@ -245,6 +283,28 @@ final class AudiobookPlayer {
         duration = book.partDurations[part]
         errorMessage = nil
 
+        #if os(iOS)
+        // On a Sonos room: it goes to this part and place in its queue,
+        // which is the book's when it's this book.
+        if let room = sonos {
+            isPlaying = playing
+            if sonosIds != book.parts.map(\.id) {
+                sendBookToSonos(at: seconds, playing: playing)
+            } else {
+                hasStarted = true
+                lastReport = Date()
+                report(paused: !playing, start: true)
+                // Until the room is there, what it says isn't the place.
+                sonosSettleUntil = Date().addingTimeInterval(30)
+                Task { [weak self] in
+                    try? await room.start(track: part + 1, at: seconds, playing: playing)
+                    self?.sonosSettleUntil = Date().addingTimeInterval(2)
+                }
+            }
+            publishNowPlaying()
+            return
+        }
+        #endif
         Self.activateAudioSession()
         // The universal URL always starts at the beginning, so the resume
         // point is sought once the file is ready.
@@ -341,6 +401,9 @@ final class AudiobookPlayer {
     }
 
     private var playerSeconds: TimeInterval? {
+        #if os(iOS)
+        if sonos != nil { return currentTime }
+        #endif
         let seconds = player.currentTime().seconds
         return seconds.isFinite ? seconds : nil
     }
@@ -350,10 +413,12 @@ final class AudiobookPlayer {
         return Int64(seconds * 10_000_000)
     }
 
-    /// As in `MusicPlayer`: off the main thread, since it can block.
+    /// As in `MusicPlayer`: off the main thread, since it can block, and
+    /// set up as long-form audio first, for AirPlay 2 speakers.
     private static func activateAudioSession() {
         #if !os(macOS)
         Task.detached(priority: .userInitiated) {
+            AudioSessionUse.prepare(.longFormAudio)
             try? AVAudioSession.sharedInstance().setActive(true)
         }
         #endif
@@ -439,6 +504,189 @@ final class AudiobookPlayer {
             }
         }
     }
+
+    // MARK: Sonos
+
+    #if os(iOS)
+    /// The Sonos room playing the book, nil while it plays on this device.
+    private(set) var sonosRoom: SonosGroup?
+    @ObservationIgnored private var sonos: SonosClient?
+    /// The parts in the room's queue: the book's, once sent.
+    @ObservationIgnored private var sonosIds: [String] = []
+    @ObservationIgnored private var sonosPoll: Task<Void, Never>?
+    @ObservationIgnored private var sonosSettleUntil = Date.distantPast
+    @ObservationIgnored private var sonosFailures = 0
+
+    /// Plays on `group`, or back on this device with nil, from where it is.
+    /// A Sonos plays at normal speed whatever the speed chosen here.
+    func play(on group: SonosGroup?) {
+        guard book != nil else { return }
+        let at = currentTime
+        let playing = isPlaying
+        if let group {
+            guard group.id != sonosRoom?.id else { return }
+            if let previous = sonos { Task { try? await previous.stop() } }
+            finishCurrent()
+            ListenAhead.shared.pause()
+            player.pause()
+            removeObservers()
+            player.replaceCurrentItem(with: nil)
+            sonosRoom = group
+            sonos = SonosClient(speaker: group.coordinator)
+            sendBookToSonos(at: at, playing: true)
+            startSonosPolling()
+        } else {
+            guard let room = sonos else { return }
+            Task { try? await room.pause() }
+            finishCurrent()
+            leaveSonos()
+            load(part: partIndex, at: at, playing: playing)
+        }
+    }
+
+    /// The book's parts as the room's queue, played from this part and place.
+    private func sendBookToSonos(at seconds: TimeInterval, playing: Bool) {
+        guard let room = sonos, let client, let book else { return }
+        let art = client.posterURL(for: book.cover, width: 600)
+        let parts = book.parts
+        let title = book.title
+        let author = book.author
+        let number = partIndex + 1
+        sonosIds = book.parts.map(\.id)
+        isPlaying = playing
+        playSessionId = UUID().uuidString
+        hasStarted = true
+        lastReport = Date()
+        report(paused: !playing, start: true)
+        publishNowPlaying()
+        sonosSettleUntil = Date().addingTimeInterval(30)
+        Task {
+            do {
+                // The files as they are, which a speaker can seek within.
+                let known = await client.withContainers(parts)
+                let tracks = known.enumerated().map { number, part in
+                    client.sonosTrack(for: part, title: parts.count > 1 ? "\(title), Part \(number + 1)" : title,
+                                      artist: author, album: title, art: art)
+                }
+                try await room.clearQueue()
+                try await room.enqueue(tracks)
+                try await room.playFromQueue()
+                try? await room.setPlayMode(.normal)
+                try await room.start(track: number, at: seconds, playing: playing)
+                sonosSettleUntil = Date().addingTimeInterval(2)
+            } catch {
+                sonosLost(error)
+            }
+        }
+    }
+
+    private func sonosCommand(_ command: @escaping @Sendable (SonosClient) async throws -> Void) {
+        guard let room = sonos else { return }
+        sonosSettleUntil = Date().addingTimeInterval(2)
+        Task {
+            do {
+                try await command(room)
+            } catch {
+                #if DEBUG
+                print("DEBUG sonos: command failed: \(error)")
+                #endif
+            }
+        }
+    }
+
+    private func startSonosPolling() {
+        sonosPoll?.cancel()
+        sonosFailures = 0
+        sonosPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.followSonos()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    /// Where the room has got to in the book: the screen, the server and
+    /// this device's own note of the place follow it.
+    private func followSonos() async {
+        guard let room = sonos else { return }
+        let position: SonosPosition
+        let state: SonosTransportState
+        do {
+            position = try await room.position()
+            state = try await room.transportState()
+            sonosFailures = 0
+        } catch {
+            sonosFailures += 1
+            if sonosFailures >= 8 { sonosLost(error) }
+            return
+        }
+        guard sonos != nil, let book, Date() >= sonosSettleUntil else { return }
+        if !position.uri.isEmpty, JellyfinClient.sonosItemId(in: position.uri) == nil {
+            // Something else took the room over.
+            isPlaying = false
+            report(paused: true, saving: .now)
+            leaveSonos()
+            updateNowPlayingPlayback()
+            return
+        }
+        // Stopped, a room goes back to its first track at zero, which isn't
+        // where listening got to; at the end of the last part, the book's done.
+        if state == .stopped || state == .noMedia {
+            if isPlaying {
+                isPlaying = false
+                if partIndex == book.parts.count - 1, duration - currentTime < 20 {
+                    AudiobookPositions.clear(bookId: book.id)
+                    currentTime = duration
+                    finishCurrent()
+                } else {
+                    report(paused: true, saving: .now)
+                }
+                updateNowPlayingPlayback()
+            }
+            return
+        }
+        let id = JellyfinClient.sonosItemId(in: position.uri)
+        let part = id.flatMap { sonosIds.firstIndex(of: $0) } ?? (position.track - 1)
+        if book.parts.indices.contains(part), part != partIndex {
+            finishCurrent()
+            partIndex = part
+            duration = book.partDurations[part]
+            playSessionId = UUID().uuidString
+            hasStarted = true
+            lastReport = Date()
+            report(paused: false, start: true)
+        }
+        currentTime = position.elapsed
+        if position.duration > 0 { duration = position.duration }
+        let playing = state == .playing || state == .transitioning
+        if playing != isPlaying {
+            isPlaying = playing
+            report(paused: !playing, saving: playing ? .whenDue : .now)
+        } else if Date().timeIntervalSince(lastReport) >= 10 {
+            lastReport = Date()
+            report(paused: !isPlaying)
+        }
+        updateNowPlayingPlayback()
+    }
+
+    private func sonosLost(_ error: Error) {
+        let name = sonosRoom?.name ?? "The Sonos room"
+        #if DEBUG
+        print("DEBUG sonos: lost \(name): \(error)")
+        #endif
+        isPlaying = false
+        errorMessage = "\(name) stopped answering."
+        leaveSonos()
+    }
+
+    private func leaveSonos() {
+        sonosPoll?.cancel()
+        sonosPoll = nil
+        sonos = nil
+        sonosRoom = nil
+        sonosIds = []
+    }
+    #endif
 
     // MARK: System integration
 

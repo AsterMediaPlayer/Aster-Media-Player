@@ -31,7 +31,7 @@ Taken on Apple TV, with openly licensed films from the Blender Foundation and fr
 | ![Music](docs/screenshots/music.jpg) | ![Disc menu](docs/screenshots/disc-menu.jpg) |
 | **Music**: albums, artists, lyrics, Now Playing | **Disc menus**: menus from the Aster Disc plugin, with transitions and sounds |
 | ![Channels](docs/screenshots/channels.jpg) | ![Channel row](docs/screenshots/channel-row.jpg) |
-| **Channels (Beta)**: playlists as TV channels, movies and shows in the same guide | **Channel row**: press Up while watching to flick through channels, or Go to Episode |
+| **Channels**: playlists as TV channels, movies and shows in the same guide | **Channel row**: press Up while watching to flick through channels, or Go to Episode |
 
 ## Platforms
 
@@ -46,7 +46,7 @@ Taken on Apple TV, with openly licensed films from the Blender Foundation and fr
 | Downloads for offline viewing | | ✓ | |
 | Top Shelf | ✓ | | |
 | Full-screen playback, keyboard shortcuts | | | ✓ |
-| CarPlay audiobooks | | waiting on Apple's entitlement | |
+| CarPlay audiobooks | | ✓ | |
 
 ## Features
 
@@ -91,11 +91,11 @@ Taken on Apple TV, with openly licensed films from the Blender Foundation and fr
 - Channels play through AetherEngine. A mini player keeps the channel playing in the header after you press Back, and choosing another channel switches it in the same player.
 - Record single programmes, or set series recording rules with options.
 
-### Channels (Beta)
+### Channels
 Channels turn your own movies and shows into TV you can just put on. Each channel runs around the clock on a schedule, with a guide like Live TV's. Tune in and you join whatever's on, partway through, then it carries on to the next thing, the way real TV does. Every device shows the same thing at the same moment.
 
 **Make your first channel** (you need to be a server administrator):
-1. Open the **Channels** tab and choose **Edit Channels**. (If you don't have the tab yet, it's in **Settings ▸ Channels (Beta)**.)
+1. Open the **Channels** tab and choose **Edit Channels**. (If you don't have the tab yet, it's in **Settings ▸ Channels**.)
 2. Under **New Channel**, pick **From a Show**, then a show.
 3. That's it: the channel is playing. Go back to the Channels tab, choose it in the guide and press Select to tune in.
 

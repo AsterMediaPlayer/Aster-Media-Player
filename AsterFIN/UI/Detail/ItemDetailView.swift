@@ -21,6 +21,8 @@ final class DetailModel {
     private(set) var extras: [BaseItem] = []
     private(set) var cast: [PersonInfo] = []
     private(set) var similar: [BaseItem] = []
+    /// The title's scores from MDBList, with a key in Settings.
+    private(set) var addedScores: [TitleScore] = []
     private(set) var nextEpisode: BaseItem?
     private(set) var discMenu: DiscMenuDocument?
     /// The item the disc menu belongs to: the page's own, or for a show
@@ -57,9 +59,9 @@ final class DetailModel {
     private(set) var watchOpening: OpeningEnding?
     private(set) var watchEnding: OpeningEnding?
 
-    func updateWatchThemes(client: JellyfinClient, isAnime: Bool) async {
-        // An episode asks the plugin once for both.
-        let episodeThemes = item?.kind == .episode ? await client.opEdThemes(for: item?.id ?? "") ?? [] : []
+    func updateWatchThemes(client: any MediaServer, isAnime: Bool) async {
+        // An episode asks the plugin (Jellyfin's) once for both.
+        let episodeThemes = item?.kind == .episode ? await (client as? JellyfinClient)?.opEdThemes(for: item?.id ?? "") ?? [] : []
         watchOpening = await watchTheme(opening: true, episodeThemes: episodeThemes, client: client, isAnime: isAnime)
         watchEnding = await watchTheme(opening: false, episodeThemes: episodeThemes, client: client, isAnime: isAnime)
     }
@@ -68,7 +70,7 @@ final class DetailModel {
     /// season's chapter clip, else the show's first. Episode: the plugin's
     /// theme that plays in it (then its season's, then a show-wide one),
     /// else the episode's own chapter when the show is anime.
-    private func watchTheme(opening: Bool, episodeThemes: [OpEdTheme], client: JellyfinClient, isAnime: Bool) async -> OpeningEnding? {
+    private func watchTheme(opening: Bool, episodeThemes: [OpEdTheme], client: any MediaServer, isAnime: Bool) async -> OpeningEnding? {
         guard let item else { return nil }
         let kind: ThemeClip.Kind = opening ? .opening : .ending
         switch item.kind {
@@ -76,7 +78,8 @@ final class DetailModel {
             let themes = openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
             let clips = openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == kind }
             if let seasonId = selectedSeasonId {
-                if !themes.isEmpty, let theme = await pluginTheme(forSeason: seasonId, opening: opening, client: client, allowFlagged: true) {
+                if !themes.isEmpty, let jellyfin = client as? JellyfinClient,
+                   let theme = await pluginTheme(forSeason: seasonId, opening: opening, client: jellyfin, allowFlagged: true) {
                     return .theme(theme)
                 }
                 let number = seasons.first { $0.id == seasonId }?.indexNumber
@@ -105,18 +108,29 @@ final class DetailModel {
         }
     }
 
-    /// The plugin's themes when it has any that play (or soon will) for the
-    /// show, so chapters needn't be read; otherwise clips from chapters.
-    static func openingsEndings(for series: BaseItem, client: JellyfinClient) async -> [OpeningEnding] {
-        let themes = (await client.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
+    /// The plugin's themes (Jellyfin's) when it has any that play (or soon
+    /// will) for the show, so chapters needn't be read; otherwise clips from
+    /// chapters, on every server.
+    static func openingsEndings(for series: BaseItem, client: any MediaServer) async -> [OpeningEnding] {
+        let themes = (await (client as? JellyfinClient)?.opEdThemes(for: series.id) ?? []).filter { $0.playablePath != nil || $0.isPreparing }
         if !themes.isEmpty { return themes.map(OpeningEnding.theme) }
-        let episodes = (try? await client.episodesWithChapters(seriesId: series.id)) ?? []
-        let clips = OpeningsEndings.find(in: episodes)
+        // The clips as last read, while the show has as many episodes; else
+        // read from the chapters and kept. A failed read isn't kept.
+        let server = AnimeThemesLookup.serverKey(client)
+        let version = series.recursiveItemCount ?? series.childCount
+        let clips: [ThemeClip]
+        if let kept = await SongThemeCache.shared.clips(server: server, seriesId: series.id, version: version) {
+            clips = kept
+        } else {
+            guard let episodes = try? await client.episodesWithChapters(seriesId: series.id) else { return [] }
+            clips = OpeningsEndings.find(in: episodes)
+            await SongThemeCache.shared.putClips(server: server, seriesId: series.id, version: version, clips: clips)
+        }
         // Their songs, from AnimeThemes, asked once a season (as it lists
         // each season apart); a few seasons, each asked once per launch.
         var known: [Int: [KnownTheme]] = [:]
         for clip in clips where known[clip.season] == nil {
-            known[clip.season] = await PlaybackCoordinator.knownThemes(for: clip.episode, client: client)
+            known[clip.season] = await PlaybackCoordinator.knownThemes(for: clip.episode, client: client, isAnime: true)
         }
         return clips.map { clip in
             var named = clip
@@ -136,19 +150,28 @@ final class DetailModel {
             cast = full.cast
             isLoading = false
 
+            // Everything the page needs once it has the item goes out at
+            // once, rather than one after another.
             async let similarItems = client.similar(to: full.id, limit: 20)
-            // Openings and endings come from Jellyfin's OP/ED plugin and chapters.
-            let jellyfin = client as? JellyfinClient
-            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime && jellyfin != nil
-                ? Self.openingsEndings(for: full, client: jellyfin!)
+            async let mdbScores = MDBList.scores(for: full)
+            // Openings and endings come from Jellyfin's OP/ED plugin, else
+            // from the episodes' chapters on any server.
+            async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind)
+                ? Self.openingsEndings(for: full, client: client)
                 : []
+            let hasExtras = full.kind == .movie || full.kind == .series || full.kind == .season
+            async let extraItems: [BaseItem] = hasExtras ? ((try? await client.specialFeatures(of: full.id)) ?? []) : []
+            // A show's menu waits for its season (selectSeason loads it);
+            // anything else's goes out now.
+            async let menu: Void = full.kind == .series ? () : loadDiscMenu(client: client)
 
             switch full.kind {
             case .series:
-                let loadedSeasons = try await client.seasons(seriesId: full.id)
-                seasons = loadedSeasons
-                nextEpisode = try? await client.nextUp(limit: 1, seriesId: full.id).first
-                let preferred = nextEpisode?.seasonId ?? loadedSeasons.first { ($0.indexNumber ?? 0) > 0 }?.id ?? loadedSeasons.first?.id
+                async let loadedSeasons = client.seasons(seriesId: full.id)
+                async let next = client.nextUp(limit: 1, seriesId: full.id)
+                seasons = try await loadedSeasons
+                nextEpisode = try? await next.first
+                let preferred = nextEpisode?.seasonId ?? seasons.first { ($0.indexNumber ?? 0) > 0 }?.id ?? seasons.first?.id
                 if let preferred {
                     await selectSeason(preferred, client: client)
                 }
@@ -165,11 +188,10 @@ final class DetailModel {
                 break
             }
 
-            if full.kind == .movie || full.kind == .series || full.kind == .season {
-                extras = (try? await client.specialFeatures(of: full.id)) ?? []
-            }
+            await menu
+            extras = await extraItems
             similar = (try? await similarItems) ?? []
-            await loadDiscMenu(client: client)
+            addedScores = await mdbScores
             openingsEndings = await themes
         } catch {
             errorMessage = error.localizedDescription
@@ -495,25 +517,21 @@ struct ItemDetailView: View {
         }
         .task(id: item.id) {
             guard let client = session.client else { return }
-            // Theme songs and videos, and openings and endings, are Jellyfin's.
-            if let jellyfin = session.jellyfin {
-                session.theme.show(item: item, client: jellyfin, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
-            }
+            // Theme songs and videos are Jellyfin's; an opening stands in on any server.
+            session.theme.show(item: item, client: client, music: themeMusic, video: themeVideos, musicPlaying: session.music.isPlaying || session.audiobooks.isPlaying)
             await model.load(item, client: client)
             // Opened from a hero's Play: play now, with this page behind.
             if session.playOnOpen == item.id {
                 session.playOnOpen = nil
                 play(fromBeginning: false)
             }
-            if let jellyfin = session.jellyfin {
-                await showOpening(client: jellyfin)
-                await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
-            }
+            await showOpening(client: client)
+            await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
         }
         // Picking another season swaps in that season's opening, both behind
         // the page and for Watch OP.
         .onChange(of: model.selectedSeasonId) { _, _ in
-            guard let client = session.jellyfin else { return }
+            guard let client = session.client else { return }
             Task {
                 await showOpening(client: client)
                 await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
@@ -848,7 +866,7 @@ struct ItemDetailView: View {
                 Text(code).font(.headline).foregroundStyle(.secondary)
             }
 
-            MetadataLine(item: detail, showsUnwatched: true)
+            MetadataLine(item: detail, showsUnwatched: true, addedScores: model.addedScores)
 
             if let tagline = detail.taglines?.first {
                 Text(tagline)
@@ -917,15 +935,35 @@ struct ItemDetailView: View {
         return "favorite"
     }
 
+    /// An episode that hasn't aired (Jellyfin's placeholder from the show's
+    /// schedule): nothing to play yet.
+    private var isUnaired: Bool { detail.kind == .episode && detail.locationType == "Virtual" }
+
     private var actionRow: some View {
         HStack(spacing: 20) {
             let resumable = detail.kind == .series ? (model.nextEpisode?.canResume ?? false) : detail.canResume
+            if isUnaired {
+                // When it airs, and its show, in Play's place.
+                if let seriesId = detail.seriesId {
+                    NavigationLink(value: BaseItem(id: seriesId, name: detail.seriesName, type: ItemKind.series.rawValue)) {
+                        Label("Go to Show", systemImage: "tv")
+                    }
+                    .actionButtonStyle(prominent: true)
+                    .focused($focusedAction, equals: "play")
+                }
+                if let airs = UpcomingSchedule.airsLine(for: detail) {
+                    Label(airs, systemImage: "calendar")
+                        .font(.headline)
+                        .padding(.horizontal, 8)
+                }
+            } else {
             ActionButton(title: playTitle(resumable: resumable), systemImage: "play.fill", prominent: true, focus: $focusedAction, focusID: "play") {
                 play(fromBeginning: false)
             }
             // For the episode bar, which lines the next episode up under it.
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { playButtonMidX = $0 }
-            if resumable {
+            }
+            if resumable, !isUnaired {
                 ActionButton(title: "From Beginning", systemImage: "arrow.counterclockwise", focus: $focusedAction, focusID: "beginning") {
                     play(fromBeginning: true)
                 }
@@ -941,6 +979,8 @@ struct ItemDetailView: View {
                     Task { if let client = session.client { await model.toggleFavorite(client: client) } }
                 }
             }
+            // A film or show onto the person's Simkl watchlist, through the server.
+            WatchlistButton(title: WatchlistTitle(item: detail), iconOnly: true, focus: $focusedAction)
             if showsWatchedButton {
                 IconButton(systemImage: detail.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle", accessibilityLabel: "Watched", focus: $focusedAction, focusID: "watched") {
                     Task { if let client = session.client { await model.togglePlayed(client: client) } }
@@ -1228,13 +1268,22 @@ struct ItemDetailView: View {
     /// instead, never one marked as a spoiler or NSFW. Preference: the
     /// plugin's opening for the selected season, then one found in that
     /// season's chapters, then the show's first opening of either kind.
-    private func showOpening(client: JellyfinClient) async {
-        guard themeVideos, detail.kind == .series, !model.openingsEndings.isEmpty else { return }
+    private func showOpening(client: any MediaServer) async {
+        guard themeVideos, detail.kind == .series, !model.openingsEndings.isEmpty else {
+            #if DEBUG
+            if detail.kind == .series {
+                print("DEBUG theme: no opening behind \(detail.displayTitle): themeVideos=\(themeVideos) entries=\(model.openingsEndings.count)")
+            }
+            #endif
+            return
+        }
         let themes = model.openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
         let clips = model.openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == .opening }
+        // The plugin's themes are Jellyfin's.
+        let jellyfin = client as? JellyfinClient
 
         if let seasonId = model.selectedSeasonId {
-            if !themes.isEmpty, let theme = await model.pluginTheme(forSeason: seasonId, opening: true, client: client), show(theme, client: client) {
+            if !themes.isEmpty, let jellyfin, let theme = await model.pluginTheme(forSeason: seasonId, opening: true, client: jellyfin), show(theme, client: jellyfin) {
                 return
             }
             let number = model.seasons.first { $0.id == seasonId }?.indexNumber
@@ -1245,7 +1294,7 @@ struct ItemDetailView: View {
             // Nothing for this season: keep whatever opening is already playing.
             if session.theme.isShowingOpening { return }
         }
-        if let theme = DetailModel.preferredTheme(in: themes, opening: true), show(theme, client: client) {
+        if let jellyfin, let theme = DetailModel.preferredTheme(in: themes, opening: true), show(theme, client: jellyfin) {
             return
         }
         if let clip = clips.first {
@@ -1328,7 +1377,7 @@ struct ItemDetailView: View {
 
     /// Whether this page's show is anime, for finding OPs in chapters.
     private var isAnimeShow: Bool {
-        detail.kind == .series ? detail.isAnime : session.animeItemIds.contains(detail.seriesId ?? "")
+        detail.kind == .series ? detail.isAnime(on: session.client?.kind ?? .jellyfin) : session.animeItemIds.contains(detail.seriesId ?? "")
     }
 
     /// Plays an OP/ED plugin theme: its MP4, or audio tvOS can play.
@@ -1353,9 +1402,7 @@ struct ItemDetailView: View {
             switch detail.kind {
             case .episode:
                 await model.load(reached, client: client)
-                if let jellyfin = session.jellyfin {
-                    await model.updateWatchThemes(client: jellyfin, isAnime: isAnimeShow)
-                }
+                await model.updateWatchThemes(client: client, isAnime: isAnimeShow)
                 return
             case .series, .season:
                 if let seasonId = reached.seasonId, seasonId != model.selectedSeasonId, detail.kind == .series {
@@ -1402,9 +1449,7 @@ struct ItemDetailView: View {
                                     .font(.callout.weight(.semibold))
                                     .padding(.horizontal, 6)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(model.selectedSeasonId == season.id ? .white : Color(white: 0.3))
-                            .foregroundStyle(model.selectedSeasonId == season.id ? .black : .white)
+                            .chipStyle(selected: model.selectedSeasonId == season.id)
                             .keyboardTarget {
                                 Task { if let client = session.client { await model.selectSeason(season.id, client: client) } }
                             }

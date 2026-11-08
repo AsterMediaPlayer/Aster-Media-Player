@@ -13,6 +13,8 @@ struct AsterFINApp: App {
     @State private var session = AppSession.shared
 
     init() {
+        CrashReports.start()
+        DebugLog.note("app", "Opened")
         #if !os(macOS)
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         #endif
@@ -28,10 +30,14 @@ struct AsterFINApp: App {
                 }
         }
         #if os(macOS)
-        // View › Show/Hide Sidebar (⌃⌘S), from any page. A two-finger swipe
-        // only reveals the sidebar at a tab's top page; elsewhere it goes back.
+        // View › Show/Hide Sidebar (⌃⌘S), from any page.
         .commands {
-            SidebarCommands()
+            CommandGroup(replacing: .sidebar) {
+                Button(MacSidebarState.shared.isShown ? "Hide Sidebar" : "Show Sidebar") {
+                    MacSidebarState.shared.toggle()
+                }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+            }
         }
         #endif
         #if os(iOS)

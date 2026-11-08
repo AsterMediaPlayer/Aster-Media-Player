@@ -32,6 +32,9 @@ nonisolated protocol MediaServer: AnyObject, Sendable {
     func nextUp(limit: Int, seriesId: String?, parentId: String?) async throws -> [BaseItem]
     func seasons(seriesId: String) async throws -> [BaseItem]
     func episodes(seriesId: String, seasonId: String?) async throws -> [BaseItem]
+    /// Every episode of a series in airing order, with its chapters: what
+    /// finding openings and endings reads.
+    func episodesWithChapters(seriesId: String) async throws -> [BaseItem]
     func similar(to id: String, limit: Int) async throws -> [BaseItem]
     func specialFeatures(of id: String) async throws -> [BaseItem]
     func search(_ term: String, limit: Int) async throws -> [BaseItem]

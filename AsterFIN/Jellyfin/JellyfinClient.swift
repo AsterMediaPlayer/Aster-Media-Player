@@ -54,6 +54,9 @@ nonisolated final class JellyfinClient: MediaServer {
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 512 * 1024 * 1024)
         configuration.requestCachePolicy = .returnCacheDataElseLoad
+        // Twice the usual six at once: a page of posters arrives two to four
+        // times as fast (as Plezy measured).
+        configuration.httpMaximumConnectionsPerHost = 12
         return URLSession(configuration: configuration, delegate: RedirectGuard.shared, delegateQueue: nil)
     }()
 
@@ -234,6 +237,14 @@ nonisolated final class JellyfinClient: MediaServer {
         try await get(QuickConnectResult.self, "/QuickConnect/Connect", query: ["secret": secret])
     }
 
+    /// Approves a Quick Connect code as the signed-in user: how this app
+    /// signs in to Seerr for them, with nothing to type.
+    /// False, or an error, when this server doesn't know the code (Seerr
+    /// asked another Jellyfin).
+    func quickConnectAuthorize(code: String) async throws -> Bool {
+        try await post(Bool.self, "/QuickConnect/Authorize", query: ["code": code, "userId": userId])
+    }
+
     func authenticateWithQuickConnect(secret: String) async throws -> AuthenticationResult {
         nonisolated struct Body: Encodable, Sendable { var Secret: String }
         return try await post(AuthenticationResult.self, "/Users/AuthenticateWithQuickConnect", body: Body(Secret: secret))
@@ -245,7 +256,9 @@ nonisolated final class JellyfinClient: MediaServer {
 
     // MARK: Library
 
-    static let listFields = "SortName,PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,MediaStreams,ProviderIds"
+    /// What lists ask for. Never `MediaStreams` (every track of every title,
+    /// most of a shelf's size): `Width` and `Height` give the HD/4K badge.
+    static let listFields = "SortName,PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,Width,Height,ProviderIds"
     static let detailFields = "Trickplay,PrimaryImageAspectRatio,Overview,Genres,Studios,People,Taglines,ProductionYear,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,RecursiveItemCount,Chapters,MediaSources,MediaStreams,ProviderIds,RemoteTrailers,DateCreated"
 
     private func requireUser() throws -> String {
@@ -453,6 +466,8 @@ nonisolated final class JellyfinClient: MediaServer {
             "fields": Self.listFields,
             "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
             "imageTypeLimit": "1",
+            // A shelf that doesn't page: no need to count them all.
+            "enableTotalRecordCount": "false",
         ]).items
     }
 
@@ -471,8 +486,9 @@ nonisolated final class JellyfinClient: MediaServer {
 
     /// The TV and movie libraries that hold anime. Reading a library's
     /// metadata settings needs an admin account, so instead a few titles in
-    /// each are sampled: when at least half were matched by Shoko/AniDB, the
-    /// library is anime. One stray anime title doesn't claim a library.
+    /// each are sampled: when at least half were matched by Shoko/AniDB (or,
+    /// on Emby, carry an anime id or the genre), or the library is named
+    /// for anime, it is anime. One stray anime title doesn't claim a library.
     func animeLibraries(among views: [BaseItem]) async -> [BaseItem] {
         let candidates = views.filter { $0.collectionType == "tvshows" || $0.collectionType == "movies" }
         let verdicts = await withTaskGroup(of: (String, Bool).self) { group in
@@ -483,10 +499,10 @@ nonisolated final class JellyfinClient: MediaServer {
                         "recursive": "true",
                         "includeItemTypes": "Series,Movie",
                         "limit": "5",
-                        "fields": "ProviderIds",
+                        "fields": "ProviderIds,Genres",
                     ]))?.items ?? []
-                    let anime = sample.filter(\.isAnime).count
-                    return (library.id, !sample.isEmpty && anime * 2 >= sample.count)
+                    let anime = sample.filter { $0.isAnime(on: self.kind) }.count
+                    return (library.id, !sample.isEmpty && (anime * 2 >= sample.count || library.isNamedForAnime))
                 }
             }
             var found: [String: Bool] = [:]
@@ -532,6 +548,7 @@ nonisolated final class JellyfinClient: MediaServer {
             "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
             "imageTypeLimit": "1",
             "enableResumable": "false",
+            "enableTotalRecordCount": "false",
         ]).items
     }
 
@@ -677,6 +694,9 @@ nonisolated final class JellyfinClient: MediaServer {
             "userId": user,
             "limit": String(limit),
             "fields": Self.listFields,
+            "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
+            "imageTypeLimit": "1",
+            "enableTotalRecordCount": "false",
         ]).items
     }
 

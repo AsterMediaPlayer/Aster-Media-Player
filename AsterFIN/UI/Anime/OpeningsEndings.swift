@@ -12,8 +12,8 @@
 import AVFoundation
 import SwiftUI
 
-nonisolated struct ThemeClip: Identifiable, Hashable, Sendable {
-    enum Kind: String, Sendable {
+nonisolated struct ThemeClip: Identifiable, Hashable, Sendable, Codable {
+    enum Kind: String, Sendable, Codable {
         case opening = "Opening"
         case ending = "Ending"
     }
@@ -60,13 +60,13 @@ nonisolated enum OpeningsEndings {
     }
 
     /// Whole words at the start of a chapter name. "OP"/"Opening" and
-    /// "ED"/"Ending" are definite; "Intro" and "Outro"/"Credits" are used
-    /// only when an episode has no definite one, since many releases call
-    /// the cold open "Intro".
+    /// "ED"/"Ending" are definite; "Intro"/"Theme"/"Title" and
+    /// "Outro"/"Credits"/"End" are used only when an episode has no
+    /// definite one, since many releases call the cold open "Intro".
     private static let openingWords: Set<String> = ["op", "opening"]
     private static let endingWords: Set<String> = ["ed", "ending"]
-    private static let looseOpeningWords: Set<String> = ["intro"]
-    private static let looseEndingWords: Set<String> = ["outro", "credits"]
+    private static let looseOpeningWords: Set<String> = ["intro", "theme", "title", "titles"]
+    private static let looseEndingWords: Set<String> = ["outro", "credits", "end"]
 
     /// Clips shorter or longer than this aren't really an OP or ED (a cold
     /// open marked "Intro", say), so they're left out.
@@ -207,7 +207,7 @@ struct ThemeClipLockup: View {
     @Environment(AppSession.self) private var session
 
     private var imageURL: URL? {
-        guard let client = session.jellyfin else { return nil }
+        guard let client = session.client else { return nil }
         if let tag = clip.chapterImageTag {
             return client.chapterImageURL(itemId: clip.episode.id, index: clip.chapterIndex, tag: tag)
         }

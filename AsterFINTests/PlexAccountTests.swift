@@ -76,7 +76,7 @@ struct PlexAccountTests {
         let link = PlexLink(accountToken: "a", machineId: "m", connections: [])
         let client = PlexClient(baseURL: URL(string: "https://192-168-1-240.o.plex.direct:32400")!, accessToken: "own", userId: "u", link: link)
         let url = client.imageURL(itemId: "6139", kind: .primary, tag: "/library/metadata/6139/thumb/1792890348", maxWidth: 500)
-        #expect(url.absoluteString == "https://192-168-1-240.o.plex.direct:32400/photo/:/transcode?X-Plex-Token=own&height=1500&minSize=0&quality=90&upscale=1&url=/library/metadata/6139/thumb/1792890348&width=500")
+        #expect(url.absoluteString == "https://192-168-1-240.o.plex.direct:32400/photo/:/transcode?X-Plex-Token=own&height=1500&minSize=0&quality=90&upscale=0&url=/library/metadata/6139/thumb/1792890348&width=500")
         // A logo keeps its transparency.
         let logo = client.imageURL(itemId: "6137", kind: .logo, tag: "/library/metadata/6137/clearLogo/1", maxWidth: 900)
         #expect(logo.query()?.contains("format=png") == true)

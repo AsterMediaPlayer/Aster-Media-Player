@@ -15,19 +15,32 @@ import SwiftUI
 /// Dates and wording for upcoming episodes, kept apart from the views so
 /// they can be tested. Plain calculations, used from any context.
 nonisolated enum UpcomingSchedule {
-    /// The day an episode airs, in the viewer's time zone. Jellyfin gives the
-    /// air date as local midnight in UTC with seven decimal places, which
-    /// the ISO 8601 parser won't read, so the fraction is dropped.
-    static func airDate(of episode: BaseItem) -> Date? {
+    /// The day an episode airs, as the start of that day in the viewer's
+    /// calendar. Jellyfin's air date is a day, sent as the server's own
+    /// midnight in UTC ("…T05:00:00Z" from a server on Central time,
+    /// "…T00:00:00Z" from one on UTC, "…T15:00:00Z" the day before from one
+    /// in Tokyo), so it's read as the day of the nearest UTC midnight, never
+    /// as a moment, which on a viewer behind UTC would fall the day before.
+    /// The seven decimal places, which the ISO 8601 parser won't read, are
+    /// dropped.
+    static func airDate(of episode: BaseItem, calendar: Calendar = .current) -> Date? {
         guard let text = episode.premiereDate, text.count >= 19 else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: String(text.prefix(19)) + "Z")
+        guard let instant = formatter.date(from: String(text.prefix(19)) + "Z") else { return nil }
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = .gmt
+        let day = utc.dateComponents([.year, .month, .day], from: instant.addingTimeInterval(12 * 3600))
+        return calendar.date(from: day)
     }
 
-    /// Episodes in airing order, gathered by the local day they air.
-    static func days(of episodes: [BaseItem], calendar: Calendar = .current) -> [(day: Date, episodes: [BaseItem])] {
-        let dated = episodes.compactMap { episode in airDate(of: episode).map { (date: $0, episode: episode) } }
+    /// Episodes in airing order, gathered by the local day they air, from
+    /// today on. (The server's list starts the day before, so yesterday's
+    /// episodes are left out here.)
+    static func days(of episodes: [BaseItem], from now: Date = Date(), calendar: Calendar = .current) -> [(day: Date, episodes: [BaseItem])] {
+        let today = calendar.startOfDay(for: now)
+        let dated = episodes.compactMap { episode in airDate(of: episode, calendar: calendar).map { (date: $0, episode: episode) } }
+            .filter { $0.date >= today }
             .sorted { lhs, rhs in
                 (lhs.date, lhs.episode.seriesName ?? "", lhs.episode.parentIndexNumber ?? 0, lhs.episode.indexNumber ?? 0)
                     < (rhs.date, rhs.episode.seriesName ?? "", rhs.episode.parentIndexNumber ?? 0, rhs.episode.indexNumber ?? 0)
@@ -44,11 +57,14 @@ nonisolated enum UpcomingSchedule {
         return days
     }
 
-    /// "Today", "Tomorrow", "In 3 days", then "In 2 weeks".
+    /// "Today", "Tomorrow", "In 3 days", then "In 2 weeks"; "Yesterday" or
+    /// "3 days ago" for a day gone by, never "Today".
     static func countdown(to day: Date, from now: Date = Date(), calendar: Calendar = .current) -> String {
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: day)).day ?? 0
         switch days {
-        case ..<1: return "Today"
+        case -1: return "Yesterday"
+        case ..<(-1): return "\(-days) days ago"
+        case 0: return "Today"
         case 1: return "Tomorrow"
         case 2...6: return "In \(days) days"
         default:
@@ -98,7 +114,7 @@ nonisolated enum UpcomingSchedule {
     /// "Airs Tomorrow", "Airs Thursday, November 14": for a page whose
     /// episode isn't out yet.
     static func airsLine(for episode: BaseItem, now: Date = Date(), calendar: Calendar = .current) -> String? {
-        guard let day = airDate(of: episode) else { return nil }
+        guard let day = airDate(of: episode, calendar: calendar) else { return nil }
         let countdown = countdown(to: day, from: now, calendar: calendar)
         if countdown == "Today" || countdown == "Tomorrow" { return "Airs \(countdown)" }
         return "Airs \(day.formatted(.dateTime.weekday(.wide).month(.wide).day()))"

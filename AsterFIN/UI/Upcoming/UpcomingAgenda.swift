@@ -228,7 +228,6 @@ struct UpcomingAgenda: View {
 
     /// The viewer's approved film requests not out yet, with Seerr set up.
     private func loadFilms() async -> [SeerrComingFilm] {
-        let accounts = TrackerAccounts.shared
         guard let account = AsterTracking.shared.seerr else { return [] }
         do {
             return try await SeerrClient.comingFilms(account: account)

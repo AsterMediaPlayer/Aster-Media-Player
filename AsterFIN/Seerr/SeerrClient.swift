@@ -171,7 +171,10 @@ nonisolated enum SeerrClient {
         }
     }
 
-    static func get<T: Decodable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
+    /// Decoded off the main actor: a nonisolated function runs on its
+    /// caller's, and lists of titles are big enough to stall a screen.
+    @concurrent
+    static func get<T: Decodable & Sendable>(_ type: T.Type, _ account: SeerrAccount, _ path: String) async throws -> T {
         let (data, response) = try await send(account.url, path, authorization: account.authorization)
         guard response.statusCode == 200 else { throw failure(response.statusCode, data) }
         return try JSONDecoder().decode(T.self, from: data)

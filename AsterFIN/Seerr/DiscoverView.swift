@@ -42,57 +42,81 @@ struct DiscoverView: View {
     }
 
     var body: some View {
-        // As the Music page: the title and the sections across the top of the
-        // page, scrolling with it, with no bar of their own.
-        Group {
-            switch shown {
-            case .upcoming:
-                UpcomingAgenda(header: AnyView(header))
-            case let page?:
-                seerrPage(page)
-            case nil:
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    MessageView(systemImage: "safari", title: "Nothing to discover yet",
-                                detail: "Upcoming episodes show here, and with the Aster Discovery and Tracking plugin on your Jellyfin server, recommendations and films and shows to request.")
-                }
+        // On a TV the sections float over the top of the page, centred on a
+        // dark pill (over Upcoming's full-screen picture too, as the TV app's
+        // own tabs do), and stay put as it scrolls. On a phone, as the Music
+        // page: the title and the sections across the top, scrolling with it.
+        #if os(tvOS)
+        ZStack(alignment: .top) {
+            pages
+            if sections.count > 1 {
+                tvSectionPicker
+            }
+        }
+        #else
+        pages
+        #endif
+    }
+
+    @ViewBuilder
+    private var pages: some View {
+        switch shown {
+        case .upcoming:
+            UpcomingAgenda(header: AnyView(header))
+        case let page?:
+            seerrPage(page)
+        case nil:
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                MessageView(systemImage: "safari", title: "Nothing to discover yet",
+                            detail: "Upcoming episodes show here, and with the Aster Discovery and Tracking plugin on your Jellyfin server, recommendations and films and shows to request.")
             }
         }
     }
 
-    /// The title and the sections: side by side on a TV, the sections across
-    /// the full width below the title on a phone.
-    private var header: some View {
-        let title = Text("Discover")
-            .font(.largeTitle.weight(.bold))
-        let picker = Picker("Section", selection: Binding(get: { shown ?? .discover }, set: { section = $0 })) {
+    private var sectionPicker: some View {
+        Picker("Section", selection: Binding(get: { shown ?? .discover }, set: { section = $0 })) {
             ForEach(sections) { section in
                 Text(section.rawValue).tag(section)
             }
         }
         .pickerStyle(.segmented)
-        return Group {
-            #if os(tvOS)
-            HStack(alignment: .firstTextBaseline) {
-                title
-                Spacer()
-                if sections.count > 1 { picker.frame(width: 1100) }
-            }
-            #else
-            VStack(alignment: .leading, spacing: 12) {
-                title
-                if sections.count > 1 { picker }
-            }
-            #endif
+    }
+
+    /// What sits at the top of each page: on a phone the title with the
+    /// sections across the full width below it; on a TV only room for the
+    /// sections floating above (the bar's back button already says Discover).
+    @ViewBuilder
+    private var header: some View {
+        #if os(tvOS)
+        Color.clear
+            .frame(height: sections.count > 1 ? Self.tvPickerHeight + Lockup.pageTopPadding : Lockup.pageTopPadding)
+        #else
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Discover")
+                .font(.largeTitle.weight(.bold))
+            if sections.count > 1 { sectionPicker }
         }
         .padding(.horizontal, Lockup.screenPadding)
-        #if os(tvOS)
-        .padding(.top, 40)
-        #else
         .padding(.top, 8)
         #endif
-        .tvFocusSection()
     }
+
+    #if os(tvOS)
+    private static let tvPickerHeight: CGFloat = 90
+
+    /// The sections centred over the page, with a little backing so the
+    /// pills read over its pictures.
+    private var tvSectionPicker: some View {
+        sectionPicker
+            .frame(maxWidth: 1100)
+            .padding(8)
+            .background(Color.black.opacity(0.35), in: Capsule())
+            .padding(.horizontal, Lockup.screenPadding)
+            .padding(.top, Lockup.pageTopPadding)
+            .focusSection()
+    }
+    #endif
 
     private func seerrPage(_ section: Section) -> some View {
         ScrollView(.vertical) {
@@ -183,16 +207,34 @@ private struct DiscoverRows: View {
         .task(id: "\(AsterTracking.shared.seerr?.authorization ?? "")|\(AsterTracking.shared.isPresent)") { await load() }
     }
 
+    /// What Discover last showed, kept for next time.
+    private nonisolated struct Snapshot: Codable, Sendable {
+        var rows: [TrackedRow]
+        var sliders: [SeerrSlider]?
+    }
+
+    private static let snapshotName = "discover"
+
     private func load() async {
         guard let jellyfin = session.jellyfin else {
             loaded = true
             return
         }
-        let homeTask = Task { () -> TrackedHome? in
-            do { return try await TrackedDiscover.home(client: jellyfin) }
+        // Last time's page at once, while the fresh one comes: no spinner.
+        if !loaded, tracked.isEmpty, sliders == nil, let user = session.userId,
+           let kept = await ResponseCache.load(Snapshot.self, Self.snapshotName, server: jellyfin.baseURL, user: user)?.value,
+           !loaded {
+            tracked = kept.rows
+            sliders = seerrAccount() == nil ? nil : kept.sliders
+            loaded = !entries.isEmpty
+        }
+        // nil when the server's page couldn't be read (as opposed to a
+        // server with no page, `.some(nil)`): the page shown stays.
+        let homeTask = Task { () -> TrackedHome?? in
+            do { return .some(try await TrackedDiscover.home(client: jellyfin)) }
             catch {
                 DebugLog.note("discover", "The server's page failed: \(error.localizedDescription)")
-                return nil
+                return .none
             }
         }
         var found: [SeerrSlider]?
@@ -204,26 +246,29 @@ private struct DiscoverRows: View {
             } catch {
                 noteSeerrFailure(error, "Discover rows")
                 problem = (error as? SeerrError)?.errorDescription ?? "Seerr's rows couldn't be read."
+                // Offline: keep the rows already shown.
+                found = sliders
             }
         }
         // The server's page, if it's quick; else Seerr's rows alone first.
         let quick = await Self.within(1.5, homeTask)
         sliders = found
         if let quick {
-            tracked = quick?.rows ?? []
+            if let page = quick { tracked = page?.rows ?? [] }
             loaded = true
         } else {
-            loaded = found != nil
-            let late = await homeTask.value
-            tracked = late?.rows ?? []
+            loaded = loaded || found != nil
+            if let page = await homeTask.value { tracked = page?.rows ?? [] }
             loaded = true
+        }
+        if let user = session.userId {
+            ResponseCache.save(Snapshot(rows: tracked, sliders: sliders), Self.snapshotName, server: jellyfin.baseURL, user: user)
         }
     }
 
     /// The task's answer if it comes within `seconds`: nil if it doesn't.
-    /// (An answer of no page at all is `.some(nil)`.)
-    private static func within(_ seconds: Double, _ task: Task<TrackedHome?, Never>) async -> TrackedHome?? {
-        await withTaskGroup(of: TrackedHome??.self) { group in
+    private static func within(_ seconds: Double, _ task: Task<TrackedHome??, Never>) async -> TrackedHome??? {
+        await withTaskGroup(of: TrackedHome???.self) { group in
             group.addTask { .some(await task.value) }
             group.addTask {
                 try? await Task.sleep(for: .seconds(seconds))
@@ -290,7 +335,8 @@ struct TrackedLockup: View {
 }
 
 /// Where a server title opens: Seerr's page by its TMDB id, with the Request
-/// button; or, with requests off, its place in the library.
+/// button; with requests off (or no TMDB id), its place in the library; and
+/// otherwise a page built from the item itself (§5b).
 struct TrackedItemPage: View {
     let item: TrackedItem
 
@@ -301,9 +347,57 @@ struct TrackedItemPage: View {
             ItemDetailView(item: BaseItem(id: library.itemId, name: library.name ?? item.title,
                                           type: library.type ?? (item.isMovie ? ItemKind.movie.rawValue : ItemKind.series.rawValue)))
         } else {
-            MessageView(systemImage: "questionmark.circle", title: item.title, detail: "This title can't be opened here.")
+            TrackedTitlePage(item: item)
         }
     }
+}
+
+/// A Discover title that's neither on the server nor reachable through
+/// Seerr: its poster, name, year and overview, as the server sent them,
+/// with Add to Watchlist where Request would be. Nothing more is fetched.
+private struct TrackedTitlePage: View {
+    let item: TrackedItem
+
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: Self.spacing) {
+                RemoteImage(url: item.posterURL(server: session.serverURL), systemImage: item.isMovie ? "film" : "tv")
+                    .frame(width: Self.posterWidth, height: Self.posterWidth * 1.5)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(item.title)
+                        .font(.largeTitle.weight(.bold))
+                    Text([item.year.map(String.init), item.isMovie ? "Film" : "Series", item.progress].compactMap { $0 }.joined(separator: " · "))
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    if let overview = item.overview, !overview.isEmpty {
+                        Text(overview)
+                            .font(.body)
+                            .frame(maxWidth: 900, alignment: .leading)
+                    }
+                    WatchlistButton(title: WatchlistTitle(item: item))
+                        .padding(.top, 8)
+                }
+            }
+            .padding(.horizontal, Lockup.screenPadding)
+            .padding(.vertical, Lockup.pageTopPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        #if !os(tvOS)
+        .navigationTitle(item.title)
+        .toolbarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    #if os(tvOS)
+    private static let posterWidth: CGFloat = 400
+    private static let spacing: CGFloat = 60
+    #else
+    private static let posterWidth: CGFloat = 160
+    private static let spacing: CGFloat = 20
+    #endif
 }
 
 /// One Discover row: titles, genres, or studios and networks.

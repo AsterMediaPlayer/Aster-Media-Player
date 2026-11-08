@@ -150,6 +150,8 @@ final class DetailModel {
             cast = full.cast
             isLoading = false
 
+            // Everything the page needs once it has the item goes out at
+            // once, rather than one after another.
             async let similarItems = client.similar(to: full.id, limit: 20)
             async let mdbScores = MDBList.scores(for: full)
             // Openings and endings come from Jellyfin's OP/ED plugin, else
@@ -157,13 +159,19 @@ final class DetailModel {
             async let themes: [OpeningEnding] = full.kind == .series && full.isAnime(on: client.kind)
                 ? Self.openingsEndings(for: full, client: client)
                 : []
+            let hasExtras = full.kind == .movie || full.kind == .series || full.kind == .season
+            async let extraItems: [BaseItem] = hasExtras ? ((try? await client.specialFeatures(of: full.id)) ?? []) : []
+            // A show's menu waits for its season (selectSeason loads it);
+            // anything else's goes out now.
+            async let menu: Void = full.kind == .series ? () : loadDiscMenu(client: client)
 
             switch full.kind {
             case .series:
-                let loadedSeasons = try await client.seasons(seriesId: full.id)
-                seasons = loadedSeasons
-                nextEpisode = try? await client.nextUp(limit: 1, seriesId: full.id).first
-                let preferred = nextEpisode?.seasonId ?? loadedSeasons.first { ($0.indexNumber ?? 0) > 0 }?.id ?? loadedSeasons.first?.id
+                async let loadedSeasons = client.seasons(seriesId: full.id)
+                async let next = client.nextUp(limit: 1, seriesId: full.id)
+                seasons = try await loadedSeasons
+                nextEpisode = try? await next.first
+                let preferred = nextEpisode?.seasonId ?? seasons.first { ($0.indexNumber ?? 0) > 0 }?.id ?? seasons.first?.id
                 if let preferred {
                     await selectSeason(preferred, client: client)
                 }
@@ -180,12 +188,10 @@ final class DetailModel {
                 break
             }
 
-            if full.kind == .movie || full.kind == .series || full.kind == .season {
-                extras = (try? await client.specialFeatures(of: full.id)) ?? []
-            }
+            await menu
+            extras = await extraItems
             similar = (try? await similarItems) ?? []
             addedScores = await mdbScores
-            await loadDiscMenu(client: client)
             openingsEndings = await themes
         } catch {
             errorMessage = error.localizedDescription
@@ -973,6 +979,8 @@ struct ItemDetailView: View {
                     Task { if let client = session.client { await model.toggleFavorite(client: client) } }
                 }
             }
+            // A film or show onto the person's Simkl watchlist, through the server.
+            WatchlistButton(title: WatchlistTitle(item: detail), iconOnly: true, focus: $focusedAction)
             if showsWatchedButton {
                 IconButton(systemImage: detail.userData?.played == true ? "checkmark.circle.fill" : "checkmark.circle", accessibilityLabel: "Watched", focus: $focusedAction, focusID: "watched") {
                     Task { if let client = session.client { await model.togglePlayed(client: client) } }

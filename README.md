@@ -46,7 +46,7 @@ Taken on Apple TV, with openly licensed films from the Blender Foundation and fr
 | Downloads for offline viewing | | ✓ | |
 | Top Shelf | ✓ | | |
 | Full-screen playback, keyboard shortcuts | | | ✓ |
-| CarPlay audiobooks | | waiting on Apple's entitlement | |
+| CarPlay audiobooks | | ✓ | |
 
 ## Features
 

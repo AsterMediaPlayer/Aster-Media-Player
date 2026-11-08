@@ -22,6 +22,9 @@ nonisolated struct TrackingFeatures: Decodable, Sendable, Equatable {
     var seerr: SeerrFeature?
     /// What people can link on this server (simkl, anilist, myanimelist, …).
     var services: [String]?
+    /// The services whose watchlist the apps can add to (plugin 0.9.8);
+    /// nil from an older plugin, which has none.
+    var watchlist: [String]?
 
     /// The plugin's JSON is PascalCase, read here case-insensitively.
     static let decoder: JSONDecoder = {
@@ -58,6 +61,13 @@ final class AsterTracking {
     /// Whether this server has the plugin, which gives it Discover's rows.
     var isPresent: Bool { features != nil }
 
+    /// Whether the server's plugin sends this service's updates (simkl,
+    /// anilist, myanimelist, lastfm, listenbrainz, hardcover), so the app
+    /// doesn't send them itself: never both for one person.
+    func serves(_ service: String) -> Bool {
+        features?.services?.contains { $0.caseInsensitiveCompare(service) == .orderedSame } ?? false
+    }
+
     /// Asks the server what it has: once after sign-in, and again when the
     /// app comes back after a long while. A Plex server, or none, clears it.
     func refresh(session: AppSession, force: Bool = false) async {
@@ -76,7 +86,7 @@ final class AsterTracking {
             case 200:
                 let found = try TrackingFeatures.decoder.decode(TrackingFeatures.self, from: data)
                 features = found
-                DebugLog.note("tracking", "Plugin present; Seerr \(found.seerr?.enabled == true ? "on" : "off"), services \(found.services?.joined(separator: ",") ?? "none")")
+                DebugLog.note("tracking", "Plugin present; Seerr \(found.seerr?.enabled == true ? "on" : "off"), services \(found.services?.joined(separator: ",") ?? "none"), watchlist \(found.watchlist?.joined(separator: ",") ?? "none (plugin before 0.9.8)")")
             case 404:
                 // No plugin, which counts as Seerr off and no Discover lists.
                 features = nil

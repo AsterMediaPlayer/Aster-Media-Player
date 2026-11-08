@@ -256,7 +256,9 @@ nonisolated final class JellyfinClient: MediaServer {
 
     // MARK: Library
 
-    static let listFields = "SortName,PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,MediaStreams,ProviderIds"
+    /// What lists ask for. Never `MediaStreams` (every track of every title,
+    /// most of a shelf's size): `Width` and `Height` give the HD/4K badge.
+    static let listFields = "SortName,PrimaryImageAspectRatio,Overview,Genres,ProductionYear,OfficialRating,CommunityRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,DateCreated,Width,Height,ProviderIds"
     static let detailFields = "Trickplay,PrimaryImageAspectRatio,Overview,Genres,Studios,People,Taglines,ProductionYear,OfficialRating,CommunityRating,CriticRating,RunTimeTicks,ParentId,Status,EndDate,ChildCount,RecursiveItemCount,Chapters,MediaSources,MediaStreams,ProviderIds,RemoteTrailers,DateCreated"
 
     private func requireUser() throws -> String {
@@ -464,6 +466,8 @@ nonisolated final class JellyfinClient: MediaServer {
             "fields": Self.listFields,
             "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
             "imageTypeLimit": "1",
+            // A shelf that doesn't page: no need to count them all.
+            "enableTotalRecordCount": "false",
         ]).items
     }
 
@@ -544,6 +548,7 @@ nonisolated final class JellyfinClient: MediaServer {
             "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
             "imageTypeLimit": "1",
             "enableResumable": "false",
+            "enableTotalRecordCount": "false",
         ]).items
     }
 
@@ -689,6 +694,9 @@ nonisolated final class JellyfinClient: MediaServer {
             "userId": user,
             "limit": String(limit),
             "fields": Self.listFields,
+            "enableImageTypes": "Primary,Backdrop,Thumb,Logo",
+            "imageTypeLimit": "1",
+            "enableTotalRecordCount": "false",
         ]).items
     }
 

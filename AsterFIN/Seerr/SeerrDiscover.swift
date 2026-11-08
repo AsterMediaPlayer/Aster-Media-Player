@@ -25,7 +25,7 @@ nonisolated struct SeerrPage<Item: Decodable & Sendable>: Decodable, Sendable {
 }
 
 /// One of Seerr's Discover rows, as its admin arranged them.
-nonisolated struct SeerrSlider: Decodable, Sendable, Hashable, Identifiable {
+nonisolated struct SeerrSlider: Codable, Sendable, Hashable, Identifiable {
     var id: Int?
     var type: Int
     var title: String?
@@ -521,10 +521,13 @@ nonisolated struct SeerrReleases: Decodable, Sendable {
         return nil
     }
 
-    static func date(_ text: String) -> Date? {
-        let format = ISO8601DateFormatter()
-        format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return format.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    /// A release date as the start of that day in the viewer's calendar.
+    /// TMDB sends a day as UTC midnight ("2026-11-07T00:00:00.000Z"), which
+    /// read as a moment falls on the day before for anyone behind UTC.
+    static func date(_ text: String, calendar: Calendar = .current) -> Date? {
+        let parts = text.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 }
 

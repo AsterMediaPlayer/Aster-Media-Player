@@ -291,6 +291,8 @@ final class TrackerAccounts {
     }
 
     private func send(_ report: PlaybackReport, client: any MediaServer) async {
+        // What the server's plugin sends, it sends: never both for one person.
+        let plugin = AsterTracking.shared
         guard let item = try? await client.item(report.itemId),
               item.kind == .episode || item.kind == .movie,
               let length = item.runTimeTicks, length > 0,
@@ -306,10 +308,10 @@ final class TrackerAccounts {
         if let entry {
             let number = item.kind == .movie ? 1 : (item.indexNumber ?? 0)
             if number > 0 {
-                if let id = entry.aniList, let token = secrets.aniList?.token {
+                if let id = entry.aniList, let token = secrets.aniList?.token, !plugin.serves("anilist") {
                     await note(title, number, "AniList") { try await AniList.watched(mediaId: id, episode: number, token: token) }
                 }
-                if let id = entry.myAnimeList, secrets.myAnimeList != nil {
+                if let id = entry.myAnimeList, secrets.myAnimeList != nil, !plugin.serves("myanimelist") {
                     await note(title, number, "MyAnimeList") {
                         guard let token = try await self.myAnimeListToken() else { return .unchanged }
                         return try await MyAnimeList.watched(animeId: id, episode: number, token: token)
@@ -318,7 +320,8 @@ final class TrackerAccounts {
             }
         }
         // Trakt and Simkl: everything, by the film's or show's ids.
-        guard secrets.trakt != nil || secrets.simkl != nil, let watched = WatchedTitle(item: item, show: show, anime: entry) else { return }
+        let ownSimkl = secrets.simkl != nil && !plugin.serves("simkl")
+        guard secrets.trakt != nil || ownSimkl, let watched = WatchedTitle(item: item, show: show, anime: entry) else { return }
         let number = item.indexNumber ?? 1
         if secrets.trakt != nil {
             await note(title, number, "Trakt") {
@@ -326,12 +329,34 @@ final class TrackerAccounts {
                 return try await Trakt.watched(watched, token: token)
             }
         }
-        if secrets.simkl != nil {
+        if ownSimkl {
             await note(title, number, "Simkl") {
                 guard let token = try await self.simklToken() else { return .unchanged }
                 return try await Simkl.watched(watched, token: token)
             }
         }
+    }
+
+    /// Set once tracking accounts have moved off this device to the server's
+    /// plugin, for the one-time note saying so.
+    var movedToServer: [String] = []
+
+    /// With the plugin on the server, AniList, MyAnimeList and Simkl are
+    /// linked there instead: the app's own sign-ins for them are removed from
+    /// the vault (Trakt, which the plugin doesn't have yet, stays), and the
+    /// person is told once to link again in Settings › Tracking.
+    func moveToServer(services: [String]) {
+        var moved: [String] = []
+        if services.contains("anilist"), secrets.aniList != nil { moved.append("AniList") }
+        if services.contains("myanimelist"), secrets.myAnimeList != nil { moved.append("MyAnimeList") }
+        if services.contains("simkl"), secrets.simkl != nil { moved.append("Simkl") }
+        guard !moved.isEmpty else { return }
+        change { vault in
+            if moved.contains("AniList") { vault.aniList = nil }
+            if moved.contains("MyAnimeList") { vault.myAnimeList = nil }
+            if moved.contains("Simkl") { vault.simkl = nil }
+        }
+        movedToServer = moved
     }
 
     private func note(_ title: String, _ number: Int, _ service: String, _ update: () async throws -> TrackerUpdate) async {

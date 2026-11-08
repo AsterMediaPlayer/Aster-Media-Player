@@ -39,6 +39,11 @@ nonisolated struct SeerrDetails: Decodable, Sendable {
     var createdBy: [Named]?
     var keywords: [Named]?
     var relatedVideos: [Video]?
+    /// Other sites' ids, for the watchlist (a film's IMDb id is also at the top).
+    var externalIds: ExternalIds?
+    var imdbId: String?
+
+    struct ExternalIds: Decodable, Sendable, Hashable { var imdbId: String?; var tvdbId: Int? }
 
     struct Named: Decodable, Sendable, Hashable { var name: String }
     struct Credits: Decodable, Sendable { var cast: [Person]?; var crew: [Crew]? }
@@ -361,6 +366,7 @@ struct SeerrTitlePage: View {
                 .actionButtonStyle()
             }
             #endif
+            WatchlistButton(title: details == nil ? nil : WatchlistTitle(seerr: title, details: details, anime: isAnime))
             if working { ProgressView() }
         }
         .padding(.top, 8)

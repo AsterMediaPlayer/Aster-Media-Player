@@ -148,6 +148,14 @@ struct MainTabView: View {
         .task {
             if CrashReports.pending != nil { offeringCrashReport = true }
         }
+        .alert("Tracking Now Lives on Your Server", isPresented: Binding(
+            get: { !TrackerAccounts.shared.movedToServer.isEmpty },
+            set: { if !$0 { TrackerAccounts.shared.movedToServer = [] } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your server now sends what you watch and listen to. Link \(TrackerAccounts.shared.movedToServer.joined(separator: ", ")) again in Settings › Tracking, once for every Aster app.")
+        }
         .alert("Aster Closed Unexpectedly", isPresented: $offeringCrashReport) {
             Button("Send Report") { sendingCrashReport = true }
             Button("Not Now", role: .cancel) { CrashReports.clear() }
@@ -201,6 +209,12 @@ struct MainTabView: View {
         .task {
             if let client = session.client, let user = session.userId {
                 await TrackerAccounts.shared.load(client: client, userId: user)
+                // With the plugin there, the accounts it serves are linked on
+                // the server, not kept here.
+                await AsterTracking.shared.refresh(session: session)
+                if let services = AsterTracking.shared.features?.services {
+                    TrackerAccounts.shared.moveToServer(services: services.map { $0.lowercased() })
+                }
             }
         }
         // The server's Aster Discovery and Tracking plugin: whether Seerr is

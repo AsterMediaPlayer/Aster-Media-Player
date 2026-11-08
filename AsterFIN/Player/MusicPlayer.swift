@@ -126,6 +126,23 @@ final class MusicPlayer {
         load()
     }
 
+    /// Adds songs right after the one playing, or at the end of the queue,
+    /// without interrupting it; with nothing playing, plays them.
+    func enqueue(_ tracks: [BaseItem], next: Bool, client: JellyfinClient) {
+        let songs = tracks.filter { $0.kind == .audio }
+        guard !songs.isEmpty else { return }
+        guard let now = current else {
+            play(songs, client: client)
+            return
+        }
+        queue.insert(contentsOf: songs, at: next ? index + 1 : queue.count)
+        let original = next ? (originalOrder.firstIndex { $0.id == now.id }.map { $0 + 1 } ?? originalOrder.count) : originalOrder.count
+        originalOrder.insert(contentsOf: songs, at: original)
+        #if os(iOS)
+        if sonos != nil { sendQueueToSonos(at: currentTime, playing: isPlaying) }
+        #endif
+    }
+
     /// Jumps to a song already in the queue.
     func skip(to track: BaseItem) {
         guard let position = queue.firstIndex(where: { $0.id == track.id }) else { return }
@@ -755,6 +772,12 @@ final class MusicPlayer {
         if let artist = track.artistText { info[MPMediaItemPropertyArtist] = artist }
         if let album = track.album { info[MPMediaItemPropertyAlbumTitle] = album }
         if let number = track.indexNumber { info[MPMediaItemPropertyAlbumTrackNumber] = number }
+        #if os(iOS)
+        // So "I like this song" or "add this to my playlist" means this one.
+        if #available(iOS 27.0, *) {
+            info[MPNowPlayingInfoPropertyAppEntityIdentifiers] = SiriNowPlaying.identifiers(for: track)
+        }
+        #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
 
         artworkTask?.cancel()

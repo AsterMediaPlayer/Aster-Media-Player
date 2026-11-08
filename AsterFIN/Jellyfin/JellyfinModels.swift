@@ -545,6 +545,10 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
     var studios: [NameGuidPair]?
     var people: [PersonInfo]?
     var productionYear: Int?
+    /// The video's size, asked for on lists instead of every track
+    /// (`MediaStreams`), for the HD and 4K badge.
+    var width: Int?
+    var height: Int?
     /// What Jellyfin sorts the title by: lowercased, without a leading
     /// "The", "A" or "An", numbers padded ("0000000013 ghosts of …").
     var sortName: String?
@@ -645,6 +649,8 @@ nonisolated struct BaseItem: Codable, Sendable, Identifiable, Hashable {
         case studios = "Studios"
         case people = "People"
         case productionYear = "ProductionYear"
+        case width = "Width"
+        case height = "Height"
         case sortName = "SortName"
         case premiereDate = "PremiereDate"
         case endDate = "EndDate"
@@ -1067,19 +1073,17 @@ nonisolated extension BaseItem {
         return parts
     }
 
-    var isHD: Bool {
-        guard let stream = (mediaStreams ?? mediaSources?.first?.mediaStreams)?.first(where: { $0.type == "Video" }) else {
-            return false
-        }
-        return (stream.width ?? 0) >= 1280
+    /// The video's width: the item's own (what lists carry), else its
+    /// first video track's (a full item, or Plex's).
+    private var videoWidth: Int {
+        if let width, width > 0 { return width }
+        let stream = (mediaStreams ?? mediaSources?.first?.mediaStreams)?.first { $0.type == "Video" }
+        return stream?.width ?? 0
     }
 
-    var is4K: Bool {
-        guard let stream = (mediaStreams ?? mediaSources?.first?.mediaStreams)?.first(where: { $0.type == "Video" }) else {
-            return false
-        }
-        return (stream.width ?? 0) >= 3800
-    }
+    var isHD: Bool { videoWidth >= 1280 }
+
+    var is4K: Bool { videoWidth >= 3800 }
 
     var directors: [String] {
         (people ?? []).filter { $0.type == "Director" }.compactMap(\.name)

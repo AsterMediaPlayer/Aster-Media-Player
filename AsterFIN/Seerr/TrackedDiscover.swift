@@ -11,8 +11,13 @@
 import Foundation
 
 /// A string that may arrive as a number.
-nonisolated struct FlexibleString: Decodable, Hashable, Sendable {
+nonisolated struct FlexibleString: Codable, Hashable, Sendable {
     var value: String
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -23,8 +28,8 @@ nonisolated struct FlexibleString: Decodable, Hashable, Sendable {
     }
 }
 
-nonisolated struct TrackedItem: Decodable, Hashable, Sendable, Identifiable {
-    struct InLibrary: Decodable, Hashable, Sendable {
+nonisolated struct TrackedItem: Codable, Hashable, Sendable, Identifiable {
+    struct InLibrary: Codable, Hashable, Sendable {
         var itemId: String
         var name: String?
         var type: String?
@@ -83,7 +88,7 @@ nonisolated struct TrackedItem: Decodable, Hashable, Sendable, Identifiable {
     }
 }
 
-nonisolated struct TrackedRow: Decodable, Hashable, Sendable, Identifiable {
+nonisolated struct TrackedRow: Codable, Hashable, Sendable, Identifiable {
     var id: String
     /// continue, recommended, because, library, watchlist, trending, season.
     var kind: String
@@ -114,7 +119,9 @@ enum DiscoverEntry: Identifiable, Hashable {
 
 nonisolated enum TrackedDiscover {
     /// The server's page for this person, or nil on a server without the
-    /// plugin. `fresh` builds it again now (pull to refresh).
+    /// plugin. `fresh` builds it again now (pull to refresh). Decoded off the
+    /// main actor: the whole page is a lot of JSON.
+    @concurrent
     static func home(client: JellyfinClient, fresh: Bool = false) async throws -> TrackedHome? {
         var components = URLComponents(url: client.baseURL.appending(path: "AsterTracking/Discover/Home"), resolvingAgainstBaseURL: false)
         if fresh { components?.queryItems = [URLQueryItem(name: "fresh", value: "true")] }

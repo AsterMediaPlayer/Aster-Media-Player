@@ -26,6 +26,40 @@ struct TrackingSettingsView: View {
 
     var body: some View {
         Form {
+            if AsterTracking.shared.isPresent {
+                // Linked on the server, which sends what's watched and
+                // listened to; Trakt, which the plugin doesn't have yet, stays here.
+                PluginTrackingSections()
+                if TrackerKeys.hasTrakt, !AsterTracking.shared.serves("trakt") {
+                    Section {
+                        accountRow("Trakt", name: accounts.secrets.trakt?.name, byCode: true, signIn: { codeSignIn = "Trakt" }, signOut: accounts.signOutOfTrakt)
+                        Toggle("Update Trakt when I watch", isOn: $trackWatching)
+                    } header: {
+                        Text("On This Device")
+                    } footer: {
+                        Text("Trakt isn't on your server's plugin yet, so Aster sends it from here.")
+                    }
+                }
+                if let problem {
+                    Section { Text(problem).foregroundStyle(.red) }
+                }
+            } else {
+                ownSections
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+        .navigationTitle("Tracking")
+        .sheet(item: Binding(get: { codeSignIn.map(CodeService.init) }, set: { codeSignIn = $0?.id })) { service in
+            DeviceCodeSignIn(service: service.id)
+        }
+    }
+
+    /// The app's own sign-ins, for a server without the plugin.
+    @ViewBuilder
+    private var ownSections: some View {
+        Group {
             Section {
                 if !TrackerKeys.aniListClientId.isEmpty {
                     accountRow("AniList", name: accounts.secrets.aniList?.name, signIn: signInToAniList, signOut: accounts.signOutOfAniList)
@@ -67,13 +101,6 @@ struct TrackingSettingsView: View {
             if let problem {
                 Section { Text(problem).foregroundStyle(.red) }
             }
-        }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
-        .navigationTitle("Tracking")
-        .sheet(item: Binding(get: { codeSignIn.map(CodeService.init) }, set: { codeSignIn = $0?.id })) { service in
-            DeviceCodeSignIn(service: service.id)
         }
     }
 

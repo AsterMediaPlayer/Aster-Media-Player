@@ -41,7 +41,7 @@ struct SettingsView: View {
                     Label("Title Pages", systemImage: "music.note.tv")
                 }
                 // Only once Aster has the services' app ids (see TrackerKeys).
-                if TrackerAccounts.isAvailable {
+                if TrackerAccounts.isAvailable || AsterTracking.shared.isPresent {
                     NavigationLink(value: SettingsDestination.tracking) {
                         Label("Tracking", systemImage: "checklist")
                     }
@@ -127,7 +127,7 @@ struct MacSettingsView: View {
                 .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
-            if TrackerAccounts.isAvailable {
+            if TrackerAccounts.isAvailable || AsterTracking.shared.isPresent {
                 TrackingSettingsView()
                     .tabItem { Label("Tracking", systemImage: "checklist") }
             }

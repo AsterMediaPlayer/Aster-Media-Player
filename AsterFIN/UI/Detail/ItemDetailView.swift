@@ -1279,6 +1279,10 @@ struct ItemDetailView: View {
         }
         let themes = model.openingsEndings.compactMap { if case .theme(let theme) = $0 { theme } else { nil } }
         let clips = model.openingsEndings.compactMap { if case .chapter(let clip) = $0 { clip } else { nil } }.filter { $0.kind == .opening }
+        #if DEBUG
+        let described = themes.filter(\.isOpening).map { "\($0.slug) video=\($0.videoMp4Status ?? "none") url=\($0.videoMp4Url != nil) audio=\($0.audioM4aStatus ?? "none")" }
+        print("DEBUG theme: \(detail.displayTitle): plugin openings [\(described.joined(separator: "; "))], chapter openings \(clips.count) (seasons \(clips.map(\.season))), season picked \(model.seasons.first { $0.id == model.selectedSeasonId }?.indexNumber.map(String.init) ?? "none"), sound \(openingSoundNow)")
+        #endif
         // The plugin's themes are Jellyfin's.
         let jellyfin = client as? JellyfinClient
 
@@ -1292,13 +1296,22 @@ struct ItemDetailView: View {
                 return
             }
             // Nothing for this season: keep whatever opening is already playing.
-            if session.theme.isShowingOpening { return }
+            if session.theme.isShowingOpening {
+                #if DEBUG
+                print("DEBUG theme: \(detail.displayTitle): nothing for season \(number.map(String.init) ?? "?"), keeping the opening already playing")
+                #endif
+                return
+            }
         }
         if let jellyfin, let theme = DetailModel.preferredTheme(in: themes, opening: true), show(theme, client: jellyfin) {
             return
         }
         if let clip = clips.first {
             session.theme.showOpeningIfNoVideo(clip, for: item, client: client, sound: openingSoundNow)
+        } else {
+            #if DEBUG
+            print("DEBUG theme: \(detail.displayTitle): no opening to play (no plugin video ready, no opening chapter)")
+            #endif
         }
     }
 

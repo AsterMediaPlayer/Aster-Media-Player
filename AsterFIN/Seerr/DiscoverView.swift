@@ -95,12 +95,35 @@ struct DiscoverView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Discover")
                 .font(.largeTitle.weight(.bold))
-            if sections.count > 1 { sectionPicker }
+            if sections.count > 1 {
+                #if os(macOS)
+                sectionChips
+                #else
+                sectionPicker
+                #endif
+            }
         }
         .padding(.horizontal, Lockup.screenPadding)
         .padding(.top, 8)
         #endif
     }
+
+    #if os(macOS)
+    /// The sections as a row of chips: a segmented picker is out of the
+    /// arrow keys' reach on the Mac, chips are stops like the cards, so
+    /// up from the first row comes here and Return switches.
+    private var sectionChips: some View {
+        HStack(spacing: 8) {
+            ForEach(sections) { item in
+                let chosen = (shown ?? .discover) == item
+                Button(item.rawValue) { section = item }
+                    .chipStyle(selected: chosen)
+                    .keyboardTarget(capsule: true) { section = item }
+                    .accessibilityAddTraits(chosen ? .isSelected : [])
+            }
+        }
+    }
+    #endif
 
     #if os(tvOS)
     private static let tvPickerHeight: CGFloat = 90
@@ -288,9 +311,16 @@ private struct DiscoverRows: View {
 private struct TrackedShelf: View {
     let row: TrackedRow
 
+    /// The cards that can open, each once: a title the row repeats (the
+    /// same entry from two services) would leave a blank space.
+    private var shown: [TrackedItem] {
+        var seen = Set<String>()
+        return row.items.filter { ($0.tmdbId != nil || $0.inLibrary != nil) && seen.insert($0.id).inserted }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Shelf(title: row.title, items: row.items.filter { $0.tmdbId != nil || $0.inLibrary != nil }) { item in
+            Shelf(title: row.title, items: shown) { item in
                 TrackedLockup(item: item)
             }
         }
@@ -324,6 +354,8 @@ struct TrackedLockup: View {
                 .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
             }
             .cardButtonStyle()
+            // A stop for the Mac's arrow keys; Return opens it.
+            .keyboardTarget(opening: item)
             .accessibilityLabel([item.title, item.subtitle, item.inLibrary != nil ? "On your server" : nil].compactMap { $0 }.joined(separator: ", "))
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.callout.weight(.medium)).lineLimit(1)
@@ -491,6 +523,8 @@ struct SeerrBackdropLockup: View {
             .frame(width: Self.width, height: Self.width * 9 / 16)
         }
         .cardButtonStyle()
+        // A stop for the Mac's arrow keys; Return opens it.
+        .keyboardTarget(opening: title)
         .accessibilityLabel([title.displayTitle, title.year, title.status.label].compactMap { $0 }.joined(separator: ", "))
     }
 
@@ -521,6 +555,8 @@ private struct GenreTile: View {
             .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
         }
         .cardButtonStyle()
+        // A stop for the Mac's arrow keys; Return opens it.
+        .keyboardTarget(opening: browse)
         .accessibilityLabel(genre.name)
     }
 
@@ -550,6 +586,8 @@ private struct CompanyTile: View {
             .frame(width: Lockup.landscapeWidth, height: Lockup.landscapeHeight)
         }
         .cardButtonStyle()
+        // A stop for the Mac's arrow keys; Return opens it.
+        .keyboardTarget(opening: browse)
         .accessibilityLabel(company.name)
     }
 
@@ -674,6 +712,13 @@ private struct SeerrFilterBar: View {
 
     private var isMovie: Bool { filter.kind == .movie }
 
+    /// The choice after `value`, round to the first after the last.
+    private static func next<Choice: CaseIterable & Equatable>(after value: Choice) -> Choice {
+        let all = Array(Choice.allCases)
+        let at = all.firstIndex(of: value) ?? 0
+        return all[(at + 1) % all.count]
+    }
+
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 16) {
@@ -684,6 +729,7 @@ private struct SeerrFilterBar: View {
                     Label("Anime", systemImage: filter.isAnime ? "checkmark" : "sparkles")
                 }
                 .chipStyle(selected: filter.isAnime)
+                .keyboardTarget(capsule: true) { filter.isAnime.toggle() }
                 .accessibilityValue(filter.isAnime ? "On" : "Off")
 
                 Menu {
@@ -694,11 +740,14 @@ private struct SeerrFilterBar: View {
                     Label(filter.sort.label, systemImage: "arrow.up.arrow.down")
                 }
                 .chipStyle(selected: false)
+                // A menu can't be opened from the keyboard: Return steps to the next choice.
+                .keyboardTarget(capsule: true) { filter.sort = Self.next(after: filter.sort) }
 
                 Button { picking = .genres } label: {
                     Text(genreLabel)
                 }
                 .chipStyle(selected: !filter.genres.isEmpty)
+                .keyboardTarget(capsule: true) { picking = .genres }
 
                 Menu {
                     Picker("Released", selection: yearChoice) {
@@ -708,6 +757,7 @@ private struct SeerrFilterBar: View {
                     Text(yearChoice.wrappedValue == .any ? "Any Year" : yearChoice.wrappedValue.label)
                 }
                 .chipStyle(selected: filter.fromYear != nil || filter.toYear != nil)
+                .keyboardTarget(capsule: true) { yearChoice.wrappedValue = Self.next(after: yearChoice.wrappedValue) }
 
                 Menu {
                     Picker("Rating", selection: $filter.minimumRating) {
@@ -718,6 +768,11 @@ private struct SeerrFilterBar: View {
                     Text(filter.minimumRating.map { "\(Int($0))+ Stars" } ?? "Any Rating")
                 }
                 .chipStyle(selected: filter.minimumRating != nil)
+                .keyboardTarget(capsule: true) {
+                    let steps: [Double?] = [nil, 6, 7, 8]
+                    let at = steps.firstIndex(of: filter.minimumRating) ?? 0
+                    filter.minimumRating = steps[(at + 1) % steps.count]
+                }
 
                 Menu {
                     Picker("Runtime", selection: runtimeChoice) {
@@ -727,6 +782,7 @@ private struct SeerrFilterBar: View {
                     Text(runtimeChoice.wrappedValue == .any ? "Any Length" : runtimeChoice.wrappedValue.label)
                 }
                 .chipStyle(selected: filter.minimumRuntime != nil || filter.maximumRuntime != nil)
+                .keyboardTarget(capsule: true) { runtimeChoice.wrappedValue = Self.next(after: runtimeChoice.wrappedValue) }
 
                 Menu {
                     Picker("Language", selection: $filter.language) {
@@ -742,6 +798,7 @@ private struct SeerrFilterBar: View {
                     Text(filter.company?.name ?? (isMovie ? "Any Studio" : "Any Network"))
                 }
                 .chipStyle(selected: filter.company != nil)
+                .keyboardTarget(capsule: true) { picking = .company }
 
                 Button { picking = .providers } label: {
                     Text(providerLabel)
@@ -1037,6 +1094,8 @@ private struct SeerrRequestsList: View {
                         .frame(width: Self.posterWidth, height: Self.posterWidth * 1.5)
                 }
                 .cardButtonStyle()
+                // A stop for the Mac's arrow keys; Return opens it.
+                .keyboardTarget(opening: title)
             } else {
                 ArtworkPlaceholder(systemImage: request.type == "movie" ? "film" : "tv")
                     .frame(width: Self.posterWidth, height: Self.posterWidth * 1.5)

@@ -95,6 +95,8 @@ struct MainTabView: View {
     #if os(macOS)
     @State private var keyboard = KeyboardNavigation()
     @FocusState private var keyboardFocused: Bool
+    /// The mouse back button's event monitor, once installed.
+    @State private var backButtonMonitor: Any?
     @Environment(\.openSettings) private var openSettings
     private var sidebar: MacSidebarState { MacSidebarState.shared }
     #endif
@@ -302,6 +304,19 @@ struct MainTabView: View {
         .onKeyPress(.rightArrow) { routeKey(.right) }
         .onKeyPress(.return) { routeKey(.select) }
         .onKeyPress(.escape) { routeKey(.exit) }
+        // Back, as on Linux: Backspace (a text field being typed in keeps
+        // it), ⌘[, and the mouse's back button (installed in claimKeyboard).
+        .onKeyPress(.delete) { routeKey(.exit) }
+        .onKeyPress(characters: ["["]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            return routeKey(.exit)
+        }
+        // ⌘F: Search, from any page.
+        .onKeyPress(characters: ["f"]) { press in
+            guard press.modifiers.contains(.command), WindowCovers.shared.covers.isEmpty, shownTabs.contains(.search) else { return .ignored }
+            tab = .search
+            return .handled
+        }
         // Space pauses or resumes music or a book from any page.
         .onKeyPress(.space) {
             guard WindowCovers.shared.covers.isEmpty, session.isAudioLoaded else { return .ignored }
@@ -326,6 +341,16 @@ struct MainTabView: View {
     /// appears, focus doesn't take), so no click is needed first.
     private func claimKeyboard() {
         Task { keyboardFocused = true }
+        // Game controllers press the same keys (Gamepads.swift).
+        Gamepads.shared.start()
+        // The mouse's back button (the fourth, number 3) goes back as Esc
+        // does. Installed once for the window's life.
+        guard backButtonMonitor == nil else { return }
+        backButtonMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            guard event.buttonNumber == 3 else { return event }
+            _ = routeKey(.exit)
+            return nil
+        }
     }
 
     /// The page showing gets the key first. Left past its leading edge, or
@@ -372,9 +397,13 @@ struct MainTabView: View {
             }
             return .handled
         }
-        // Esc goes back a page, as the back button does.
+        // Esc goes back a page, as the back button does; on a tab's own
+        // page, with nowhere to go back to, it opens the sidebar, as on Linux.
         if key == .exit {
-            guard KeyboardTargets.shared.goBack(on: tab) else { return .ignored }
+            guard KeyboardTargets.shared.goBack(on: tab) else {
+                enterSidebar()
+                return .handled
+            }
             // Closing the page takes the window's key focus with it.
             restoreKeyboardFocus()
             return .handled

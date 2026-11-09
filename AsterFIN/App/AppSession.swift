@@ -767,6 +767,11 @@ enum AppSettings {
     /// Mac: videos play full screen, the window going back as they close.
     /// On by default.
     static let fullScreenPlaybackKey = "AsterFIN.fullScreenPlayback"
+    /// Mac: a controller's A and B, and X and Y, trade places (Nintendo's
+    /// layout: the right button confirms). Off by default.
+    /// Nonisolated: the controller's handlers read it before reaching the
+    /// main actor.
+    nonisolated static let swapControllerButtonsKey = "AsterFIN.swapControllerButtons"
     /// iPhone and iPad: minutes of an audiobook kept saved ahead of where
     /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
     static let listenAheadKey = "AsterFIN.listenAhead"

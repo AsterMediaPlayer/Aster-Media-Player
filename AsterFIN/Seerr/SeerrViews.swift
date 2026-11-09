@@ -86,6 +86,8 @@ struct SeerrTitleLockup: View {
                 .frame(width: Lockup.posterWidth, height: Lockup.posterHeight)
             }
             .cardButtonStyle()
+            // A stop for the Mac's arrow keys; Return opens it.
+            .keyboardTarget(opening: title)
             .accessibilityLabel([title.displayTitle, title.year, title.status.label].compactMap { $0 }.joined(separator: ", "))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.displayTitle).font(.callout.weight(.medium)).lineLimit(1)

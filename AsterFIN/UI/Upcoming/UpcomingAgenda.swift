@@ -189,6 +189,9 @@ struct UpcomingAgenda: View {
             Label(title, systemImage: isOn.wrappedValue ? "checkmark" : systemImage)
         }
         .chipStyle(selected: isOn.wrappedValue)
+        .keyboardTarget(capsule: true) {
+            withAnimation(.easeInOut(duration: 0.3)) { isOn.wrappedValue.toggle() }
+        }
         .accessibilityValue(isOn.wrappedValue ? "Shown" : "Hidden")
     }
 
@@ -279,6 +282,8 @@ private struct AgendaFilmCard: View {
             }
         }
         .cardButtonStyle()
+        // A stop for the Mac's arrow keys; Return opens it.
+        .keyboardTarget(opening: film.title)
         .accessibilityLabel("\(film.title.displayTitle), \(film.how), requested")
     }
 }
@@ -358,6 +363,8 @@ private struct AgendaCard: View {
             }
         }
         .cardButtonStyle()
+        // A stop for the Mac's arrow keys; Return opens it.
+        .keyboardTarget(opening: UpcomingSchedule.destination(for: episode))
         .accessibilityLabel([title, UpcomingSchedule.episodeLine(for: episode), UpcomingSchedule.isAvailable(episode) ? "Available" : nil].compactMap { $0 }.joined(separator: ", "))
     }
 

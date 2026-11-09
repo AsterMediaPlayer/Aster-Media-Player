@@ -117,25 +117,41 @@ struct SettingsView: View {
 struct MacSettingsView: View {
     @Environment(AppSession.self) private var session
 
+    /// The panes, by name: Tracking and Server Plugins come and go with the
+    /// server, and untagged tabs lost track of which was which after a
+    /// switch (Account wouldn't open again until a relaunch).
+    private enum Pane: Hashable {
+        case playback, audioSubtitles, discMenus, titlePages, tracking, channels, serverPlugins, account, about
+    }
+
+    @State private var pane: Pane = .playback
+
     var body: some View {
-        TabView {
+        TabView(selection: $pane) {
             PlaybackSettingsView()
                 .tabItem { Label("Playback", systemImage: "play.rectangle") }
+                .tag(Pane.playback)
             AudioSubtitleSettingsView()
                 .tabItem { Label("Audio & Subtitles", systemImage: "captions.bubble") }
+                .tag(Pane.audioSubtitles)
             DiscMenuSettingsView()
                 .tabItem { Label("Disc Menus", systemImage: "opticaldisc") }
+                .tag(Pane.discMenus)
             TitlePageSettingsView()
                 .tabItem { Label("Title Pages", systemImage: "music.note.tv") }
+                .tag(Pane.titlePages)
             if TrackerAccounts.isAvailable || AsterTracking.shared.isPresent {
                 TrackingSettingsView()
                     .tabItem { Label("Tracking", systemImage: "checklist") }
+                    .tag(Pane.tracking)
             }
             ChannelSettingsView()
                 .tabItem { Label("Channels", systemImage: "tv.and.mediabox") }
+                .tag(Pane.channels)
             if session.isJellyfin {
                 ServerPluginsSettingsView()
                     .tabItem { Label("Server Plugins", systemImage: "puzzlepiece.extension") }
+                    .tag(Pane.serverPlugins)
             }
             // A stack of its own, for each saved server's page (switch to it,
             // lock it, remove it): without one its links were greyed out.
@@ -149,13 +165,18 @@ struct MacSettingsView: View {
                         }
                     }
             }
+            // A switch starts the pane afresh, back at the list of servers
+            // rather than on the page of the one switched from.
+            .id(session.serverGeneration)
             .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            .tag(Pane.account)
             // A stack of its own, for Open Source & Licenses and its pages.
             NavigationStack {
                 AboutSettingsView()
                     .openSourceDestinations()
             }
             .tabItem { Label("About", systemImage: "info.circle") }
+            .tag(Pane.about)
         }
         // Wide enough for every pane's tab in the bar (eight on Jellyfin);
         // at 560 the last ones fell off the end.
@@ -163,6 +184,11 @@ struct MacSettingsView: View {
         .frame(minHeight: 380)
         .task {
             if let client = session.jellyfin { await SettingsSync.pull(client: client) }
+        }
+        // Switched to a server without the pane that was open: Account, where
+        // the switch was made.
+        .onChange(of: session.serverGeneration) {
+            if pane == .serverPlugins, !session.isJellyfin { pane = .account }
         }
     }
 }
@@ -433,6 +459,7 @@ private struct PlaybackSettingsView: View {
     #endif
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
+    @AppStorage(AppSettings.swapControllerButtonsKey) private var swapControllerButtons = false
     @AppStorage(AppSettings.sidecarHintKey) private var sidecarHint = true
     #endif
 
@@ -505,6 +532,10 @@ private struct PlaybackSettingsView: View {
                 SettingsNote("A video takes the whole screen as it starts, and the window comes back as it closes. Off, it plays inside the window.")
                 Toggle("Show the two-finger scroll tip on an iPad display", isOn: $sidecarHint)
                 SettingsNote("On an iPad used as a display (Sidecar), one finger doesn't move the page; two do. The tip shows once each time the app opens there, until you've scrolled that way.")
+            }
+            Section("Controllers") {
+                Toggle("Swap A/B and X/Y", isOn: $swapControllerButtons)
+                SettingsNote("A game controller moves through Aster like the arrow keys. Normally the bottom button (A) opens and the right one (B) goes back, and X pauses. Swapped, they follow Nintendo's layout: the right button opens, the bottom one goes back, and Y pauses.")
             }
             #endif
             Section("Episodes") {

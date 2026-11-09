@@ -56,12 +56,23 @@ enum Lockup {
     /// for the collection grid's fixed cell height.
     static let gridTitleHeight: CGFloat = 80
     #else
+    #if os(macOS)
+    // A Mac window is wide and seen from further off than a phone: cards
+    // half as big again, so a row holds about eight, not fifteen.
+    static let landscapeWidth: CGFloat = 260
+    static let landscapeHeight: CGFloat = 146
+    static let posterWidth: CGFloat = 165
+    static let posterHeight: CGFloat = 248
+    static let squareWidth: CGFloat = 165
+    static let channelWidth: CGFloat = 165
+    #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
     static let posterWidth: CGFloat = 110
     static let posterHeight: CGFloat = 165
     static let squareWidth: CGFloat = 110
     static let channelWidth: CGFloat = 110
+    #endif
     static let cornerRadius: CGFloat = 10
     static let gridSpacing: CGFloat = 12
     static let gridRowSpacing: CGFloat = 20
@@ -127,6 +138,11 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
     @ViewBuilder var content: (Item) -> Content
 
     @Environment(\.sectionLead) private var lead
+    #if os(macOS)
+    @State private var sidePosition = ScrollPosition(edge: .leading)
+    @State private var sideScroll = ShelfScroll()
+    @State private var hovering = false
+    #endif
 
     var body: some View {
         if !items.isEmpty {
@@ -149,6 +165,17 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
                         .padding(.vertical, Lockup.shelfVerticalPadding)
                     }
                     .scrollClipDisabled()
+                    #if os(macOS)
+                    // A mouse wheel only scrolls the page: arrows page the row.
+                    .scrollPosition($sidePosition)
+                    .onScrollGeometryChange(for: ShelfScroll.self) { geometry in
+                        ShelfScroll(offset: geometry.contentOffset.x, visible: geometry.containerSize.width, total: geometry.contentSize.width)
+                    } action: { _, now in
+                        sideScroll = now
+                    }
+                    .overlay { shelfArrows }
+                    .onHover { hovering = $0 }
+                    #endif
                     .onChange(of: keyboardSelection) { _, selection in
                         guard let selection else { return }
                         withAnimation(.easeInOut(duration: 0.25)) {
@@ -161,6 +188,70 @@ struct Shelf<Item: Identifiable & Hashable, Content: View>: View {
         }
     }
 }
+
+#if os(macOS)
+/// Where a shelf is scrolled sideways, and how much of it there is.
+struct ShelfScroll: Equatable {
+    var offset: CGFloat = 0
+    var visible: CGFloat = 0
+    var total: CGFloat = 0
+
+    var canGoBack: Bool { offset > 1 }
+    var canGoOn: Bool { offset + visible < total - 1 }
+}
+
+extension Shelf {
+    /// ‹ and › at the row's ends while the pointer is over it, each where
+    /// there's more that way; a click moves most of a screen's width.
+    @ViewBuilder
+    var shelfArrows: some View {
+        if hovering, sideScroll.total > sideScroll.visible {
+            HStack {
+                ShelfArrowButton(systemImage: "chevron.left", label: "Scroll back", shown: sideScroll.canGoBack) {
+                    page(by: -1)
+                }
+                Spacer()
+                ShelfArrowButton(systemImage: "chevron.right", label: "Scroll on", shown: sideScroll.canGoOn) {
+                    page(by: 1)
+                }
+            }
+            .padding(.horizontal, 6)
+            .transition(.opacity)
+        }
+    }
+
+    private func page(by direction: CGFloat) {
+        let step = max(sideScroll.visible * 0.8, 200)
+        let target = min(max(sideScroll.offset + direction * step, 0), max(sideScroll.total - sideScroll.visible, 0))
+        withAnimation(.easeInOut(duration: 0.35)) {
+            sidePosition.scrollTo(x: target)
+        }
+    }
+}
+
+/// One of a shelf's paging arrows: a dark round button over the cards.
+private struct ShelfArrowButton: View {
+    let systemImage: String
+    let label: String
+    let shown: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(.black.opacity(0.65), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .opacity(shown ? 1 : 0)
+        .allowsHitTesting(shown)
+    }
+}
+#endif
 
 /// The first card of the section a show's page has just switched to (its
 /// first episode, song, related show or person), for focus to go to after a

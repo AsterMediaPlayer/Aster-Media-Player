@@ -330,6 +330,8 @@ struct AetherPlayerView: View {
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.space) { togglePlayPause(); return .handled }
+        // Return pauses too, as on Linux: a controller's A button.
+        .onKeyPress(.return) { togglePlayPause(); return .handled }
         .onKeyPress(.leftArrow) { skip(-10); return .handled }
         .onKeyPress(.rightArrow) { skip(10); return .handled }
         .onKeyPress(.escape) { onFinished(); return .handled }

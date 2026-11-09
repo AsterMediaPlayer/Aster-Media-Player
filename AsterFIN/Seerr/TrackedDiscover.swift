@@ -53,8 +53,18 @@ nonisolated struct TrackedItem: Codable, Hashable, Sendable, Identifiable {
     var tmdbId: Int? { ids?["tmdb"].flatMap { Int($0.value) } }
     var isMovie: Bool { mediaType == "movie" }
 
+    /// Unique within a row. Anime seasons are titles of their own on AniList
+    /// and MyAnimeList but share their show's TMDB id, so those sites' ids
+    /// come first; two cards with one id left a blank space in the row.
     var id: String {
-        if let tmdb = ids?["tmdb"]?.value, !tmdb.isEmpty { return "tmdb-\(mediaType ?? "tv")-\(tmdb)" }
+        if let aniList = ids?["anilist"]?.value, !aniList.isEmpty { return "anilist-\(aniList)" }
+        if let mal = ids?["mal"]?.value, !mal.isEmpty { return "mal-\(mal)" }
+        if let tmdb = ids?["tmdb"]?.value, !tmdb.isEmpty {
+            if let season = ids?["tmdbSeason"]?.value, !season.isEmpty {
+                return "tmdb-\(mediaType ?? "tv")-\(tmdb)-s\(season)"
+            }
+            return "tmdb-\(mediaType ?? "tv")-\(tmdb)"
+        }
         if let library = inLibrary { return "library-\(library.itemId)" }
         return "\(title)-\(year ?? 0)"
     }

@@ -397,6 +397,15 @@ struct TypeGridView: View {
     /// Whether the hero has focus, so a press down lands on the first new title.
     @State private var heroFocused = false
     #endif
+    #if os(macOS)
+    @Environment(\.openItem) private var openItem
+    @Environment(KeyboardNavigation.self) private var keyboard
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+    /// Whether the keyboard is paging the hero or moving through the rows.
+    @State private var keyboardOnHero = true
+    @State private var heroPage = 0
+    @State private var atTop = true
+    #endif
     /// By name, every title in letter sections with an index.
     @State private var sections: [IndexSection] = []
 
@@ -472,6 +481,8 @@ struct TypeGridView: View {
     }
     #else
     private static let allTitlesID = "all-titles"
+    /// The top of the rows under the hero, for the keyboard to bring up.
+    private static let rowsID = "type-rows"
 
     var body: some View {
         ScrollViewReader { reader in
@@ -481,13 +492,24 @@ struct TypeGridView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !featured.isEmpty {
                         HeroCarousel(items: featured, moveDown: {
+                            #if os(macOS)
+                            enterRows()
+                            #else
                             focusedLockup = libraries.first?.id ?? recent.first?.id
+                            #endif
                         }, focusChanged: { focused in
                             if focused { focusedLockup = nil }
                             heroFocused = focused
+                        }, keyboardPage: heroKeyboardPage, pageChanged: { page in
+                            #if os(macOS)
+                            heroPage = page
+                            #endif
                         })
                     }
                     if heroLoaded {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(Self.rowsID)
                         page(reader)
                     } else {
                         ProgressView()
@@ -498,6 +520,21 @@ struct TypeGridView: View {
                 .padding(.bottom, Lockup.pageBottomPadding)
             }
             .scrollClipDisabled()
+            #if os(macOS)
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top < 40
+            } action: { _, top in
+                atTop = top
+                // Back at the top, however it got there: the hero again.
+                if top { keyboardOnHero = true }
+            }
+            .onAppear {
+                keyboardOnHero = atTop
+                keyboard.register(keyboardTab) { key in handleKey(key) }
+            }
+            .onDisappear { keyboard.unregister(keyboardTab) }
+            #endif
             .overlay(alignment: .trailing) {
                 if indexed {
                     LibraryIndexBar(keys: sections.map(\.key)) { key in jump(to: key, reader) }
@@ -572,6 +609,71 @@ struct TypeGridView: View {
     private func jump(to key: String, _ reader: ScrollViewProxy) {
         withAnimation(.easeInOut(duration: 0.3)) {
             reader.scrollTo(LibraryIndexBar.anchor(key), anchor: .top)
+        }
+    }
+
+    /// The hero page the Mac keyboard asks for; nil elsewhere.
+    private var heroKeyboardPage: Int? {
+        #if os(macOS)
+        heroPage
+        #else
+        nil
+        #endif
+    }
+    #endif
+
+    #if os(macOS)
+    private var keyboardTab: AppTab { kind == .movie ? .movies : .shows }
+
+    /// As on Anime: at the top the arrows page the hero, Return opens it,
+    /// and down goes on to the rows. (The hero fills the window, so the
+    /// nearest card alone found nothing showing to move to.) There the
+    /// nearest card that way is chosen, and up from the top row goes back
+    /// to the hero. Left on the first page or card, and up from the hero,
+    /// are the sidebar's.
+    private func handleKey(_ key: KeyboardNavigation.Key) -> KeyPress.Result {
+        if key == .exit { return .ignored }
+        guard keyboardOnHero, !featured.isEmpty else {
+            let result = KeyboardTargets.shared.handle(key, on: keyboardTab)
+            if result == .ignored, key == .up, !featured.isEmpty {
+                keyboardOnHero = true
+                KeyboardTargets.shared.clearSelection()
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    scrollPosition.scrollTo(edge: .top)
+                }
+                return .handled
+            }
+            return result
+        }
+        switch key {
+        case .select:
+            guard featured.indices.contains(heroPage) else { return .ignored }
+            // The page opened takes the keys (its cards, Esc), not the hero.
+            keyboardOnHero = false
+            openItem?(featured[heroPage])
+        case .down:
+            enterRows()
+        case .left, .right:
+            let step = key == .left ? -1 : 1
+            if step < 0, heroPage == 0 { return .ignored }
+            heroPage = min(max(heroPage + step, 0), featured.count - 1)
+        case .up, .exit:
+            return .ignored
+        }
+        return .handled
+    }
+
+    /// Down from the hero: brings the rows up, then chooses the first card
+    /// showing once it's on screen.
+    private func enterRows() {
+        keyboardOnHero = false
+        KeyboardTargets.shared.clearSelection()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            scrollPosition.scrollTo(id: Self.rowsID, anchor: .top)
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            _ = KeyboardTargets.shared.handle(.down, on: keyboardTab)
         }
     }
     #endif

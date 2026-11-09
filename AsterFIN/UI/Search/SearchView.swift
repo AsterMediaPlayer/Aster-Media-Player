@@ -34,13 +34,27 @@ struct SearchView: View {
     var body: some View {
         Group {
             #if os(tvOS)
-            // The movies and shows as a collection grid, with the heading (or
-            // the message) above and the music and episode rows below.
-            TVCollectionGrid(
-                sections: [IndexSection(key: "all", items: message == nil ? shows : [])],
-                header: AnyView(header),
-                footer: AnyView(footer)
-            )
+            if message == nil, !shows.isEmpty {
+                // The movies and shows as a collection grid, with the heading
+                // above and the music and episode rows below.
+                TVCollectionGrid(
+                    sections: [IndexSection(key: "all", items: shows)],
+                    header: AnyView(header),
+                    footer: AnyView(footer)
+                )
+            } else {
+                // No movies or shows: the rows (or the message) in a plain
+                // stack, as on Home. In an empty grid the footer kept its
+                // estimated height, and the rows were squeezed over each other.
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        header
+                        footer
+                    }
+                    .padding(.bottom, Lockup.pageBottomPadding)
+                }
+                .scrollClipDisabled()
+            }
             #else
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 20) {

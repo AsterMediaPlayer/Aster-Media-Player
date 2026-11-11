@@ -30,6 +30,9 @@ env:
 jobs:
   apple:
     name: Build (tvOS, iOS, macOS) and test
+    # Never run pull requests from forks on this Mac: the repository is
+    # public, and a fork's workflow code would run on the self-hosted runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 90
     steps:

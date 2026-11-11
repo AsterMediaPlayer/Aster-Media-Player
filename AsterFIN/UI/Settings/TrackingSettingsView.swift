@@ -25,7 +25,7 @@ struct TrackingSettingsView: View {
     #endif
 
     var body: some View {
-        Form {
+        SettingsPage(title: "Tracking") {
             if AsterTracking.shared.isPresent {
                 // Linked on the server, which sends what's watched and
                 // listened to; Trakt, which the plugin doesn't have yet, stays here.
@@ -47,10 +47,6 @@ struct TrackingSettingsView: View {
                 ownSections
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
-        .navigationTitle("Tracking")
         .sheet(item: Binding(get: { codeSignIn.map(CodeService.init) }, set: { codeSignIn = $0?.id })) { service in
             DeviceCodeSignIn(service: service.id)
         }

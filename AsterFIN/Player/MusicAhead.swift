@@ -2,18 +2,19 @@
 //  MusicAhead.swift
 //  AsterFIN
 //
-//  Saves the next few songs in the music queue as whole files while the
-//  connection is a good one: Wi-Fi or wired, and not Low Data Mode (the
-//  download session itself refuses cellular, a Personal Hotspot and Low
-//  Data Mode, so nothing is fetched there). A saved song starts at once
-//  and plays on through a spot with no signal; one not yet saved streams
-//  as before. Settings ▸ Playback ▸ Music turns it off.
+//  Saves the next few songs in the music queue as whole files: on Wi-Fi
+//  or a wired connection, or on cellular data too when that's chosen in
+//  Settings ▸ Playback ▸ Music (each download is told which, so nothing is
+//  fetched on cellular otherwise), and never in Low Data Mode. A saved
+//  song starts at once and plays on through a spot with no signal; one
+//  not yet saved streams as before.
 //
 //  The files live in the system's cache folder, which the system may
 //  empty when space is short. Only the song playing and the ones coming
 //  up are kept: what's been heard is let go as the queue moves on.
 //
 
+import AVFoundation
 import Foundation
 
 final class MusicAhead {
@@ -35,7 +36,7 @@ final class MusicAhead {
 
     nonisolated private static let session: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.allowsExpensiveNetworkAccess = false
+        // Each request says whether cellular data is allowed (see `fetch`).
         configuration.allowsConstrainedNetworkAccess = false
         configuration.timeoutIntervalForRequest = 30
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -81,6 +82,24 @@ final class MusicAhead {
         fetchNext(client: client)
     }
 
+    /// Stops the download under way (it's started again later), so a song
+    /// starting to play has the connection to itself.
+    func hold() {
+        task?.cancel()
+        task = nil
+        fetching = nil
+    }
+
+    /// Lets go of a song's saved file that didn't play, and doesn't save it
+    /// again this time: it streams.
+    func forget(_ id: String) {
+        failed.insert(id)
+        if let file = saved[id] {
+            try? FileManager.default.removeItem(at: file)
+            saved[id] = nil
+        }
+    }
+
     /// Removes every saved song, as the setting goes off or playback stops.
     func clear() {
         task?.cancel()
@@ -97,11 +116,13 @@ final class MusicAhead {
     private func fetchNext(client: JellyfinClient) {
         guard task == nil,
               let id = wanted.first(where: { saved[$0] == nil && !failed.contains($0) }) else { return }
-        let url = client.audioFileURL(itemId: id, maxBitrate: AppSettings.maxBitrate)
+        var request = URLRequest(url: client.audioFileURL(itemId: id, maxBitrate: AppSettings.musicMaxBitrate))
+        request.allowsExpensiveNetworkAccess = AppSettings.musicAheadMode == .always
+        request.allowsConstrainedNetworkAccess = false
         let folder = folder
         fetching = id
         task = Task { [weak self] in
-            let file = await Self.fetch(url, as: id, into: folder)
+            let file = await Self.fetch(request, as: id, into: folder)
             guard let self, !Task.isCancelled else { return }
             self.task = nil
             self.fetching = nil
@@ -122,15 +143,24 @@ final class MusicAhead {
     /// Downloads a song and moves it into `folder` as `<id>.<extension>`,
     /// the extension from what the server sent, so AVPlayer knows the
     /// format. Nil when it can't be had or isn't a file AVPlayer can open.
-    nonisolated private static func fetch(_ url: URL, as id: String, into folder: URL) async -> URL? {
+    @concurrent nonisolated private static func fetch(_ request: URLRequest, as id: String, into folder: URL) async -> URL? {
         do {
-            let (temporary, response) = try await session.download(from: url)
+            let (temporary, response) = try await session.download(for: request)
             defer { try? FileManager.default.removeItem(at: temporary) }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let fileExtension = fileExtension(for: http) else { return nil }
             let file = folder.appending(path: "\(id).\(fileExtension)")
             try? FileManager.default.removeItem(at: file)
             try FileManager.default.moveItem(at: temporary, to: file)
+            // Kept only if AVPlayer can open it as it is.
+            guard (try? await AVURLAsset(url: file).load(.isPlayable)) == true else {
+                try? FileManager.default.removeItem(at: file)
+                DebugLog.note("music", "A saved song wasn't playable as .\(fileExtension) (\(http.mimeType ?? "no type")); it streams instead")
+                #if DEBUG
+                print("DEBUG music ahead: \(id) not playable as .\(fileExtension) (\(http.mimeType ?? "no type"), from \(http.url?.lastPathComponent ?? "?"))")
+                #endif
+                return nil
+            }
             #if DEBUG
             print("DEBUG music ahead: saved \(id) as \(fileExtension)")
             #endif

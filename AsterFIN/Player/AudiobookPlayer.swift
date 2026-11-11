@@ -308,7 +308,7 @@ final class AudiobookPlayer {
         Self.activateAudioSession()
         // The universal URL always starts at the beginning, so the resume
         // point is sought once the file is ready.
-        var url = client.universalAudioURL(itemId: item.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate)
+        var url = client.universalAudioURL(itemId: item.id, playSessionId: playSessionId, maxBitrate: AppSettings.musicMaxBitrate)
         var cachedItem: AVPlayerItem?
         #if os(iOS)
         // A downloaded book plays from the device; else, with Listen Ahead

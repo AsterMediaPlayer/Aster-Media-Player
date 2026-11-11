@@ -91,7 +91,33 @@ final class MusicPlayer {
         let playSessionId: String
     }
     @ObservationIgnored private var linedUp: LinedUp?
+    @ObservationIgnored private var linedUpObservation: NSKeyValueObservation?
     @ObservationIgnored private var currentItemObservation: NSKeyValueObservation?
+    /// The song tried once more after failing, so a failure isn't retried
+    /// for good.
+    @ObservationIgnored private var retriedTrackId: String?
+    /// How long before a song's end the next is lined up: late enough that
+    /// a conversion the server starts for it isn't dropped as idle while
+    /// it waits, early enough to be ready in time.
+    private static let lineUpLead: TimeInterval = 30
+    /// Watches for a song that says it's playing but doesn't move.
+    @ObservationIgnored private var stallWatch: Task<Void, Never>?
+    /// A song's audio as the server probed it. Songs follow each other without
+    /// a gap only when these match: moving on into a different sample rate
+    /// (44.1 kHz into 48 kHz, say) left the player counting with no sound.
+    private struct AudioShape: Equatable {
+        let codec: String?
+        let sampleRate: Int?
+        let channels: Int?
+    }
+    @ObservationIgnored private var shapes: [String: AudioShape] = [:]
+    /// Whether the songs coming up may be saved yet: only once the song
+    /// playing has a minute loaded (or all of it), so a download doesn't
+    /// hold up the song just started.
+    @ObservationIgnored private var mayFetchAhead = false
+    @ObservationIgnored private var shapeLookups: Set<String> = []
+    /// Containers the server sends as they are (see `universalAudioURL`).
+    private static let playsAsIs: Set<String> = ["mp3", "aac", "m4a", "m4b", "mp4", "flac", "alac", "wav", "aiff"]
     private var client: JellyfinClient?
     /// The order songs were handed to us, kept so shuffle can be undone.
     private var originalOrder: [BaseItem] = []
@@ -211,6 +237,9 @@ final class MusicPlayer {
 
     func next() {
         guard current != nil else { return }
+        #if DEBUG
+        print("DEBUG music: Next pressed")
+        #endif
         #if os(iOS)
         if sonos != nil {
             if index + 1 < queue.count {
@@ -313,6 +342,7 @@ final class MusicPlayer {
         #endif
         finishCurrent()
         removeObservers()
+        stallWatch?.cancel()
         dropLinedUp()
         player.removeAllItems()
         MusicAhead.shared.clear()
@@ -362,18 +392,34 @@ final class MusicPlayer {
         player.insert(item, after: nil)
         player.play()
         isPlaying = true
+        watchForStalls()
         publishNowPlaying(track)
         fetchLyrics(for: track, client: client)
-        saveAhead()
+        songStarted()
+    }
+
+    /// A song has started: downloads wait until it's well loaded, and the
+    /// formats the next line-up compares are looked up.
+    private func songStarted() {
+        mayFetchAhead = false
+        MusicAhead.shared.hold()
+        if let playing = current { _ = shape(of: playing) }
+        if let next = followingIndex, queue.indices.contains(next) { _ = shape(of: queue[next]) }
     }
 
     /// A song's player item: its saved file when `MusicAhead` has it, else
     /// the stream.
     private func makeItem(for track: BaseItem, playSessionId: String, client: JellyfinClient) -> AVPlayerItem {
         if let file = MusicAhead.shared.savedFile(for: track.id) {
+            #if DEBUG
+            print("DEBUG music: \(track.name ?? track.id) from its saved .\(file.pathExtension)")
+            #endif
             return AVPlayerItem(url: file)
         }
-        return AVPlayerItem(url: client.universalAudioURL(itemId: track.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate))
+        #if DEBUG
+        print("DEBUG music: \(track.name ?? track.id) streamed (container \(track.container ?? "?"))")
+        #endif
+        return AVPlayerItem(url: client.universalAudioURL(itemId: track.id, playSessionId: playSessionId, maxBitrate: AppSettings.musicMaxBitrate))
     }
 
     // MARK: Gapless and saving ahead
@@ -396,9 +442,27 @@ final class MusicPlayer {
         guard AppSettings.gaplessMusic, let client, let playing = player.currentItem,
               let next = followingIndex else { return dropLinedUp() }
         let track = queue[next]
+        // Only a song that will play as it is: a saved file, or one the server
+        // sends unconverted. A conversion lined up early can be dropped by the
+        // server before its turn, leaving the player silent; one not lined up
+        // loads when its turn comes, with a short gap.
+        guard MusicAhead.shared.savedFile(for: track.id) != nil || Self.streamsAsIs(track) else {
+            return dropLinedUp()
+        }
         if linedUp?.id == track.id {
             linedUp?.index = next
             return
+        }
+        // Both songs' formats, looked up once; until they're in, it's tried
+        // again on the next tick.
+        guard let playingTrack = current, let now = shape(of: playingTrack), let following = shape(of: track) else {
+            return dropLinedUp()
+        }
+        guard now.sampleRate != nil, now == following else {
+            #if DEBUG
+            print("DEBUG music: not lining up \(track.name ?? track.id): \(String(describing: now)) into \(String(describing: following))")
+            #endif
+            return dropLinedUp()
         }
         dropLinedUp()
         let session = UUID().uuidString
@@ -407,6 +471,15 @@ final class MusicPlayer {
         player.insert(item, after: playing)
         linedUp = LinedUp(index: next, id: track.id, item: item, playSessionId: session)
         player.actionAtItemEnd = .advance
+        // One that fails while it waits is let go, and loads as usual when
+        // its turn comes.
+        linedUpObservation = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+            guard observed.status == .failed else { return }
+            let reason = observed.error?.localizedDescription ?? "unknown"
+            Task { @MainActor [weak self] in
+                self?.linedUpFailed(observed, reason: reason)
+            }
+        }
         #if DEBUG
         print("DEBUG music: lined up \(track.name ?? track.id)\(MusicAhead.shared.savedFile(for: track.id) != nil ? " (saved)" : "")")
         #endif
@@ -417,12 +490,105 @@ final class MusicPlayer {
             player.remove(linedUp.item)
         }
         linedUp = nil
+        linedUpObservation = nil
         player.actionAtItemEnd = .pause
+    }
+
+    private func linedUpFailed(_ item: AVPlayerItem, reason: String) {
+        guard let failed = linedUp, failed.item === item, player.currentItem !== item else { return }
+        DebugLog.note("music", "The next song couldn't be lined up (\(reason)); it loads when its turn comes")
+        #if DEBUG
+        print("DEBUG music: lined-up \(failed.id) failed: \(reason)")
+        #endif
+        MusicAhead.shared.forget(failed.id)
+        dropLinedUp()
+    }
+
+    /// A song's format, once looked up (nil until then; the lookup starts on
+    /// the first ask).
+    private func shape(of track: BaseItem) -> AudioShape? {
+        if let known = shapes[track.id] { return known }
+        guard let client, shapeLookups.insert(track.id).inserted else { return nil }
+        let id = track.id
+        Task { [weak self] in
+            let item = try? await client.item(id)
+            let streams = item?.mediaStreams ?? item?.mediaSources?.first?.mediaStreams ?? []
+            let audio = streams.first { $0.type == "Audio" }
+            self?.shapes[id] = AudioShape(codec: audio?.codec?.lowercased(), sampleRate: audio?.sampleRate, channels: audio?.channels)
+        }
+        return nil
+    }
+
+    /// Whether the server will send this song as it is: a format played here,
+    /// with no lower streaming limit to convert it down to. A song whose
+    /// format the list didn't say counts as converted.
+    private static func streamsAsIs(_ track: BaseItem) -> Bool {
+        guard !AppSettings.musicLimitsQuality, let container = track.container?.lowercased() else { return false }
+        return container.split(separator: ",").contains { playsAsIs.contains(String($0)) }
+    }
+
+    /// A song that says it's playing but hasn't moved for 15 seconds is
+    /// loaded again from where it was, once: a stream the server let go of
+    /// stalls without failing.
+    private func watchForStalls() {
+        stallWatch?.cancel()
+        stallWatch = Task { [weak self] in
+            var stalledFor: TimeInterval = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !Task.isCancelled else { return }
+                #if os(iOS)
+                if self.sonos != nil { stalledFor = 0; continue }
+                #endif
+                #if DEBUG
+                let item = self.player.currentItem
+                let buffered = item?.loadedTimeRanges.last.map { Int(CMTimeRangeGetEnd($0.timeRangeValue).seconds) } ?? -1
+                print("DEBUG music tick: \(self.current?.name ?? "-") playing=\(self.isPlaying) status=\(item?.status.rawValue ?? -1) control=\(self.player.timeControlStatus.rawValue) waiting=\(self.player.reasonForWaitingToPlay?.rawValue ?? "-") rate=\(self.player.rate) t=\(Int(self.player.currentTime().seconds)) buffered=\(buffered) file=\((item?.asset as? AVURLAsset)?.url.isFileURL ?? false) items=\(self.player.items().count) error=\(item?.error?.localizedDescription ?? "-")")
+                #endif
+                // The song playing is well loaded: the ones coming up may be saved.
+                if !self.mayFetchAhead, let item = self.player.currentItem, item.status == .readyToPlay {
+                    let isFile = (item.asset as? AVURLAsset)?.url.isFileURL ?? false
+                    let loadedTo = item.loadedTimeRanges.last.map { CMTimeRangeGetEnd($0.timeRangeValue).seconds } ?? 0
+                    let enough = min(self.currentTime + 60, max(self.duration - 1, 0))
+                    if isFile || (loadedTo.isFinite && loadedTo >= enough) {
+                        self.mayFetchAhead = true
+                        self.saveAhead()
+                    }
+                }
+                if self.isPlaying, self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+                    stalledFor += 3
+                } else {
+                    stalledFor = 0
+                }
+                guard stalledFor >= 15, let track = self.current, self.retriedTrackId != track.id else { continue }
+                stalledFor = 0
+                self.retriedTrackId = track.id
+                DebugLog.note("music", "A song stalled; loading it again from \(Int(self.currentTime)) s")
+                #if DEBUG
+                print("DEBUG music: \(track.name ?? track.id) stalled, reloading at \(Int(self.currentTime)) s")
+                #endif
+                MusicAhead.shared.forget(track.id)
+                self.pendingSeek = self.currentTime > 1 ? self.currentTime : nil
+                self.load()
+                return
+            }
+        }
+    }
+
+    /// In the last stretch of the song, when the next one is lined up.
+    private var isNearEnd: Bool {
+        duration > 0 && duration - currentTime <= Self.lineUpLead
+    }
+
+    /// Lines up the next song once near the end, or updates (or drops) the
+    /// one lined up already.
+    private func refreshLineUp() {
+        if linedUp != nil || isNearEnd { lineUpNext() }
     }
 
     /// Saves the songs coming up, on a good connection.
     private func saveAhead() {
-        guard let client else { return }
+        guard let client, mayFetchAhead else { return }
         #if os(iOS)
         if sonos != nil { return }
         #endif
@@ -434,7 +600,7 @@ final class MusicPlayer {
     /// saved ahead, follow it.
     private func queueChanged() {
         guard current != nil else { return }
-        lineUpNext()
+        refreshLineUp()
         saveAhead()
     }
 
@@ -465,6 +631,7 @@ final class MusicPlayer {
         finishCurrent(endedAt: duration)
         removeObservers()
         linedUp = nil
+        linedUpObservation = nil
         player.actionAtItemEnd = .pause
         index = next.index
         guard let client, let track = current else { return }
@@ -475,9 +642,10 @@ final class MusicPlayer {
         errorMessage = nil
         installObservers(for: item)
         isPlaying = true
+        watchForStalls()
         publishNowPlaying(track)
         fetchLyrics(for: track, client: client)
-        saveAhead()
+        songStarted()
     }
 
     private func fetchLyrics(for track: BaseItem, client: JellyfinClient) {
@@ -563,14 +731,27 @@ final class MusicPlayer {
                         self.report(paused: false, start: true)
                         self.updateNowPlayingPlayback()
                     }
-                    // Playing: the next song can load behind it.
-                    self.lineUpNext()
+                    if self.retriedTrackId == self.current?.id { self.retriedTrackId = nil }
                 case .failed:
                     #if DEBUG
                     // Debug builds only: the error can include the stream URL and its token.
                     let underlying = (observed.error as NSError?)?.userInfo[NSUnderlyingErrorKey].map { String(describing: $0) } ?? ""
                     print("DEBUG music: failed \(observed.error?.localizedDescription ?? "unknown") \(String(describing: observed.error)) \(underlying)")
                     #endif
+                    let reason = observed.error?.localizedDescription ?? "unknown"
+                    // Once more, from a fresh stream: a saved file that won't
+                    // open, or a stream the server let go of while it waited.
+                    if let track = self.current, self.retriedTrackId != track.id {
+                        self.retriedTrackId = track.id
+                        DebugLog.note("music", "A song failed (\(reason)); trying a fresh stream")
+                        #if DEBUG
+                        print("DEBUG music: \(track.name ?? track.id) failed (\(reason)), retrying from a fresh stream")
+                        #endif
+                        MusicAhead.shared.forget(track.id)
+                        self.load()
+                        return
+                    }
+                    DebugLog.note("music", "A song failed again (\(reason))")
                     self.errorMessage = observed.error?.localizedDescription ?? "This song can't be played."
                     self.isPlaying = false
                 default:
@@ -591,6 +772,7 @@ final class MusicPlayer {
                 guard let self else { return }
                 let seconds = time.seconds
                 if seconds.isFinite { self.currentTime = seconds }
+                if self.linedUp == nil, self.isNearEnd { self.lineUpNext() }
                 if self.hasStarted, Date().timeIntervalSince(self.lastReport) >= 10 {
                     self.lastReport = Date()
                     self.report(paused: !self.isPlaying)

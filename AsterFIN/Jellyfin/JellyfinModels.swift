@@ -337,10 +337,12 @@ nonisolated struct MediaStream: Codable, Sendable, Hashable {
     var width: Int?
     var height: Int?
     var channels: Int?
+    var sampleRate: Int?
     var videoRangeType: String?
 
     enum CodingKeys: String, CodingKey {
         case codec = "Codec"
+        case sampleRate = "SampleRate"
         case type = "Type"
         case index = "Index"
         case language = "Language"

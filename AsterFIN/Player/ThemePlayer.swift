@@ -58,7 +58,7 @@ final class ThemePlayer {
             let video = wantsVideo ? (try? await client.themeVideos(itemId: item.id))?.first : nil
             guard let self, !Task.isCancelled, self.key == themeKey else { return }
             if let song {
-                self.startMusic(url: client.universalAudioURL(itemId: song.id, playSessionId: UUID().uuidString, maxBitrate: AppSettings.maxBitrate))
+                self.startMusic(url: client.universalAudioURL(itemId: song.id, playSessionId: UUID().uuidString, maxBitrate: AppSettings.musicMaxBitrate))
             }
             if let video {
                 await self.startVideo(id: video.id, url: client.videoStreamURL(itemId: video.id), themeKey: themeKey)

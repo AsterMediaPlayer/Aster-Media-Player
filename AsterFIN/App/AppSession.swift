@@ -778,31 +778,102 @@ enum AppSettings {
     /// Music: the next song waits in the player behind the one playing, so
     /// it follows without a gap (best effort). On by default.
     static let gaplessMusicKey = "AsterFIN.gaplessMusic"
-    /// Music: the next few songs in the queue are saved while on Wi-Fi or a
-    /// wired connection (see `MusicAhead`). On by default.
-    static let musicAheadKey = "AsterFIN.musicAhead"
+    /// Music: when the next few songs in the queue are saved (see
+    /// `MusicAhead`). On Wi-Fi by default.
+    static let musicAheadModeKey = "AsterFIN.musicAheadMode"
+    /// Music (and audiobooks): the most a song may stream at, on Wi-Fi and,
+    /// on iPhone and iPad, on cellular data; 0 for as it is, with no
+    /// conversion. 0 by default. Video has its own (`maxBitrateKey`).
+    static let musicMaxBitrateKey = "AsterFIN.musicMaxBitrate"
+    static let musicCellularMaxBitrateKey = "AsterFIN.musicCellularMaxBitrate"
+
+    enum MusicAheadMode: String {
+        /// Never.
+        case off
+        /// On Wi-Fi or a wired connection.
+        case wifi
+        /// On cellular data and a Personal Hotspot too.
+        case always
+    }
+
+    /// The choices for video's streaming limit, as the Settings pickers show
+    /// them. A stored value that isn't one of them (from an older version)
+    /// counts as the default.
+    static let videoBitrateChoices: [(name: String, value: Int)] = [
+        ("Auto (120 Mbps)", 120_000_000),
+        ("60 Mbps", 60_000_000),
+        ("40 Mbps", 40_000_000),
+        ("20 Mbps", 20_000_000),
+        ("10 Mbps", 10_000_000),
+        ("4 Mbps", 4_000_000),
+    ]
+
+    /// Video's lower choices for cellular data; 0 is the same as on Wi-Fi.
+    static let cellularVideoBitrateChoices: [(name: String, value: Int)] = [
+        ("Same as Wi-Fi", 0),
+        ("20 Mbps", 20_000_000),
+        ("10 Mbps", 10_000_000),
+        ("8 Mbps", 8_000_000),
+        ("4 Mbps", 4_000_000),
+        ("2 Mbps", 2_000_000),
+        ("1 Mbps", 1_000_000),
+    ]
+
+    /// Music's choices, on Wi-Fi and on cellular; 0 plays songs as they are.
+    static let musicBitrateChoices: [(name: String, value: Int)] = [
+        ("Original (no conversion)", 0),
+        ("320 kbps", 320_000),
+        ("256 kbps", 256_000),
+        ("192 kbps", 192_000),
+        ("128 kbps", 128_000),
+    ]
+
+    /// A stored choice, or the default when nothing's stored or what's
+    /// stored isn't one of the choices.
+    private static func storedChoice(_ key: String, in choices: [(name: String, value: Int)], default fallback: Int) -> Int {
+        guard let stored = UserDefaults.standard.object(forKey: key) as? Int,
+              choices.contains(where: { $0.value == stored }) else { return fallback }
+        return stored
+    }
 
     static var gaplessMusic: Bool {
         UserDefaults.standard.object(forKey: gaplessMusicKey) as? Bool ?? true
     }
 
-    static var musicAhead: Bool {
-        UserDefaults.standard.object(forKey: musicAheadKey) as? Bool ?? true
+    static var musicAheadMode: MusicAheadMode {
+        UserDefaults.standard.string(forKey: musicAheadModeKey).flatMap(MusicAheadMode.init) ?? .wifi
     }
+
+    static var musicAhead: Bool { musicAheadMode != .off }
+
+    /// The streaming limit for songs and audiobooks right now: on iPhone and
+    /// iPad, the cellular choice while on cellular data. Original is the
+    /// highest limit there is, which the server takes as "as it is".
+    static var musicMaxBitrate: Int {
+        var choice = storedChoice(musicMaxBitrateKey, in: musicBitrateChoices, default: 0)
+        #if os(iOS)
+        if NetworkPath.shared.isCellular {
+            choice = storedChoice(musicCellularMaxBitrateKey, in: musicBitrateChoices, default: 0)
+        }
+        #endif
+        return choice > 0 ? choice : 120_000_000
+    }
+
+    /// Whether a song over the limit right now is converted down to it.
+    static var musicLimitsQuality: Bool { musicMaxBitrate < 120_000_000 }
 
     /// Whether the limit right now is a real one: a choice below Auto, or
     /// the cellular limit on cellular data. Then a file over it is converted
     /// down to it, rather than played as it is.
     static var limitsQuality: Bool { maxBitrate < 120_000_000 }
 
-    /// The streaming limit right now: on iPhone and iPad, the cellular one
-    /// while on cellular data. Read as each stream starts.
+    /// Video's streaming limit right now: on iPhone and iPad, the cellular
+    /// one while on cellular data. Read as each stream starts.
     static var maxBitrate: Int {
-        let stored = UserDefaults.standard.integer(forKey: maxBitrateKey)
-        let wifi = stored > 0 ? stored : 120_000_000
+        let wifi = storedChoice(maxBitrateKey, in: videoBitrateChoices, default: 120_000_000)
         #if os(iOS)
         if NetworkPath.shared.isCellular {
-            let cellular = UserDefaults.standard.object(forKey: cellularMaxBitrateKey) as? Int ?? defaultCellularMaxBitrate
+            let cellular = storedChoice(cellularMaxBitrateKey, in: cellularVideoBitrateChoices, default: defaultCellularMaxBitrate)
             return cellular > 0 ? min(cellular, wifi) : wifi
         }
         #endif

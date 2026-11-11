@@ -457,6 +457,8 @@ private struct PlaybackSettingsView: View {
     #if os(iOS)
     @AppStorage(AppSettings.listenAheadKey) private var listenAhead = 30
     #endif
+    @AppStorage(AppSettings.gaplessMusicKey) private var gaplessMusic = true
+    @AppStorage(AppSettings.musicAheadKey) private var musicAhead = true
     #if os(macOS)
     @AppStorage(AppSettings.fullScreenPlaybackKey) private var fullScreenPlayback = true
     @AppStorage(AppSettings.swapControllerButtonsKey) private var swapControllerButtons = false
@@ -526,6 +528,16 @@ private struct PlaybackSettingsView: View {
                 SettingsNote("Saves what's coming up in an audiobook as it plays, so it carries on through a spot with no signal. It's kept in the cache, and let go once heard. Downloaded books don't need it.")
             }
             #endif
+            Section {
+                Toggle("Gapless playback", isOn: $gaplessMusic)
+                    .onChange(of: gaplessMusic) { _, _ in session.music.musicSettingsChanged() }
+                Toggle("Save upcoming songs on Wi-Fi", isOn: $musicAhead)
+                    .onChange(of: musicAhead) { _, _ in session.music.musicSettingsChanged() }
+            } header: {
+                Text("Music")
+            } footer: {
+                SettingsNote("Gapless: the next song loads while one plays, so a live album or a mix runs on without a pause between tracks. Songs the server has to convert may still leave a short gap.\n\nSave upcoming songs: on Wi-Fi or a wired connection, the next five songs in the queue are saved as they come up, so they start at once and play on if the connection drops. Nothing is saved on cellular data, a Personal Hotspot or Low Data Mode. They're kept in the cache, and let go once heard.")
+            }
             #if os(macOS)
             Section("Window") {
                 Toggle("Play videos full screen", isOn: $fullScreenPlayback)

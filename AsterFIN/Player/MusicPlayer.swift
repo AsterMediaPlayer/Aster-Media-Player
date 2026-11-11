@@ -4,7 +4,10 @@
 //
 //  The app's one audio player: a queue of songs played through AVPlayer,
 //  with shuffle and repeat, progress reported to Jellyfin, and the system's
-//  Now Playing info and remote commands kept up to date.
+//  Now Playing info and remote commands kept up to date. With gapless on
+//  (Settings ▸ Playback ▸ Music), the next song waits in the player behind
+//  the one playing, so it follows without a gap; and the songs coming up
+//  are saved ahead on a good connection (`MusicAhead`).
 //
 
 import AVFoundation
@@ -71,11 +74,24 @@ final class MusicPlayer {
     /// The sound is decoded here and sent to an AirPlay speaker, never
     /// fetched by the speaker itself (a speaker reaching the server for the
     /// song, with its token, isn't wanted; see `AudiobookPlayer` too).
-    private let player: AVPlayer = {
-        let player = AVPlayer()
+    private let player: AVQueuePlayer = {
+        let player = AVQueuePlayer()
         player.allowsExternalPlayback = false
+        // As a plain AVPlayer: a song stops at its end unless one is lined up.
+        player.actionAtItemEnd = .pause
         return player
     }()
+    /// The next song, already in the player behind the one playing, so it
+    /// follows without a gap. Nil with gapless off, on a Sonos room, while
+    /// repeating one song, and after the last.
+    private struct LinedUp {
+        var index: Int
+        let id: String
+        let item: AVPlayerItem
+        let playSessionId: String
+    }
+    @ObservationIgnored private var linedUp: LinedUp?
+    @ObservationIgnored private var currentItemObservation: NSKeyValueObservation?
     private var client: JellyfinClient?
     /// The order songs were handed to us, kept so shuffle can be undone.
     private var originalOrder: [BaseItem] = []
@@ -141,6 +157,7 @@ final class MusicPlayer {
         #if os(iOS)
         if sonos != nil { sendQueueToSonos(at: currentTime, playing: isPlaying) }
         #endif
+        queueChanged()
     }
 
     /// Jumps to a song already in the queue.
@@ -272,6 +289,7 @@ final class MusicPlayer {
         // The room's queue follows the new order, from where it's got to.
         if sonos != nil { sendQueueToSonos(at: currentTime, playing: isPlaying) }
         #endif
+        queueChanged()
     }
 
     func cycleRepeat() {
@@ -282,6 +300,7 @@ final class MusicPlayer {
             sonosCommand { try await $0.setPlayMode(mode) }
         }
         #endif
+        queueChanged()
     }
 
     /// Stops and clears the queue, for example on sign-out.
@@ -294,7 +313,9 @@ final class MusicPlayer {
         #endif
         finishCurrent()
         removeObservers()
-        player.replaceCurrentItem(with: nil)
+        dropLinedUp()
+        player.removeAllItems()
+        MusicAhead.shared.clear()
         queue = []
         originalOrder = []
         index = 0
@@ -311,6 +332,7 @@ final class MusicPlayer {
 
     private func load() {
         removeObservers()
+        dropLinedUp()
         guard let client, let track = current else {
             isPlaying = false
             return
@@ -333,14 +355,129 @@ final class MusicPlayer {
         }
         #endif
         Self.activateAudioSession()
-        let url = client.universalAudioURL(itemId: track.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate)
-        let item = AVPlayerItem(url: url)
+        let item = makeItem(for: track, playSessionId: playSessionId, client: client)
         installObservers(for: item)
-        player.replaceCurrentItem(with: item)
+        watchForAdvance()
+        player.removeAllItems()
+        player.insert(item, after: nil)
         player.play()
         isPlaying = true
         publishNowPlaying(track)
         fetchLyrics(for: track, client: client)
+        saveAhead()
+    }
+
+    /// A song's player item: its saved file when `MusicAhead` has it, else
+    /// the stream.
+    private func makeItem(for track: BaseItem, playSessionId: String, client: JellyfinClient) -> AVPlayerItem {
+        if let file = MusicAhead.shared.savedFile(for: track.id) {
+            return AVPlayerItem(url: file)
+        }
+        return AVPlayerItem(url: client.universalAudioURL(itemId: track.id, playSessionId: playSessionId, maxBitrate: AppSettings.maxBitrate))
+    }
+
+    // MARK: Gapless and saving ahead
+
+    /// The place in the queue of the song after this one, as it'll play.
+    private var followingIndex: Int? {
+        guard repeatMode != .one, !queue.isEmpty else { return nil }
+        if index + 1 < queue.count { return index + 1 }
+        return repeatMode == .all ? 0 : nil
+    }
+
+    /// Puts the song after this one in the player behind it, so it follows
+    /// without a gap, or takes it out when gapless is off or nothing follows.
+    private func lineUpNext() {
+        #if os(iOS)
+        guard sonos == nil else { return dropLinedUp() }
+        #endif
+        // Moved on to the lined-up song already: `advanced(to:)` lines up the next.
+        if let linedUp, player.currentItem === linedUp.item { return }
+        guard AppSettings.gaplessMusic, let client, let playing = player.currentItem,
+              let next = followingIndex else { return dropLinedUp() }
+        let track = queue[next]
+        if linedUp?.id == track.id {
+            linedUp?.index = next
+            return
+        }
+        dropLinedUp()
+        let session = UUID().uuidString
+        let item = makeItem(for: track, playSessionId: session, client: client)
+        guard player.canInsert(item, after: playing) else { return }
+        player.insert(item, after: playing)
+        linedUp = LinedUp(index: next, id: track.id, item: item, playSessionId: session)
+        player.actionAtItemEnd = .advance
+        #if DEBUG
+        print("DEBUG music: lined up \(track.name ?? track.id)\(MusicAhead.shared.savedFile(for: track.id) != nil ? " (saved)" : "")")
+        #endif
+    }
+
+    private func dropLinedUp() {
+        if let linedUp, player.currentItem !== linedUp.item {
+            player.remove(linedUp.item)
+        }
+        linedUp = nil
+        player.actionAtItemEnd = .pause
+    }
+
+    /// Saves the songs coming up, on a good connection.
+    private func saveAhead() {
+        guard let client else { return }
+        #if os(iOS)
+        if sonos != nil { return }
+        #endif
+        let upcoming = Array(queue.dropFirst(index + 1).prefix(MusicAhead.songsAhead))
+        MusicAhead.shared.prepare(upcoming: upcoming, playing: current, client: client)
+    }
+
+    /// The queue's order or repeat changed: the song lined up, and those
+    /// saved ahead, follow it.
+    private func queueChanged() {
+        guard current != nil else { return }
+        lineUpNext()
+        saveAhead()
+    }
+
+    /// Settings ▸ Playback ▸ Music changed.
+    func musicSettingsChanged() {
+        if !AppSettings.musicAhead { MusicAhead.shared.clear() }
+        queueChanged()
+    }
+
+    /// Follows the player as it moves on to the lined-up song by itself.
+    private func watchForAdvance() {
+        guard currentItemObservation == nil else { return }
+        currentItemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
+            let item = player.currentItem
+            Task { @MainActor [weak self] in
+                self?.advanced(to: item)
+            }
+        }
+    }
+
+    /// The song before ended and the lined-up one took over without a gap:
+    /// the queue, reports, Now Playing and lyrics catch up with it.
+    private func advanced(to item: AVPlayerItem?) {
+        guard let next = linedUp, let item, item === next.item else { return }
+        #if DEBUG
+        print("DEBUG music: moved on to the lined-up song without a gap")
+        #endif
+        finishCurrent(endedAt: duration)
+        removeObservers()
+        linedUp = nil
+        player.actionAtItemEnd = .pause
+        index = next.index
+        guard let client, let track = current else { return }
+        playSessionId = next.playSessionId
+        hasStarted = false
+        currentTime = 0
+        duration = TimeInterval(track.runTimeTicks ?? 0) / 10_000_000
+        errorMessage = nil
+        installObservers(for: item)
+        isPlaying = true
+        publishNowPlaying(track)
+        fetchLyrics(for: track, client: client)
+        saveAhead()
     }
 
     private func fetchLyrics(for track: BaseItem, client: JellyfinClient) {
@@ -355,10 +492,11 @@ final class MusicPlayer {
 
     /// Reports the song that is ending so the server records it, without
     /// touching the queue.
-    private func finishCurrent() {
+    private func finishCurrent(endedAt end: TimeInterval? = nil) {
         guard hasStarted, let track = current else { return }
         hasStarted = false
-        let position = positionTicks
+        // Past its end the player is on the next song, so its own length.
+        let position = end.map { Int64($0 * 10_000_000) } ?? positionTicks
         let report = PlaybackReport(itemId: track.id, playSessionId: playSessionId, positionTicks: position, isPaused: true, playMethod: "DirectPlay")
         Task { await client?.reportStopped(report) }
     }
@@ -370,7 +508,10 @@ final class MusicPlayer {
         updateNowPlayingPlayback()
     }
 
-    private func trackEnded() {
+    private func trackEnded(_ ended: AVPlayerItem?) {
+        // A lined-up song follows by itself (see `advanced(to:)`), and the
+        // end of one the player has already moved on from is old news.
+        guard linedUp == nil, let ended, ended === player.currentItem else { return }
         if repeatMode == .one {
             seek(to: 0)
             player.play()
@@ -404,7 +545,8 @@ final class MusicPlayer {
     // MARK: Observing
 
     private func installObservers(for item: AVPlayerItem) {
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+        // Initial too: a lined-up song is often ready before it takes over.
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observed, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 switch observed.status {
@@ -421,6 +563,8 @@ final class MusicPlayer {
                         self.report(paused: false, start: true)
                         self.updateNowPlayingPlayback()
                     }
+                    // Playing: the next song can load behind it.
+                    self.lineUpNext()
                 case .failed:
                     #if DEBUG
                     // Debug builds only: the error can include the stream URL and its token.
@@ -435,9 +579,10 @@ final class MusicPlayer {
             }
         }
 
-        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] note in
+            let ended = note.object as? AVPlayerItem
             Task { @MainActor [weak self] in
-                self?.trackEnded()
+                self?.trackEnded(ended)
             }
         }
 
@@ -514,7 +659,8 @@ final class MusicPlayer {
             finishCurrent()
             player.pause()
             removeObservers()
-            player.replaceCurrentItem(with: nil)
+            dropLinedUp()
+            player.removeAllItems()
             sonosRoom = group
             sonos = SonosClient(speaker: group.coordinator)
             sendQueueToSonos(at: at, playing: true)

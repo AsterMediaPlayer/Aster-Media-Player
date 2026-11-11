@@ -1007,6 +1007,25 @@ nonisolated final class JellyfinClient: MediaServer {
         ])
     }
 
+    /// A song as one whole file, to save ahead (`MusicAhead`): the file
+    /// itself when it plays here as it is, else converted to MP3 in one
+    /// piece, rather than as HLS segments.
+    func audioFileURL(itemId: String, maxBitrate: Int) -> URL {
+        tokenURL("/Audio/\(itemId)/universal", query: [
+            "userId": userId,
+            "deviceId": JellyfinDevice.deviceId,
+            "playSessionId": UUID().uuidString,
+            "container": "mp3,aac,m4a|aac,m4b|aac,flac,alac,m4a|alac,wav,aiff",
+            "transcodingContainer": "mp3",
+            "transcodingProtocol": "http",
+            "audioCodec": "mp3",
+            "maxStreamingBitrate": String(maxBitrate),
+            "startTimeTicks": "0",
+            "enableRedirection": "true",
+            "enableRemoteMedia": "false",
+        ])
+    }
+
     func absoluteURL(serverRelative path: String) -> URL? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return nil }
         let relative = URLComponents(string: path)

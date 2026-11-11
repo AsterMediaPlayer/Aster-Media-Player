@@ -775,6 +775,20 @@ enum AppSettings {
     /// iPhone and iPad: minutes of an audiobook kept saved ahead of where
     /// it's playing (see `ListenAhead`); 0 for off. 30 by default.
     static let listenAheadKey = "AsterFIN.listenAhead"
+    /// Music: the next song waits in the player behind the one playing, so
+    /// it follows without a gap (best effort). On by default.
+    static let gaplessMusicKey = "AsterFIN.gaplessMusic"
+    /// Music: the next few songs in the queue are saved while on Wi-Fi or a
+    /// wired connection (see `MusicAhead`). On by default.
+    static let musicAheadKey = "AsterFIN.musicAhead"
+
+    static var gaplessMusic: Bool {
+        UserDefaults.standard.object(forKey: gaplessMusicKey) as? Bool ?? true
+    }
+
+    static var musicAhead: Bool {
+        UserDefaults.standard.object(forKey: musicAheadKey) as? Bool ?? true
+    }
 
     /// Whether the limit right now is a real one: a choice below Auto, or
     /// the cellular limit on cellular data. Then a file over it is converted

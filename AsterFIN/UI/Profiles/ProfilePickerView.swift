@@ -5,7 +5,8 @@
 //  "Who's watching?": the household's people as tiles. Picking one
 //  switches at once, or asks for their PIN first; the main screen then
 //  starts afresh as theirs. Shown as the app opens (when the household
-//  asks for it) and whenever someone asks to switch.
+//  asks for it) and whenever someone asks to switch. The main account
+//  can add someone from the end of the row.
 //
 
 import SwiftUI
@@ -16,6 +17,9 @@ struct ProfilePickerView: View {
     @Environment(AppSession.self) private var session
     @State private var model = ProfilePickerModel()
     @State private var pin = ""
+    @State private var isAdding = false
+
+    private var household: HouseholdProfiles { HouseholdProfiles.shared }
 
     var body: some View {
         ZStack {
@@ -82,6 +86,12 @@ struct ProfilePickerView: View {
         .task { await model.load(session: session, reason: reason) }
         // A wrong PIN is cleared, to type again.
         .onChange(of: model.errorAttempt) { _, _ in pin = "" }
+        // Adding someone: the form over the picker; the row then shows them.
+        .appCover(isPresented: $isAdding, onDismiss: {
+            Task { await model.reload(session: session) }
+        }) {
+            ProfileCreateView()
+        }
         #if os(tvOS) || os(macOS)
         // Back (Menu, or Esc on a Mac) leaves the PIN first, then the picker.
         .onExitCommand { goBack() }
@@ -110,6 +120,16 @@ struct ProfilePickerView: View {
                         isDimmed: model.isSwitching && !model.isSwitching(profile)
                     )
                     .padding(16)
+                }
+                .buttonStyle(ProfileTileButtonStyle())
+                .disabled(model.isSwitching)
+            }
+            if household.canCreateProfiles {
+                Button {
+                    isAdding = true
+                } label: {
+                    AddProfileTile(isDimmed: model.isSwitching)
+                        .padding(16)
                 }
                 .buttonStyle(ProfileTileButtonStyle())
                 .disabled(model.isSwitching)
@@ -157,6 +177,47 @@ struct ProfilePickerView: View {
         } else {
             session.dismissProfilePicker()
         }
+    }
+}
+
+/// The tile at the end of the row that adds someone: a plus in a ring.
+struct AddProfileTile: View {
+    var isDimmed = false
+    var size: CGFloat = ProfileLayout.tileSize
+
+    @Environment(\.isFocused) private var isFocused
+    @State private var isHovered = false
+
+    private var isLifted: Bool { isFocused || isHovered }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(isLifted ? 0.16 : 0.07))
+                Circle()
+                    .strokeBorder(.white.opacity(isLifted ? 0.9 : 0.35), style: StrokeStyle(lineWidth: isLifted ? 4 : 2.5, dash: isLifted ? [] : [size * 0.08, size * 0.06]))
+                Image(systemName: "plus")
+                    .font(.system(size: size * 0.4, weight: .light))
+                    .foregroundStyle(.white.opacity(isLifted ? 1 : 0.7))
+            }
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(isLifted ? 0.45 : 0), radius: 24, y: 12)
+            .scaleEffect(isLifted ? 1.08 : 1)
+            Text("Add Profile")
+                .font(ProfileLayout.nameFont)
+                .foregroundStyle(isLifted ? .primary : .secondary)
+                .lineLimit(1)
+        }
+        .frame(width: size * 1.4)
+        .opacity(isDimmed ? 0.35 : 1)
+        .animation(.easeOut(duration: 0.18), value: isLifted)
+        .animation(.easeInOut(duration: 0.25), value: isDimmed)
+        #if !os(tvOS)
+        .onHover { isHovered = $0 }
+        #endif
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Add a profile")
     }
 }
 
@@ -209,6 +270,13 @@ final class ProfilePickerModel {
         if reason == .launch, household.checked, household.provider == nil || profiles.count <= 1 {
             session.dismissProfilePicker()
         }
+    }
+
+    /// The household as the server has it now (someone was just added).
+    func reload(session: AppSession) async {
+        let household = HouseholdProfiles.shared
+        await household.refresh(session: session, force: true)
+        if household.provider != nil { profiles = household.profiles }
     }
 
     func pick(_ profile: HouseholdProfile, session: AppSession) async {

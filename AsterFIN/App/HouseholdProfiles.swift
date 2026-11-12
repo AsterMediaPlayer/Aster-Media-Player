@@ -3,9 +3,10 @@
 //  AsterFIN
 //
 //  The household of the server in use: whether it has profiles to switch
-//  between (Bonfire on Jellyfin, a Plex Home), who they are, and whether
-//  it asks who's watching on opening. Asked once after sign-in and again
-//  after a while, like the tracking plugin; cleared on switching server.
+//  between (Bonfire on Jellyfin, a Plex Home), who they are, whether it
+//  asks who's watching on opening, and whether the person signed in can
+//  add to it. Asked once after sign-in and again after a while, like the
+//  tracking plugin; cleared on switching server.
 //
 
 import Foundation
@@ -30,9 +31,18 @@ final class HouseholdProfiles {
 
     private static let cacheName = "household-profiles"
 
-    /// Someone else to switch to.
-    var isAvailable: Bool { provider != nil && profiles.count > 1 }
+    /// Something to open the picker for: someone else to switch to, or
+    /// room to add someone.
+    var isAvailable: Bool { provider != nil && (profiles.count > 1 || canCreateProfiles) }
     var current: HouseholdProfile? { profiles.first { $0.isCurrent } }
+    /// This household's main account.
+    var master: HouseholdProfile? { profiles.first { $0.isMaster && !$0.isOtherHousehold } }
+
+    /// The main account, signed in, on a service that makes profiles.
+    var canCreateProfiles: Bool {
+        guard provider?.creation != nil, let current, current.isMaster, !current.isOtherHousehold else { return false }
+        return true
+    }
 
     /// Asks the service what the household is. A server without one, or
     /// Emby, clears it.
@@ -48,7 +58,7 @@ final class HouseholdProfiles {
             self.owner = owner
         }
         if !force, checked, let checkedAt, Date().timeIntervalSince(checkedAt) < 30 * 60 { return }
-        guard let provider = Self.makeProvider(session: session) else {
+        guard let provider = self.provider ?? Self.makeProvider(session: session) else {
             clear()
             self.owner = owner
             checked = true
@@ -98,6 +108,31 @@ final class HouseholdProfiles {
         if owner == nil { owner = Self.owner(serverURL, userId) }
         self.provider = provider
         profiles = kept.value
+    }
+
+    // MARK: Making a profile
+
+    /// What the form offers, with the household's own rules: the main
+    /// account's PIN is asked when it has one, and how many more profiles
+    /// it may make.
+    func creationOptions() async -> ProfileCreationOptions {
+        guard let creation = provider?.creation else { return ProfileCreationOptions() }
+        var options = await creation.creationChoices()
+        options.asksMasterPin = master?.hasPin ?? false
+        if let limit = master?.maxProfiles {
+            let made = profiles.filter { !$0.isMaster && !$0.isOtherHousehold }.count
+            options.remaining = max(0, limit - made)
+        }
+        return options
+    }
+
+    /// Makes the profile and reads the household again, so it's there to
+    /// pick: its plain id.
+    func create(_ draft: ProfileDraft, session: AppSession) async throws -> String {
+        guard let creation = provider?.creation else { throw ProfileSwitchError.unavailable }
+        let id = try await creation.createProfile(draft)
+        await refresh(session: session, force: true)
+        return id
     }
 
     func clear() {

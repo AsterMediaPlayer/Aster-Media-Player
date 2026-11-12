@@ -2,13 +2,14 @@
 //  BonfireProfiles.swift
 //  AsterFIN
 //
-//  A Jellyfin server's household, through the Bonfire plugin.
+//  A Jellyfin server's household, through the Bonfire plugin: who's in
+//  it, switching, and making a new profile.
 //
 
 import Foundation
 
 @MainActor
-final class BonfireProfiles: ProfileProvider {
+final class BonfireProfiles: ProfileProvider, ProfileCreation {
     let client: BonfireClient
     let serverURL: URL
     let serverName: String?
@@ -22,6 +23,8 @@ final class BonfireProfiles: ProfileProvider {
         serverURL = jellyfin.baseURL
         self.serverName = serverName
     }
+
+    var creation: (any ProfileCreation)? { self }
 
     func askOnStartup() async throws -> Bool? {
         try await client.preferences().askOnStartup
@@ -49,6 +52,23 @@ final class BonfireProfiles: ProfileProvider {
             accessToken: result.activeProfileToken, serverKind: .jellyfin,
             household: profile.storedHousehold
         )
+    }
+
+    // MARK: Making a profile
+
+    /// All three at once; one that fails leaves its list empty rather than
+    /// holding the form up (no ratings is still a form).
+    func creationChoices() async -> ProfileCreationOptions {
+        async let avatars = try? client.avatars()
+        async let libraries = try? client.libraries()
+        async let ratings = try? client.ratings()
+        return ProfileCreationOptions(avatars: await avatars, libraries: await libraries, ratings: await ratings, client: client)
+    }
+
+    func createProfile(_ draft: ProfileDraft) async throws -> String {
+        let created = try await client.createProfile(BonfireCreateRequest(draft))
+        DebugLog.note("profiles", "Made profile \(created.profileName)")
+        return HouseholdProfile.plainId(created.profileUserId)
     }
 
     /// Which Bonfire this is, for the debug report; once per sign-in.
@@ -94,10 +114,44 @@ extension HouseholdProfile {
             hasPin: record.hasPin ?? false,
             isOtherHousehold: record.isBonfire ?? false,
             masterUserId: masterId,
+            maxProfiles: record.maxSubProfiles,
             storedHousehold: StoredHousehold(
                 masterUserId: masterId ?? plain, isMaster: isMaster,
                 avatarInitial: initial, avatarColor: color, profileImage: record.profileImage
             )
+        )
+    }
+}
+
+extension ProfileCreationOptions {
+    /// The server's lists as the form shows them: pictures by the plugin's
+    /// small route, ratings with their labels joined.
+    init(avatars: BonfireAvatarLibrary?, libraries: [BonfireLibrary]?, ratings: BonfireRatings?, client: BonfireClient) {
+        self.init(
+            avatars: (avatars?.avatars ?? []).map {
+                ProfileAvatarChoice(id: $0.id, name: $0.displayName ?? $0.id, url: client.avatarURL(id: $0.id))
+            },
+            libraries: (libraries ?? []).map { ProfileLibraryChoice(id: $0.id, name: $0.name, collectionType: $0.collectionType) },
+            ratings: (ratings?.ratings ?? [])
+                .sorted { $0.score < $1.score }
+                .map { ProfileRatingChoice(score: $0.score, label: $0.labels.joined(separator: " / ")) },
+            ratingCountry: ratings?.country
+        )
+    }
+}
+
+extension BonfireCreateRequest {
+    init(_ draft: ProfileDraft) {
+        let pin = draft.pin.isEmpty ? nil : draft.pin
+        self.init(
+            profileName: draft.trimmedName,
+            pin: pin,
+            avatarColor: draft.colorHex,
+            maxParentalRating: draft.ratingScore.map(String.init),
+            enabledFolders: draft.libraryIds.map { Array($0).sorted() },
+            masterPin: draft.masterPin.isEmpty ? nil : draft.masterPin,
+            avatarLibraryId: draft.avatarId,
+            bypassPinOnLocalNetwork: pin == nil ? nil : draft.bypassPinOnLocalNetwork
         )
     }
 }

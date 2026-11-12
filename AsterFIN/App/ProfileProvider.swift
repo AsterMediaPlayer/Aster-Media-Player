@@ -4,7 +4,8 @@
 //
 //  A household's profiles, wherever they come from: Bonfire on a Jellyfin
 //  server, or a Plex Home. The picker shows them the same way; each
-//  provider knows how to list its own and how to switch to one.
+//  provider knows how to list its own and how to switch to one, and some
+//  can make a new one.
 //
 
 import Foundation
@@ -33,6 +34,8 @@ nonisolated struct HouseholdProfile: Identifiable, Hashable, Sendable, Codable {
     /// A member of a linked household, not this one.
     var isOtherHousehold: Bool
     var masterUserId: String?
+    /// On the main account: how many profiles it may have.
+    var maxProfiles: Int?
     /// What the sign-in remembers about the household once switched to.
     var storedHousehold: StoredHousehold
 
@@ -66,6 +69,8 @@ nonisolated enum ProfileProviderKind: Sendable {
 @MainActor
 protocol ProfileProvider: AnyObject {
     var kind: ProfileProviderKind { get }
+    /// Makes new profiles, where the service can; nil where it can't.
+    var creation: (any ProfileCreation)? { get }
     /// Whether the household asks who's watching when the app opens; nil
     /// where the service has no such setting.
     func askOnStartup() async throws -> Bool?
@@ -75,6 +80,98 @@ protocol ProfileProvider: AnyObject {
     func verifyPin(_ pin: String, for profile: HouseholdProfile) async throws
     /// A fresh sign-in as `profile`, ready to switch to.
     func switchSession(to profile: HouseholdProfile, pin: String?) async throws -> StoredSession
+}
+
+extension ProfileProvider {
+    var creation: (any ProfileCreation)? { nil }
+}
+
+// MARK: - Making a profile
+
+/// A picture a new profile may have.
+nonisolated struct ProfileAvatarChoice: Identifiable, Hashable, Sendable {
+    var id: String
+    var name: String
+    var url: URL
+}
+
+nonisolated struct ProfileLibraryChoice: Identifiable, Hashable, Sendable {
+    var id: String
+    var name: String
+    var collectionType: String?
+}
+
+/// A rating limit: everything up to this age.
+nonisolated struct ProfileRatingChoice: Identifiable, Hashable, Sendable {
+    var score: Int
+    var label: String
+
+    var id: Int { score }
+}
+
+/// What the form offers: the pictures, libraries and ratings the server
+/// has, and what the household's rules add.
+nonisolated struct ProfileCreationOptions: Sendable, Equatable {
+    var avatars: [ProfileAvatarChoice] = []
+    var libraries: [ProfileLibraryChoice] = []
+    var ratings: [ProfileRatingChoice] = []
+    var ratingCountry: String?
+    /// The main account's own PIN is asked for before making a profile
+    /// (the account has one; the server may insist on it).
+    var asksMasterPin = false
+    /// How many more profiles the account may make; nil when not known.
+    var remaining: Int?
+}
+
+/// A new profile as it's filled in.
+nonisolated struct ProfileDraft: Sendable, Equatable {
+    var name = ""
+    var pin = ""
+    /// One of the offered pictures, or nil for the initial on the colour.
+    var avatarId: String?
+    var colorHex = Bonfire.defaultAvatarColor
+    /// Everything up to this rating; nil for no limit beyond the account's.
+    var ratingScore: Int?
+    /// The libraries it may see; nil for all the account has, now and later.
+    var libraryIds: Set<String>?
+    var masterPin = ""
+    /// A PIN that isn't asked on the home network.
+    var bypassPinOnLocalNetwork = false
+
+    /// The colours offered for the initial's tile.
+    static let colors = ["#00A4DC", "#1F77B4", "#30A46C", "#FFB224", "#F76B15", "#E5484D", "#E93D82", "#8E4EC6"]
+
+    var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    var initial: String { String(trimmedName.prefix(1)).uppercased() }
+
+    /// What the server would turn down, said before it's asked (its rules:
+    /// the name's length and letters, the PIN's digits); nil when it's fine.
+    func validationMessage(confirmPin: String) -> String? {
+        let name = trimmedName
+        if name.isEmpty { return "Enter a name for the profile." }
+        if name.count > Bonfire.maxProfileNameLength { return "A profile name can be at most \(Bonfire.maxProfileNameLength) characters." }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-'._@+ "))
+        if name.unicodeScalars.contains(where: { !allowed.contains($0) }) {
+            return "A profile name can use letters, numbers, spaces and - ' . _ @ +."
+        }
+        if !pin.isEmpty {
+            if !Bonfire.pinLengths.contains(pin.count) || !pin.allSatisfy({ $0.isASCII && $0.isNumber }) {
+                return "A PIN is 4 to 8 digits."
+            }
+            if confirmPin != pin { return "The PINs don't match." }
+        }
+        return nil
+    }
+}
+
+/// Makes a profile in the household.
+@MainActor
+protocol ProfileCreation: AnyObject {
+    /// The pictures, libraries and ratings to offer. Each list is empty
+    /// when the server can't say.
+    func creationChoices() async -> ProfileCreationOptions
+    /// Makes the profile: its plain id.
+    func createProfile(_ draft: ProfileDraft) async throws -> String
 }
 
 nonisolated enum ProfileSwitchError: LocalizedError, Sendable, Equatable {

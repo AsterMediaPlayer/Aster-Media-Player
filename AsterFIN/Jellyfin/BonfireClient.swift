@@ -3,9 +3,9 @@
 //  AsterFIN
 //
 //  The Bonfire (JellyProfiles) plugin's routes: a household's profiles,
-//  switching to one (with its PIN), and the household's preferences. The
-//  plugin answers at /plugins/profiles on the server, with the ordinary
-//  sign-in header; a server without it answers 404.
+//  switching to one (with its PIN), making a new one, and the household's
+//  preferences. The plugin answers at /plugins/profiles on the server,
+//  with the ordinary sign-in header; a server without it answers 404.
 //
 
 import Foundation
@@ -17,6 +17,11 @@ nonisolated enum Bonfire {
     static let defaultAvatarColor = "#00A4DC"
     /// From 1.9: a code naming what went wrong, beside the plain-text body.
     static let errorHeader = "X-Bonfire-Error"
+    /// A profile's name: up to this many of letters, numbers, spaces and
+    /// - ' . _ @ + (the plugin's own rule).
+    static let maxProfileNameLength = 32
+    /// A PIN: four to eight digits.
+    static let pinLengths = 4...8
 
     /// The plugin writes its keys in camelCase in its own pages and
     /// PascalCase through Jellyfin's default serializer: the first letter
@@ -54,6 +59,8 @@ nonisolated struct BonfireProfileRecord: Codable, Sendable, Equatable {
     var masterUserId: String?
     var lockoutMinutes: Int?
     var bypassPinOnLocalNetwork: Bool?
+    /// On the main account's entry: how many profiles it may have.
+    var maxSubProfiles: Int?
 }
 
 /// The household's switcher preferences, read from the main account.
@@ -93,6 +100,62 @@ nonisolated struct BonfireInfo: Codable, Sendable, Equatable {
     var disabled: Bool?
     var features: Features?
     var maintenance: Maintenance?
+}
+
+/// A library the main account can see, which a profile may be given.
+nonisolated struct BonfireLibrary: Codable, Sendable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var collectionType: String?
+}
+
+/// One step of the server's rating system: an age, and the labels that
+/// mean it ("12", "12A").
+nonisolated struct BonfireRatingChoice: Codable, Sendable, Equatable {
+    var score: Int
+    var labels: [String]
+}
+
+nonisolated struct BonfireRatings: Codable, Sendable, Equatable {
+    var country: String?
+    var ratings: [BonfireRatingChoice]
+}
+
+/// A picture to pick for a profile: one the administrator uploaded, or
+/// one of the plugin's own set.
+nonisolated struct BonfireAvatar: Codable, Sendable, Equatable, Identifiable {
+    var id: String
+    var displayName: String?
+    var url: String?
+    var thumbUrl: String?
+    var isStarter: Bool?
+}
+
+nonisolated struct BonfireAvatarLibrary: Codable, Sendable, Equatable {
+    var allowCustomUploads: Bool?
+    var starterAvatarsEnabled: Bool?
+    var avatars: [BonfireAvatar]
+}
+
+/// A new profile, as the plugin takes it. Keys are read without regard to
+/// case on the server; anything nil is left out.
+nonisolated struct BonfireCreateRequest: Encodable, Sendable, Equatable {
+    var profileName: String
+    var pin: String?
+    var avatarColor: String
+    /// The rating's score, as text.
+    var maxParentalRating: String?
+    /// Nil for every library the main account has, now and later.
+    var enabledFolders: [String]?
+    var masterPin: String?
+    /// One of the plugin's avatars, copied to the profile.
+    var avatarLibraryId: String?
+    var bypassPinOnLocalNetwork: Bool?
+}
+
+nonisolated struct BonfireCreatedProfile: Codable, Sendable, Equatable {
+    var profileUserId: String
+    var profileName: String
 }
 
 nonisolated struct BonfireClient: Sendable {
@@ -152,13 +215,46 @@ nonisolated struct BonfireClient: Sendable {
         try Self.check(answer, pinSent: true)
     }
 
+    // MARK: Making a profile
+
+    /// The libraries the signed-in account can see.
+    func libraries() async throws -> [BonfireLibrary] {
+        let answer = try await send("/libraries")
+        try Self.check(answer, pinSent: false)
+        return try Bonfire.decoder.decode([BonfireLibrary].self, from: answer.data)
+    }
+
+    /// The rating limits the server offers, in its metadata country.
+    func ratings() async throws -> BonfireRatings {
+        let answer = try await send("/ratings")
+        try Self.check(answer, pinSent: false)
+        return try Bonfire.decoder.decode(BonfireRatings.self, from: answer.data)
+    }
+
+    /// The pictures a profile may pick from.
+    func avatars() async throws -> BonfireAvatarLibrary {
+        let answer = try await send("/avatars")
+        try Self.check(answer, pinSent: false)
+        return try Bonfire.decoder.decode(BonfireAvatarLibrary.self, from: answer.data)
+    }
+
+    /// Makes a profile under the signed-in main account. The server's
+    /// refusals come back as `ProfileSwitchError.failed` with its words
+    /// ("A profile with this name already exists.").
+    func createProfile(_ request: BonfireCreateRequest) async throws -> BonfireCreatedProfile {
+        let answer = try await send("/create", method: "POST", body: request)
+        try Self.check(answer, pinSent: false)
+        return try Bonfire.decoder.decode(BonfireCreatedProfile.self, from: answer.data)
+    }
+
     /// A profile's stored picture, small; 404 without one. Anyone can read it.
     func imageURL(profileUserId: String) -> URL {
         jellyfin.url(Bonfire.basePath + "/image/" + profileUserId, query: ["size": "thumb"])
     }
 
-    /// One of the plugin's own avatars, small.
-    func starterAvatarURL(_ id: String) -> URL {
+    /// One of the plugin's avatars (its own set, or the administrator's),
+    /// small. Anyone can read it.
+    func avatarURL(id: String) -> URL {
         jellyfin.url(Bonfire.basePath + "/avatars/" + id, query: ["size": "thumb"])
     }
 

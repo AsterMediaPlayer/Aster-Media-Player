@@ -145,6 +145,8 @@ nonisolated struct StoredHousehold: Codable, Sendable, Hashable {
     /// Bonfire's own picture value (an avatar's id, a URL, or a stored
     /// file's name); nil without one.
     var profileImage: String?
+    /// Whether the profile has a PIN, which locking asks for.
+    var hasPin: Bool?
 }
 
 /// What a Plex sign-in keeps beyond the server's own token: the plex.tv
@@ -186,7 +188,7 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     var lockAfterMinutes: Int?
 
     /// The lock-after choices offered, in minutes.
-    static let lockChoices = [5, 15, 30, 60, 240]
+    static let lockChoices = [1, 5, 15, 30, 60, 240]
 
     /// What switching and Lock After ask for: the user's password on the
     /// server, or a Plex Home profile's or a Bonfire profile's PIN.
@@ -200,10 +202,18 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     /// password on the server is its PIN.
     var isHouseholdProfile: Bool { session.household?.isMaster == false }
 
-    /// Whether there's anything to ask for: a Plex profile without a PIN
-    /// can't be locked.
+    /// Whether there's anything to ask for: a Plex Home profile or a
+    /// household profile without a PIN can't be locked.
     var canBeLocked: Bool {
-        session.kind != .plex || (session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil)
+        if session.kind == .plex { return session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil }
+        if isHouseholdProfile { return session.household?.hasPin == true }
+        return true
+    }
+
+    /// A household profile with a PIN and a lock asks for the PIN as the
+    /// app opens too, not only after time away.
+    var locksOnOpening: Bool {
+        isHouseholdProfile && canBeLocked && lockAfterMinutes != nil
     }
 
     /// Whether a new Lock After lets more past the lock than the one set:

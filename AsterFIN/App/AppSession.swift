@@ -463,6 +463,11 @@ final class AppSession {
             if ProfileGate.shouldAsk(stored: stored, mode: AppSettings.profileGate, cachedAskOnStartup: cached) {
                 profilePicker = .launch
             }
+            // A profile with a PIN and a lock asks for it on opening, whether
+            // or not the app was seen leaving (a restart, a force quit).
+            if let server = savedServers.first(where: { $0.id == currentServerID }), server.locksOnOpening {
+                isLocked = true
+            }
         } else if let saved = UserDefaults.standard.url(forKey: "AsterFIN.serverURL") {
             serverURL = saved
             serverName = UserDefaults.standard.string(forKey: "AsterFIN.serverName")
@@ -549,6 +554,18 @@ final class AppSession {
             if let token = switched.authToken { link.accountToken = token }
             var fresh = session
             fresh.plex = link
+            return fresh
+        }
+        // A household profile: its PIN, checked by the plugin by switching
+        // to itself, which gives a fresh token too (the server ends the one
+        // in use on this device).
+        if saved.isHouseholdProfile {
+            guard !password.isEmpty else { throw ProfileSwitchError.pinNeeded }
+            let jellyfin = JellyfinClient(baseURL: session.serverURL, accessToken: session.accessToken, userId: session.userId, kind: session.kind)
+            let result = try await BonfireClient(jellyfin: jellyfin).switchProfile(id: session.userId, pin: password)
+            var fresh = session
+            fresh.userId = HouseholdProfile.plainId(result.jellyfinUserId)
+            fresh.accessToken = result.activeProfileToken
             return fresh
         }
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)

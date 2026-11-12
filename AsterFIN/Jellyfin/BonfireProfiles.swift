@@ -151,7 +151,8 @@ extension HouseholdProfile {
             bypassPinOnLocalNetwork: record.bypassPinOnLocalNetwork,
             storedHousehold: StoredHousehold(
                 masterUserId: masterId ?? plain, isMaster: isMaster,
-                avatarInitial: initial, avatarColor: color, profileImage: record.profileImage
+                avatarInitial: initial, avatarColor: color, profileImage: record.profileImage,
+                hasPin: record.hasPin ?? false
             )
         )
     }

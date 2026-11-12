@@ -85,6 +85,42 @@ struct ProfileGateTests {
         #expect(SavedServer(session: plain).credentialName == "password")
     }
 
+    /// Only a profile with a PIN can be locked; with a lock set it asks on
+    /// opening too. The main account and an ordinary sign-in lock with their
+    /// password, after time away only.
+    @Test func aProfileLocksWithItsPinAndOnOpening() throws {
+        var withPin = inHousehold
+        withPin.household?.hasPin = true
+        var locked = SavedServer(session: withPin)
+        #expect(locked.canBeLocked)
+        #expect(!locked.locksOnOpening)
+        locked.lockAfterMinutes = 1
+        #expect(locked.locksOnOpening)
+
+        // No PIN: nothing to ask for.
+        var noPin = inHousehold
+        noPin.household?.hasPin = false
+        let open = SavedServer(session: noPin, lockAfterMinutes: 5)
+        #expect(!open.canBeLocked)
+        #expect(!open.locksOnOpening)
+        // Saved before the PIN was kept: not locked until the household is read again.
+        #expect(!SavedServer(session: inHousehold, lockAfterMinutes: 5).canBeLocked)
+
+        var master = withPin
+        master.household?.isMaster = true
+        let main = SavedServer(session: master, lockAfterMinutes: 5)
+        #expect(main.canBeLocked && !main.locksOnOpening)
+        #expect(SavedServer(session: plain, lockAfterMinutes: 5).canBeLocked)
+        #expect(!SavedServer(session: plain, lockAfterMinutes: 5).locksOnOpening)
+
+        // The flag survives a round trip, and an older household reads as unknown.
+        let decoded = try JSONDecoder().decode(StoredSession.self, from: JSONEncoder().encode(withPin))
+        #expect(decoded.household?.hasPin == true)
+        let older = try JSONDecoder().decode(StoredHousehold.self, from: Data(#"{"masterUserId":"m","isMaster":false}"#.utf8))
+        #expect(older.hasPin == nil)
+        #expect(SavedServer.lockChoices.first == 1)
+    }
+
     @MainActor @Test func theHouseholdsPreferenceIsKeptPerHousehold() {
         let defaults = UserDefaults(suiteName: "ProfileGateTests-\(UUID().uuidString)")!
         let key = inHousehold.householdKey!

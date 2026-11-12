@@ -3,7 +3,8 @@
 //  AsterFIN
 //
 //  Switching between the servers signed in to: a row per server, and the
-//  password a server asks for before switching, when it's set to.
+//  password a server asks for before switching, when it's set to. A
+//  household profile's "password" is its PIN, typed on the PIN pad.
 //
 
 import SwiftUI
@@ -111,8 +112,69 @@ extension View {
     }
 }
 
-/// The user's own password for the server (a Plex profile's PIN), checked
-/// by the server, before switching to it or loosening its lock.
+/// The field a credential is typed in: the PIN pad for a household
+/// profile, a secure field for a password or a Plex Home PIN.
+private struct CredentialEntry: View {
+    let server: SavedServer
+    @Binding var text: String
+    var errorAttempt: Int
+    var isChecking: Bool
+    var onSubmit: () -> Void
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if server.isHouseholdProfile {
+            PinCodeEntry(pin: $text, errorAttempt: errorAttempt, isDisabled: isChecking, onSubmit: onSubmit)
+        } else {
+            SecureField(server.credentialName.capitalized, text: $text)
+                .credentialField(isPin: server.session.kind == .plex)
+                .onboardingField()
+                .frame(maxWidth: Onboarding.credentialsWidth)
+                .focused($focused)
+                // tvOS's keyboard can submit before the field has the last
+                // key typed: nothing is checked until there's something to check.
+                .onSubmit { if !text.isEmpty { onSubmit() } }
+                .task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    focused = true
+                }
+        }
+    }
+
+    /// Whether what's typed is worth sending: any password, or a whole PIN.
+    static func isReady(_ text: String, for server: SavedServer) -> Bool {
+        server.isHouseholdProfile ? PinCode.isComplete(text) : !text.isEmpty
+    }
+}
+
+/// A household profile's picture, for the lock screen and the sheet.
+private struct HouseholdProfileHeader: View {
+    let server: SavedServer
+    var size: CGFloat
+
+    var body: some View {
+        if let household = server.session.household {
+            ProfileAvatarView(
+                initial: household.avatarInitial ?? String(server.session.userName.prefix(1)).uppercased(),
+                colorHex: household.avatarColor ?? Bonfire.defaultAvatarColor,
+                imageURL: Self.imageURL(for: server.session, household: household),
+                size: size
+            )
+        }
+    }
+
+    /// As `HouseholdProfile` finds it: a web address as it is, anything
+    /// else through the plugin's image route.
+    private static func imageURL(for session: StoredSession, household: StoredHousehold) -> URL? {
+        guard let image = household.profileImage, !image.isEmpty else { return nil }
+        if image.lowercased().hasPrefix("http://") || image.lowercased().hasPrefix("https://") { return URL(string: image) }
+        return BonfireClient(jellyfin: JellyfinClient(baseURL: session.serverURL, kind: session.kind)).imageURL(profileUserId: session.userId)
+    }
+}
+
+/// The user's own password for the server (a profile's PIN), checked by
+/// the server, before switching to it or loosening its lock.
 private struct ServerPasswordSheet: View {
     let server: SavedServer
     let message: String
@@ -125,23 +187,17 @@ private struct ServerPasswordSheet: View {
     @State private var password = ""
     @State private var isChecking = false
     @State private var errorMessage: String?
-    @FocusState private var focused: Bool
+    @State private var errorAttempt = 0
 
     var body: some View {
         VStack(spacing: Onboarding.controlSpacing) {
+            HouseholdProfileHeader(server: server, size: 72)
             Text(server.session.serverName ?? "Server")
                 .font(.title2.weight(.bold))
             Text(message)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            SecureField(server.credentialName.capitalized, text: $password)
-                .credentialField(isPin: server.session.kind == .plex)
-                .onboardingField()
-                .frame(maxWidth: Onboarding.credentialsWidth)
-                .focused($focused)
-                // tvOS's keyboard can submit before the field has the last
-                // key typed: nothing is checked until there's something to check.
-                .onSubmit { if !password.isEmpty { check() } }
+            CredentialEntry(server: server, text: $password, errorAttempt: errorAttempt, isChecking: isChecking, onSubmit: check)
             HStack(spacing: 24) {
                 Button {
                     check()
@@ -152,7 +208,7 @@ private struct ServerPasswordSheet: View {
                     }
                 }
                 .onboardingPrimaryButton()
-                .disabled(isChecking || password.isEmpty)
+                .disabled(isChecking || !CredentialEntry.isReady(password, for: server))
                 Button("Cancel", role: .cancel) { dismiss() }
                     .onboardingSecondaryButton()
             }
@@ -161,17 +217,14 @@ private struct ServerPasswordSheet: View {
                     .foregroundStyle(.red)
                     .font(.callout)
                     .multilineTextAlignment(.center)
+                    .id(errorAttempt)
             }
         }
         .padding(40)
-        .task {
-            try? await Task.sleep(for: .milliseconds(350))
-            focused = true
-        }
     }
 
     private func check() {
-        guard !isChecking else { return }
+        guard !isChecking, CredentialEntry.isReady(password, for: server) else { return }
         isChecking = true
         errorMessage = nil
         Task {
@@ -181,19 +234,23 @@ private struct ServerPasswordSheet: View {
                 dismiss()
                 onSuccess(fresh)
             } catch {
+                errorAttempt += 1
                 errorMessage = Self.message(for: error, server: server)
+                if server.isHouseholdProfile { password = "" }
             }
         }
     }
 
     static func message(for error: any Error, server: SavedServer) -> String {
         if let plex = error as? PlexError { return plex.localizedDescription }
+        if let profile = error as? ProfileSwitchError { return profile.localizedDescription }
         return "That \(server.credentialName) didn't work. \(error.localizedDescription)"
     }
 }
 
-/// The server in use after the app was away longer than its lock-after:
-/// the user's password (checked by the server) to carry on, or another server.
+/// The server in use after the app was away longer than its lock-after (or
+/// as it opens, for a profile with a PIN): the user's password or PIN,
+/// checked by the server, to carry on, or another server.
 struct ServerLockView: View {
     let server: SavedServer
 
@@ -201,7 +258,13 @@ struct ServerLockView: View {
     @State private var password = ""
     @State private var isChecking = false
     @State private var errorMessage: String?
-    @FocusState private var focused: Bool
+    @State private var errorAttempt = 0
+
+    #if os(tvOS)
+    private static let avatarSize: CGFloat = 110
+    #else
+    private static let avatarSize: CGFloat = 72
+    #endif
 
     var body: some View {
         ZStack {
@@ -209,55 +272,62 @@ struct ServerLockView: View {
             OnboardingLayout {
                 VStack(spacing: Onboarding.sectionSpacing) {
                     VStack(spacing: 12) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: Onboarding.logoSize * 0.7))
-                            .foregroundStyle(.secondary)
-                        Text(server.session.serverName ?? "Server")
-                            .font(.system(size: Onboarding.serverNameSize, weight: .bold))
-                        Text("Enter \(server.session.userName)'s \(server.credentialName) to carry on.")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        if server.isHouseholdProfile {
+                            HouseholdProfileHeader(server: server, size: Self.avatarSize)
+                            Text(server.session.userName)
+                                .font(.system(size: Onboarding.serverNameSize, weight: .bold))
+                            Text("Enter your PIN to carry on.")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: Onboarding.logoSize * 0.7))
+                                .foregroundStyle(.secondary)
+                            Text(server.session.serverName ?? "Server")
+                                .font(.system(size: Onboarding.serverNameSize, weight: .bold))
+                            Text("Enter \(server.session.userName)'s \(server.credentialName) to carry on.")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     VStack(spacing: Onboarding.controlSpacing) {
-                        SecureField(server.credentialName.capitalized, text: $password)
-                            .credentialField(isPin: server.session.kind == .plex)
-                            .onboardingField()
-                            .frame(maxWidth: Onboarding.credentialsWidth)
-                            .focused($focused)
-                            .onSubmit { if !password.isEmpty { check() } }
-                        Button {
-                            check()
-                        } label: {
-                            HStack {
-                                if isChecking { ProgressView().controlSize(.small) }
-                                Text("Unlock")
-                            }
-                            .frame(maxWidth: Onboarding.signInButtonWidth)
-                        }
-                        .onboardingPrimaryButton()
-                        .disabled(isChecking || password.isEmpty)
-                        Button("Use Another Server") { session.changeServer() }
-                            .onboardingSecondaryButton()
+                        CredentialEntry(server: server, text: $password, errorAttempt: errorAttempt, isChecking: isChecking, onSubmit: check)
                         if let errorMessage {
                             Text(errorMessage)
                                 .foregroundStyle(.red)
-                                .font(.callout)
+                                .font(.callout.weight(.semibold))
                                 .multilineTextAlignment(.center)
+                                .id(errorAttempt)
                         }
+                        HStack(spacing: 24) {
+                            Button {
+                                check()
+                            } label: {
+                                HStack {
+                                    if isChecking { ProgressView().controlSize(.small) }
+                                    Text("Unlock")
+                                }
+                                .frame(maxWidth: Onboarding.signInButtonWidth)
+                            }
+                            .onboardingPrimaryButton()
+                            .disabled(isChecking || !CredentialEntry.isReady(password, for: server))
+                            Button("Use Another Server") { session.changeServer() }
+                                .onboardingSecondaryButton()
+                        }
+                        .tvFocusSection()
                     }
                     .frame(maxWidth: .infinity)
                     .tvFocusSection()
                 }
+                #if os(tvOS)
+                .padding(.vertical, 60)
+                #endif
             }
-        }
-        .task {
-            try? await Task.sleep(for: .milliseconds(350))
-            focused = true
         }
     }
 
     private func check() {
-        guard !isChecking else { return }
+        guard !isChecking, CredentialEntry.isReady(password, for: server) else { return }
         isChecking = true
         errorMessage = nil
         Task {
@@ -265,7 +335,9 @@ struct ServerLockView: View {
             do {
                 session.unlock(with: try await session.signInAgain(to: server, password: password))
             } catch {
+                errorAttempt += 1
                 errorMessage = ServerPasswordSheet.message(for: error, server: server)
+                if server.isHouseholdProfile { password = "" }
             }
         }
     }

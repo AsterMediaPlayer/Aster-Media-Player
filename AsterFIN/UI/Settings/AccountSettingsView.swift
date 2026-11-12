@@ -13,6 +13,7 @@ struct AccountSettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var serverInfo: PublicSystemInfo?
     @AppStorage(AppSettings.profileGateKey) private var profileGate = ProfileGateMode.server
+    @State private var credentialRequest: ServerCredentialRequest?
 
     private var household: HouseholdProfiles { HouseholdProfiles.shared }
 
@@ -27,6 +28,11 @@ struct AccountSettingsView: View {
         household.provider?.kind == .bonfire
             ? "Whether Aster asks who's watching as it opens. As the Server Is Set follows the household's Ask on startup setting in Bonfire, as Jellyfin's own apps do."
             : "Whether Aster asks who's watching as it opens, like Plex's own apps."
+    }
+
+    private var lockNote: String {
+        guard let current = session.currentServer, current.isHouseholdProfile, current.canBeLocked else { return "" }
+        return " With Ask for PIN After set, \(current.session.userName)'s PIN is asked when Aster opens, and after that long away from it."
     }
 
     var body: some View {
@@ -49,10 +55,38 @@ struct AccountSettingsView: View {
             if household.provider != nil {
                 Section {
                     SettingsChoiceRow(title: "Ask on Opening", options: gateOptions, selection: $profileGate)
+                    // A profile with a PIN: how long away before it's asked
+                    // again (and on opening). The same lock as a server's,
+                    // on the sign-in in use.
+                    if let current = session.currentServer, current.isHouseholdProfile, current.canBeLocked {
+                        #if os(macOS)
+                        SettingsChoiceRow(
+                            title: "Ask for PIN After",
+                            options: [(0, "Never")] + SavedServer.lockChoices.map { ($0, SavedServerPage.lockTitle($0)) },
+                            selection: Binding(
+                                get: { current.lockAfterMinutes ?? 0 },
+                                set: { choice in
+                                    let minutes = choice > 0 ? choice : nil
+                                    guard current.loosens(lockAfter: minutes) else {
+                                        session.setLockAfter(minutes, for: current.id)
+                                        return
+                                    }
+                                    credentialRequest = ServerCredentialRequest(
+                                        server: current, purpose: "change when the PIN is asked", buttonTitle: "Change"
+                                    ) { session.setLockAfter(minutes, for: current.id) }
+                                }
+                            )
+                        )
+                        #else
+                        NavigationLink(value: SettingsDestination.lockAfter(current.id)) {
+                            LabeledContent("Ask for PIN After", value: SavedServerPage.lockTitle(current.lockAfterMinutes ?? 0))
+                        }
+                        #endif
+                    }
                 } header: {
                     Text("Who's Watching")
                 } footer: {
-                    SettingsNote(gateNote)
+                    SettingsNote(gateNote + lockNote)
                 }
             }
             Section {
@@ -71,6 +105,7 @@ struct AccountSettingsView: View {
         .task {
             serverInfo = try? await session.jellyfin?.publicSystemInfo()
         }
+        .serverCredentialCheck(request: $credentialRequest)
     }
 }
 

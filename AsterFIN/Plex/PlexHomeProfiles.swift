@@ -89,7 +89,7 @@ extension HouseholdProfile {
             masterUserId: nil,
             storedHousehold: StoredHousehold(masterUserId: link.machineId, isMaster: user.admin ?? false,
                                              avatarInitial: String(user.title.prefix(1)).uppercased(),
-                                             avatarColor: Self.plexColor, profileImage: user.thumb)
+                                             avatarColor: Self.plexColor, profileImage: user.thumb, hasPin: hasPin)
         )
     }
 }

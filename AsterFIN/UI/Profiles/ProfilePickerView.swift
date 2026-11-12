@@ -52,7 +52,12 @@ struct ProfilePickerView: View {
                         }
                     }
 
-                    if model.profiles.isEmpty {
+                    // While a PIN is typed the row steps aside for the one
+                    // profile (its picture heads the pad): on Apple TV there's
+                    // no scrolling, and tiles, boxes and keypad don't all fit.
+                    if case .enteringPin = model.stage {
+                        EmptyView()
+                    } else if model.profiles.isEmpty {
                         if model.isLoading {
                             ProgressView()
                         } else if let loadError = model.loadError {
@@ -63,6 +68,7 @@ struct ProfilePickerView: View {
                         }
                     } else {
                         tiles
+                            .transition(.opacity)
                     }
 
                     if case .enteringPin(let profile) = model.stage {

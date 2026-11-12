@@ -100,13 +100,13 @@ struct PinCodeEntry: View {
 
     #if os(tvOS)
     private var keypad: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: PinCode.keySpacing) {
             ForEach([["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]], id: \.self) { row in
-                HStack(spacing: 16) {
+                HStack(spacing: PinCode.keySpacing) {
                     ForEach(row, id: \.self) { digit in key(digit) { type(digit) } }
                 }
             }
-            HStack(spacing: 16) {
+            HStack(spacing: PinCode.keySpacing) {
                 key("delete", systemImage: "delete.left") { backspace() }
                     .disabled(pin.isEmpty)
                 key("0") { type("0") }
@@ -279,14 +279,18 @@ enum PinCode {
         Bonfire.pinLengths.contains(pin.count)
     }
 
+    // Apple TV: the picture, the boxes, four rows of keys and the buttons
+    // must all fit a 1080-point screen with its margins, so the keys are
+    // kept to what a remote needs.
     #if os(tvOS)
-    static let boxWidth: CGFloat = 72
-    static let boxHeight: CGFloat = 88
-    static let boxCorner: CGFloat = 16
-    static let boxSpacing: CGFloat = 18
-    static let padSpacing: CGFloat = 36
-    static let keyWidth: CGFloat = 140
-    static let keyHeight: CGFloat = 72
+    static let boxWidth: CGFloat = 64
+    static let boxHeight: CGFloat = 80
+    static let boxCorner: CGFloat = 14
+    static let boxSpacing: CGFloat = 16
+    static let padSpacing: CGFloat = 28
+    static let keyWidth: CGFloat = 128
+    static let keyHeight: CGFloat = 62
+    static let keySpacing: CGFloat = 12
     #else
     static let boxWidth: CGFloat = 44
     static let boxHeight: CGFloat = 56
@@ -295,6 +299,7 @@ enum PinCode {
     static let padSpacing: CGFloat = 20
     static let keyWidth: CGFloat = 0
     static let keyHeight: CGFloat = 0
+    static let keySpacing: CGFloat = 0
     #endif
     static let compactBoxWidth: CGFloat = 36
     static let compactBoxHeight: CGFloat = 46

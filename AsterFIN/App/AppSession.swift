@@ -7,6 +7,9 @@
 
 import Foundation
 import Observation
+#if os(tvOS)
+import TVServices
+#endif
 
 @Observable
 final class AppSession {
@@ -53,6 +56,53 @@ final class AppSession {
     var plexAccountToken: String? { plexLink?.accountToken }
     private(set) var userName: String?
     private(set) var userId: String?
+
+    /// The "Who's watching?" screen showing, and why; nil when it isn't.
+    private(set) var profilePicker: ProfilePickerReason?
+
+    /// Whether the server in use has a household to switch between (Bonfire
+    /// profiles on Jellyfin, a Plex Home).
+    var hasProfiles: Bool { HouseholdProfiles.shared.isAvailable }
+
+    /// Asks who's watching, over the main screen.
+    func presentProfilePicker() {
+        guard phase == .signedIn, hasProfiles else { return }
+        profilePicker = .switcher
+    }
+
+    func dismissProfilePicker() {
+        profilePicker = nil
+    }
+
+    /// A profile switched to: another saved sign-in on the same server,
+    /// with its own token. The main screen starts afresh as it does for
+    /// another server.
+    func switchProfile(to fresh: StoredSession) {
+        DebugLog.note("profiles", "Switching to \(fresh.userName)")
+        switchServer(to: SavedServer(session: fresh), session: fresh)
+        // The household's welcome (what Aster's plugins do) was seen by
+        // whoever signed in; a profile isn't shown it again.
+        markWelcomeSeen()
+    }
+
+    /// A sign-in already saved for this user on the server in use, to switch
+    /// to without asking the server. It never stands in for a PIN: the
+    /// picker only reuses it where none is asked.
+    func reusableSession(forUserId userId: String) -> StoredSession? {
+        guard let serverURL else { return nil }
+        let id = plexLink.map { SavedServer.plexID($0.machineId, userId) } ?? SavedServer.id(serverURL, userId)
+        return savedServers.first { $0.id == id }?.session
+    }
+
+    /// The sign-in in use learned which household it belongs to (it was
+    /// made before this was kept, or through the sign-in screen).
+    func noteHousehold(_ household: StoredHousehold) {
+        guard var stored = StoredSession.load(), SavedServer(session: stored).id == currentServerID,
+              stored.household != household else { return }
+        stored.household = household
+        stored.save()
+        remember(stored)
+    }
 
     /// The saved servers whose welcome screen (what Aster and its plugins
     /// do) has been seen.
@@ -407,6 +457,12 @@ final class AppSession {
             plexLink = stored.plex
             client = MediaServerFactory.client(for: stored)
             phase = .signedIn
+            // Who's watching, before anything loads: decided from what's
+            // kept here, so opening never waits on the server.
+            let cached = stored.householdKey.flatMap { ProfileGateCache.askOnStartup(for: $0) }
+            if ProfileGate.shouldAsk(stored: stored, mode: AppSettings.profileGate, cachedAskOnStartup: cached) {
+                profilePicker = .launch
+            }
         } else if let saved = UserDefaults.standard.url(forKey: "AsterFIN.serverURL") {
             serverURL = saved
             serverName = UserDefaults.standard.string(forKey: "AsterFIN.serverName")
@@ -432,6 +488,7 @@ final class AppSession {
     /// signed in, to switch back to.
     func changeServer() {
         isLocked = false
+        profilePicker = nil
         stopMedia()
         StoredSession.clear()
         client = nil
@@ -460,10 +517,15 @@ final class AppSession {
         client = MediaServerFactory.client(for: stored)
         remember(stored)
         isLocked = false
+        profilePicker = nil
         serverGeneration += 1
         phase = .signedIn
         #if os(iOS)
         WidgetRefresh.continueWatching()
+        #endif
+        #if os(tvOS)
+        // The Top Shelf shows whoever's signed in: theirs now.
+        TVTopShelfContentProvider.topShelfContentDidChange()
         #endif
     }
 
@@ -579,6 +641,7 @@ final class AppSession {
     /// What was learned about the last server, cleared for the next.
     private func resetServerState() {
         AsterTracking.shared.clear()
+        HouseholdProfiles.shared.clear()
         animeLibraries = []
         animeItemIds = []
         animeDetected = false
@@ -606,6 +669,7 @@ final class AppSession {
         client = JellyfinClient(baseURL: serverURL, accessToken: result.accessToken, userId: result.user.id, kind: serverKind)
         remember(stored)
         resetServerState()
+        profilePicker = nil
         serverGeneration += 1
         phase = .signedIn
     }
@@ -662,6 +726,7 @@ final class AppSession {
         remember(stored)
         resetServerState()
         isLocked = false
+        profilePicker = nil
         serverGeneration += 1
         phase = .signedIn
     }
@@ -669,6 +734,7 @@ final class AppSession {
     /// Signs out of the server in use (it's forgotten too); others stay saved.
     func signOut() {
         isLocked = false
+        profilePicker = nil
         stopMedia()
         let old = client
         Task { await old?.logout() }
@@ -708,6 +774,12 @@ enum AppSettings {
     static let sidecarHintKey = "AsterFIN.sidecarHint"
     /// The saved servers (`SavedServer.id`) whose welcome screen was seen.
     static let welcomeSeenKey = "AsterFIN.welcomeSeen"
+    /// When the app asks who's watching as it opens, for a household (see
+    /// `ProfileGateMode`): as the server is set, by default.
+    static let profileGateKey = "AsterFIN.profileGate"
+    static var profileGate: ProfileGateMode {
+        UserDefaults.standard.string(forKey: profileGateKey).flatMap(ProfileGateMode.init(rawValue:)) ?? .server
+    }
     /// Music video libraries (AMVs) shown in the Anime tab, by name, one per
     /// line; the OP/ED plugin's own library is always shown.
     static let animeMusicVideoLibrariesKey = "AsterFIN.animeMusicVideoLibraries"

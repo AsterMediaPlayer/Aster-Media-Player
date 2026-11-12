@@ -12,6 +12,22 @@ import SwiftUI
 struct AccountSettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var serverInfo: PublicSystemInfo?
+    @AppStorage(AppSettings.profileGateKey) private var profileGate = ProfileGateMode.server
+
+    private var household: HouseholdProfiles { HouseholdProfiles.shared }
+
+    /// A Plex Home has no setting of its own to follow.
+    private var gateOptions: [(value: ProfileGateMode, name: String)] {
+        ProfileGateMode.allCases
+            .filter { $0 != .server || household.provider?.kind == .bonfire }
+            .map { ($0, $0.title) }
+    }
+
+    private var gateNote: String {
+        household.provider?.kind == .bonfire
+            ? "Whether Aster asks who's watching as it opens. As the Server Is Set follows the household's Ask on startup setting in Bonfire, as Jellyfin's own apps do."
+            : "Whether Aster asks who's watching as it opens, like Plex's own apps."
+    }
 
     var body: some View {
         SettingsPage(title: "Account") {
@@ -25,7 +41,19 @@ struct AccountSettingsView: View {
             }
             Section("User") {
                 LabeledContent("User", value: session.userName ?? "")
+                if session.hasProfiles {
+                    Button("Switch Profile") { session.presentProfilePicker() }
+                }
                 Button("Switch User") { session.signOut() }
+            }
+            if household.provider != nil {
+                Section {
+                    SettingsChoiceRow(title: "Ask on Opening", options: gateOptions, selection: $profileGate)
+                } header: {
+                    Text("Who's Watching")
+                } footer: {
+                    SettingsNote(gateNote)
+                }
             }
             Section {
                 ForEach(session.savedServers) { server in

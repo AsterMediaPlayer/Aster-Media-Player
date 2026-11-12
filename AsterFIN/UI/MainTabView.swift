@@ -224,6 +224,12 @@ struct MainTabView: View {
         .task {
             await AsterTracking.shared.refresh(session: session)
         }
+        // The household (Bonfire profiles, a Plex Home): who else there is
+        // to switch to, and whether it asks on opening.
+        .task {
+            await HouseholdProfiles.shared.restoreCached(session: session)
+            await HouseholdProfiles.shared.refresh(session: session)
+        }
         .task {
             guard let client = session.client else { return }
             // The anime libraries as last found, so Movies and TV Shows can
@@ -251,6 +257,7 @@ struct MainTabView: View {
                 Task { await TrackerAccounts.shared.load(client: client, userId: user) }
                 // A long while away: the plugin may have changed.
                 Task { await AsterTracking.shared.refresh(session: session) }
+                Task { await HouseholdProfiles.shared.refresh(session: session) }
             }
             guard let client = session.jellyfin else { return }
             Task {
@@ -555,6 +562,10 @@ struct MainTabView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        #if os(tvOS)
+        // Who's watching, at the top of the sidebar; pressing it asks.
+        .modifier(SidebarProfileHeader())
+        #endif
         #endif
     }
 
@@ -836,6 +847,27 @@ struct OpenItemAction {
 extension EnvironmentValues {
     @Entry var openItem: OpenItemAction? = nil
 }
+
+#if os(tvOS)
+/// The sidebar's header, on an Apple TV whose sidebar has one (tvOS 27):
+/// who's watching, which pressing asks. Earlier, Settings › Account asks.
+private struct SidebarProfileHeader: ViewModifier {
+    @Environment(AppSession.self) private var session
+
+    func body(content: Content) -> some View {
+        if #available(tvOS 27, *) {
+            content.tabViewSidebarHeader {
+                if session.hasProfiles {
+                    ProfileAvatarButton(showsName: true)
+                        .padding(.bottom, 24)
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 /// A navigation stack that knows how to open items, libraries and people.
 /// Given a path binding, the owner can push pages into it.

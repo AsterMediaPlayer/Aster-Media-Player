@@ -215,6 +215,16 @@ struct HomeView: View {
         content
             .task { await reload() }
             .refreshable { await reload() }
+            #if os(iOS)
+            // Who's watching, in the bar; pressing it asks.
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if session.hasProfiles {
+                        ProfileAvatarButton()
+                    }
+                }
+            }
+            #endif
             .onChange(of: session.animeLibraries.map(\.id)) { _, _ in
                 guard let client = session.client else { return }
                 Task { await model.applyAnimeLibraries(session.animeLibraries, client: client) }

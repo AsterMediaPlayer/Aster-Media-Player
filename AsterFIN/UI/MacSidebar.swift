@@ -63,6 +63,13 @@ struct MacSidebar: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 4 * Self.scale) {
+                    // Who's watching, above the tabs; pressing it asks.
+                    if session.hasProfiles {
+                        SidebarProfileRow()
+                        Divider()
+                            .opacity(0.4)
+                            .padding(.vertical, 6 * Self.scale)
+                    }
                     ForEach(tabs, id: \.self) { item in
                         SidebarRow(
                             title: item.title, systemImage: item.systemImage,
@@ -100,6 +107,27 @@ struct MacSidebar: View {
         // Under the title bar, as the system's was.
         .ignoresSafeArea(.container, edges: .top)
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The person watching: their picture and name, lit under the pointer
+/// like the rows below; pressing it asks who's watching.
+private struct SidebarProfileRow: View {
+    @State private var isHovered = false
+
+    var body: some View {
+        ProfileAvatarButton(size: 28 * MacSidebar.scale, showsName: true)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14 * MacSidebar.scale)
+            .padding(.vertical, 9 * MacSidebar.scale)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14 * MacSidebar.scale, style: .continuous)
+                    .fill(.white.opacity(isHovered ? 0.1 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14 * MacSidebar.scale, style: .continuous))
+            .onHover { isHovered = $0 }
+            .help("Switch profile")
     }
 }
 

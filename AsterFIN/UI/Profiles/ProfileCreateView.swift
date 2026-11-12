@@ -99,9 +99,7 @@ struct ProfileCreateView: View {
 
                     if options?.asksMasterPin == true {
                         section("Your PIN") {
-                            SecureField("Your own PIN", text: $draft.masterPin)
-                                .credentialField(isPin: true)
-                                .onboardingField()
+                            PinCodeField(title: "Your own PIN", pin: $draft.masterPin, errorAttempt: errorAttempt)
                             Text("The main account's PIN, to confirm it's you changing the household.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -254,19 +252,13 @@ struct ProfileCreateView: View {
             if let editing, editing.hasPin {
                 Toggle("Remove the PIN", isOn: $draft.removePin)
                 if !draft.removePin {
-                    SecureField("New PIN (leave empty to keep it)", text: $draft.pin)
-                        .credentialField(isPin: true)
-                        .onboardingField()
+                    PinCodeField(title: "New PIN (leave empty to keep it)", pin: $draft.pin, errorAttempt: errorAttempt)
                 }
             } else {
-                SecureField(isEditing ? "PIN (optional)" : "PIN (optional)", text: $draft.pin)
-                    .credentialField(isPin: true)
-                    .onboardingField()
+                PinCodeField(title: "PIN (optional)", pin: $draft.pin, errorAttempt: errorAttempt)
             }
             if !draft.pin.isEmpty, !draft.removePin {
-                SecureField("Confirm PIN", text: $confirmPin)
-                    .credentialField(isPin: true)
-                    .onboardingField()
+                PinCodeField(title: "Confirm PIN", pin: $confirmPin, errorAttempt: errorAttempt)
             }
             if !draft.removePin, !draft.pin.isEmpty || editing?.hasPin == true {
                 Toggle("Skip the PIN on the home network", isOn: $draft.bypassPinOnLocalNetwork)

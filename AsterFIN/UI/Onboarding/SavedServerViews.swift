@@ -272,11 +272,13 @@ struct ServerLockView: View {
 }
 
 extension View {
-    /// A password field, or a Plex PIN's: digits, and nothing to autofill.
+    /// A password field, or a PIN's (Plex Home's, a household profile's):
+    /// digits, and nothing to autofill. On Apple TV the number keyboard,
+    /// rather than the whole alphabet to scrub along.
     @ViewBuilder
     func credentialField(isPin: Bool) -> some View {
         if isPin {
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             keyboardType(.numberPad)
             #else
             self

@@ -6,7 +6,11 @@
 //  switches at once, or asks for their PIN first; the main screen then
 //  starts afresh as theirs. Shown as the app opens (when the household
 //  asks for it) and whenever someone asks to switch. The main account
-//  can add someone from the end of the row.
+//  can add someone from the end of the row, and manage the household:
+//  then pressing a tile changes that profile instead.
+//
+//  On a Mac the arrow keys move along the tiles and down to the buttons,
+//  and Return presses, as the Apple TV's remote does.
 //
 
 import SwiftUI
@@ -18,8 +22,18 @@ struct ProfilePickerView: View {
     @State private var model = ProfilePickerModel()
     @State private var pin = ""
     @State private var isAdding = false
+    @State private var editing: HouseholdProfile?
+    /// Managing: tiles open the profile to change rather than switch.
+    @State private var isManaging = false
+    #if os(macOS)
+    @FocusState private var hasKeyboard: Bool
+    @State private var keyboard = PickerKeyboard()
+    #endif
 
     private var household: HouseholdProfiles { HouseholdProfiles.shared }
+
+    /// Whether a form is up over the picker.
+    private var isPresenting: Bool { isAdding || editing != nil }
 
     var body: some View {
         ZStack {
@@ -27,9 +41,10 @@ struct ProfilePickerView: View {
             OnboardingLayout {
                 VStack(spacing: Onboarding.sectionSpacing) {
                     VStack(spacing: 8) {
-                        Text("Who's watching?")
+                        Text(isManaging ? "Manage Profiles" : "Who's watching?")
                             .font(.system(size: Onboarding.serverNameSize, weight: .bold))
                             .multilineTextAlignment(.center)
+                            .contentTransition(.opacity)
                         if let serverName = session.serverName {
                             Text(serverName)
                                 .font(.title3)
@@ -83,17 +98,53 @@ struct ProfilePickerView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: model.stage)
         .animation(.easeInOut(duration: 0.25), value: model.profiles.isEmpty)
+        .animation(.easeInOut(duration: 0.2), value: isManaging)
         .task { await model.load(session: session, reason: reason) }
         // A wrong PIN is cleared, to type again.
         .onChange(of: model.errorAttempt) { _, _ in pin = "" }
-        // Adding someone: the form over the picker; the row then shows them.
+        // Adding someone, or changing them: the form over the picker; the
+        // row then shows the household as it is.
         .appCover(isPresented: $isAdding, onDismiss: {
             Task { await model.reload(session: session) }
         }) {
             ProfileCreateView()
         }
+        .background {
+            Color.clear
+                .appCover(item: $editing, onDismiss: {
+                    Task { await model.reload(session: session) }
+                }) { profile in
+                    ProfileCreateView(editing: profile)
+                }
+        }
+        #if os(macOS)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($hasKeyboard)
+        .onKeyPress(.leftArrow) { moveKeyboard(.left) }
+        .onKeyPress(.rightArrow) { moveKeyboard(.right) }
+        .onKeyPress(.upArrow) { moveKeyboard(.up) }
+        .onKeyPress(.downArrow) { moveKeyboard(.down) }
+        .onKeyPress(.return) { pressKeyboard() }
+        .onKeyPress(.space) { pressKeyboard() }
+        .task {
+            // Once it's up: set as it appears, focus is ignored.
+            try? await Task.sleep(for: .milliseconds(300))
+            hasKeyboard = true
+        }
+        // Back from the PIN pad or a form: the arrow keys again.
+        .onChange(of: model.stage) { _, stage in
+            if stage == .picking { hasKeyboard = true }
+        }
+        .onChange(of: isPresenting) { _, presenting in
+            if !presenting { hasKeyboard = true }
+        }
+        .onChange(of: keyboardStops) { _, stops in keyboard.clamp(to: stops) }
+        .onDisappear { WindowSidebar.returnKeyboardToContent() }
+        #endif
         #if os(tvOS) || os(macOS)
-        // Back (Menu, or Esc on a Mac) leaves the PIN first, then the picker.
+        // Back (Menu, or Esc on a Mac) leaves the PIN first, then managing,
+        // then the picker.
         .onExitCommand { goBack() }
         #endif
     }
@@ -110,14 +161,16 @@ struct ProfilePickerView: View {
 
     private var tileRow: some View {
         HStack(alignment: .top, spacing: ProfileLayout.tileSpacing) {
-            ForEach(model.profiles) { profile in
+            ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
                 Button {
-                    pick(profile)
+                    press(profile)
                 } label: {
                     ProfileTile(
                         profile: profile,
                         isSwitching: model.isSwitching(profile),
-                        isDimmed: model.isSwitching && !model.isSwitching(profile)
+                        isDimmed: model.isSwitching && !model.isSwitching(profile),
+                        isKeyboardSelected: keyboardSelected(row: 0, column: index),
+                        isManaging: isManaging && household.canEdit(profile)
                     )
                     .padding(16)
                 }
@@ -128,7 +181,7 @@ struct ProfilePickerView: View {
                 Button {
                     isAdding = true
                 } label: {
-                    AddProfileTile(isDimmed: model.isSwitching)
+                    AddProfileTile(isDimmed: model.isSwitching, isKeyboardSelected: keyboardSelected(row: 0, column: model.profiles.count))
                         .padding(16)
                 }
                 .buttonStyle(ProfileTileButtonStyle())
@@ -141,17 +194,37 @@ struct ProfilePickerView: View {
 
     @ViewBuilder
     private var footer: some View {
-        switch reason {
-        case .launch:
-            if let name = session.userName {
-                Button("Continue as \(name)") { session.dismissProfilePicker() }
+        HStack(spacing: 24) {
+            switch reason {
+            case .launch:
+                if let name = session.userName {
+                    Button("Continue as \(name)") { session.dismissProfilePicker() }
+                        .onboardingSecondaryButton()
+                        .disabled(model.isSwitching)
+                        .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 0), capsule: true)
+                }
+            case .switcher:
+                Button("Cancel", role: .cancel) { session.dismissProfilePicker() }
                     .onboardingSecondaryButton()
                     .disabled(model.isSwitching)
+                    .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 0), capsule: true)
             }
-        case .switcher:
-            Button("Cancel", role: .cancel) { session.dismissProfilePicker() }
-                .onboardingSecondaryButton()
-                .disabled(model.isSwitching)
+            if household.canCreateProfiles {
+                Button(isManaging ? "Done" : "Manage Profiles") { isManaging.toggle() }
+                    .onboardingSecondaryButton()
+                    .disabled(model.isSwitching)
+                    .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 1), capsule: true)
+            }
+        }
+    }
+
+    /// A tile pressed: the profile to switch to, or (managing) to change.
+    private func press(_ profile: HouseholdProfile) {
+        if isManaging {
+            guard household.canEdit(profile) else { return }
+            editing = profile
+        } else {
+            pick(profile)
         }
     }
 
@@ -174,21 +247,124 @@ struct ProfilePickerView: View {
         guard !model.isSwitching else { return }
         if case .enteringPin = model.stage {
             cancelPin()
+        } else if isManaging {
+            isManaging = false
         } else {
             session.dismissProfilePicker()
         }
+    }
+
+    // MARK: The Mac's keyboard
+
+    /// How many stops each row has: the tiles (and Add Profile), then the
+    /// buttons under them.
+    private var keyboardStops: [Int] {
+        let tiles = model.profiles.count + (household.canCreateProfiles ? 1 : 0)
+        var buttons = 0
+        if reason == .switcher || session.userName != nil { buttons += 1 }
+        if household.canCreateProfiles { buttons += 1 }
+        return [tiles, buttons]
+    }
+
+    private func keyboardSelected(row: Int, column: Int) -> Bool {
+        #if os(macOS)
+        hasKeyboard && model.stage == .picking && !isPresenting && keyboard.row == row && keyboard.column == column
+        #else
+        false
+        #endif
+    }
+
+    #if os(macOS)
+    private func moveKeyboard(_ direction: PickerKeyboard.Direction) -> KeyPress.Result {
+        guard model.stage == .picking, !model.isSwitching, !isPresenting else { return .ignored }
+        return keyboard.move(direction, stops: keyboardStops) ? .handled : .ignored
+    }
+
+    private func pressKeyboard() -> KeyPress.Result {
+        guard model.stage == .picking, !model.isSwitching, !isPresenting else { return .ignored }
+        switch keyboard.row {
+        case 0:
+            if keyboard.column < model.profiles.count {
+                press(model.profiles[keyboard.column])
+            } else if household.canCreateProfiles {
+                isAdding = true
+            } else {
+                return .ignored
+            }
+        default:
+            if keyboard.column == 0, keyboardStops[1] > 0, reason == .switcher || session.userName != nil {
+                session.dismissProfilePicker()
+            } else if household.canCreateProfiles {
+                isManaging.toggle()
+            } else {
+                return .ignored
+            }
+        }
+        return .handled
+    }
+    #endif
+}
+
+/// Where the Mac's arrow keys are on the picker: a row (tiles, then
+/// buttons) and a column in it.
+struct PickerKeyboard: Equatable {
+    enum Direction { case left, right, up, down }
+
+    var row = 0
+    var column = 0
+
+    /// Moves one stop; false at an edge (the key is left for others).
+    mutating func move(_ direction: Direction, stops: [Int]) -> Bool {
+        guard !stops.isEmpty else { return false }
+        switch direction {
+        case .left:
+            guard column > 0 else { return false }
+            column -= 1
+        case .right:
+            guard column + 1 < (stops[safe: row] ?? 0) else { return false }
+            column += 1
+        case .down:
+            guard let next = stops.indices.first(where: { $0 > row && stops[$0] > 0 }) else { return false }
+            row = next
+            column = min(column, stops[next] - 1)
+        case .up:
+            guard let previous = stops.indices.last(where: { $0 < row && stops[$0] > 0 }) else { return false }
+            row = previous
+            column = min(column, stops[previous] - 1)
+        }
+        return true
+    }
+
+    /// Keeps the selection on something as the rows change (a profile was
+    /// added or removed).
+    mutating func clamp(to stops: [Int]) {
+        guard let count = stops[safe: row], count > 0 else {
+            if let first = stops.firstIndex(where: { $0 > 0 }) {
+                row = first
+                column = 0
+            }
+            return
+        }
+        column = min(column, count - 1)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
 /// The tile at the end of the row that adds someone: a plus in a ring.
 struct AddProfileTile: View {
     var isDimmed = false
+    var isKeyboardSelected = false
     var size: CGFloat = ProfileLayout.tileSize
 
     @Environment(\.isFocused) private var isFocused
     @State private var isHovered = false
 
-    private var isLifted: Bool { isFocused || isHovered }
+    private var isLifted: Bool { isFocused || isHovered || isKeyboardSelected }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -272,7 +448,8 @@ final class ProfilePickerModel {
         }
     }
 
-    /// The household as the server has it now (someone was just added).
+    /// The household as the server has it now (someone was added, changed
+    /// or removed).
     func reload(session: AppSession) async {
         let household = HouseholdProfiles.shared
         await household.refresh(session: session, force: true)

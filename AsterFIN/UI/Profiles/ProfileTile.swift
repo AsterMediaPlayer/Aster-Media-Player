@@ -4,8 +4,9 @@
 //
 //  A person in the household: their picture (or initial on their colour)
 //  and name. On Apple TV the tile lifts and brightens with focus; on a Mac
-//  under the pointer. The one being switched to shows a spinner while the
-//  others dim.
+//  under the pointer or the arrow keys. The one being switched to shows a
+//  spinner while the others dim; while profiles are being managed, each
+//  wears a pencil.
 //
 
 import SwiftUI
@@ -78,13 +79,17 @@ struct ProfileTile: View {
     var isSwitching = false
     /// Another is being switched to: faded back.
     var isDimmed = false
+    /// Under the Mac's arrow keys.
+    var isKeyboardSelected = false
+    /// Profiles are being managed: pressing changes this one.
+    var isManaging = false
     var size: CGFloat = ProfileLayout.tileSize
 
     /// Focus on Apple TV (the tile is a button's label).
     @Environment(\.isFocused) private var isFocused
     @State private var isHovered = false
 
-    private var isLifted: Bool { isFocused || isHovered }
+    private var isLifted: Bool { isFocused || isHovered || isKeyboardSelected }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -104,14 +109,10 @@ struct ProfileTile: View {
                 Circle().strokeBorder(.white.opacity(ringOpacity), lineWidth: isLifted ? 4 : 2.5)
             }
             .overlay(alignment: .bottomTrailing) {
-                if profile.requiresPin {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: size * 0.16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(size * 0.07)
-                        .background(Circle().fill(Color(white: 0.15)))
-                        .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
-                        .offset(x: size * 0.02, y: size * 0.02)
+                if isManaging {
+                    badge("pencil")
+                } else if profile.requiresPin {
+                    badge("lock.fill")
                 }
             }
             .shadow(color: .black.opacity(isLifted ? 0.45 : 0), radius: 24, y: 12)
@@ -121,7 +122,11 @@ struct ProfileTile: View {
                     .font(ProfileLayout.nameFont)
                     .foregroundStyle(isLifted ? .primary : .secondary)
                     .lineLimit(1)
-                if profile.isCurrent {
+                if isManaging {
+                    Text("Edit")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else if profile.isCurrent {
                     Text("Watching now")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -133,11 +138,22 @@ struct ProfileTile: View {
         .animation(.easeOut(duration: 0.18), value: isLifted)
         .animation(.easeInOut(duration: 0.25), value: isSwitching)
         .animation(.easeInOut(duration: 0.25), value: isDimmed)
+        .animation(.easeInOut(duration: 0.2), value: isManaging)
         #if !os(tvOS)
         .onHover { isHovered = $0 }
         #endif
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(profile.accessibilityDescription)
+        .accessibilityLabel(isManaging ? "Edit \(profile.name)" : profile.accessibilityDescription)
+    }
+
+    private func badge(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.16, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(size * 0.07)
+            .background(Circle().fill(Color(white: 0.15)))
+            .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+            .offset(x: size * 0.02, y: size * 0.02)
     }
 
     private var ringOpacity: Double {

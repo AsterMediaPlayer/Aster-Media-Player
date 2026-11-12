@@ -3,7 +3,7 @@
 //  AsterFIN
 //
 //  A Jellyfin server's household, through the Bonfire plugin: who's in
-//  it, switching, and making a new profile.
+//  it, switching, and making, changing and removing a profile.
 //
 
 import Foundation
@@ -54,7 +54,7 @@ final class BonfireProfiles: ProfileProvider, ProfileCreation {
         )
     }
 
-    // MARK: Making a profile
+    // MARK: Making and changing a profile
 
     /// All three at once; one that fails leaves its list empty rather than
     /// holding the form up (no ratings is still a form).
@@ -66,9 +66,40 @@ final class BonfireProfiles: ProfileProvider, ProfileCreation {
     }
 
     func createProfile(_ draft: ProfileDraft) async throws -> String {
-        let created = try await client.createProfile(BonfireCreateRequest(draft))
+        let created = try await client.createProfile(BonfireProfileRequest(draft))
         DebugLog.note("profiles", "Made profile \(created.profileName)")
         return HouseholdProfile.plainId(created.profileUserId)
+    }
+
+    /// As the profile is: its name, colour, libraries and home-network
+    /// setting from the list, and its rating limit from its own Jellyfin
+    /// record (the list leaves that out), read the way the plugin's own
+    /// form reads it.
+    func draft(editing profile: HouseholdProfile) async -> ProfileDraft {
+        var draft = ProfileDraft()
+        draft.profileId = profile.rawId
+        draft.name = profile.name
+        draft.colorHex = profile.colorHex
+        draft.bypassPinOnLocalNetwork = profile.bypassPinOnLocalNetwork ?? false
+        if profile.allLibraries == true || profile.enabledFolders == nil {
+            draft.libraryIds = nil
+        } else {
+            draft.libraryIds = Set((profile.enabledFolders ?? []).map(HouseholdProfile.plainId))
+        }
+        if !profile.isMaster, let user = try? await client.jellyfin.user(id: profile.rawId) {
+            draft.ratingScore = user.policy?.maxParentalRating
+        }
+        return draft
+    }
+
+    func updateProfile(_ draft: ProfileDraft) async throws {
+        try await client.updateProfile(BonfireProfileRequest(draft))
+        DebugLog.note("profiles", "Changed profile \(draft.trimmedName)")
+    }
+
+    func deleteProfile(_ profile: HouseholdProfile, masterPin: String?) async throws {
+        try await client.deleteProfile(id: profile.rawId, masterPin: masterPin)
+        DebugLog.note("profiles", "Removed profile \(profile.name)")
     }
 
     /// Which Bonfire this is, for the debug report; once per sign-in.
@@ -115,6 +146,9 @@ extension HouseholdProfile {
             isOtherHousehold: record.isBonfire ?? false,
             masterUserId: masterId,
             maxProfiles: record.maxSubProfiles,
+            allLibraries: record.allLibraries,
+            enabledFolders: record.enabledFolders?.map(Self.plainId),
+            bypassPinOnLocalNetwork: record.bypassPinOnLocalNetwork,
             storedHousehold: StoredHousehold(
                 masterUserId: masterId ?? plain, isMaster: isMaster,
                 avatarInitial: initial, avatarColor: color, profileImage: record.profileImage
@@ -125,13 +159,15 @@ extension HouseholdProfile {
 
 extension ProfileCreationOptions {
     /// The server's lists as the form shows them: pictures by the plugin's
-    /// small route, ratings with their labels joined.
+    /// small route, libraries by plain id, ratings with their labels joined.
     init(avatars: BonfireAvatarLibrary?, libraries: [BonfireLibrary]?, ratings: BonfireRatings?, client: BonfireClient) {
         self.init(
             avatars: (avatars?.avatars ?? []).map {
                 ProfileAvatarChoice(id: $0.id, name: $0.displayName ?? $0.id, url: client.avatarURL(id: $0.id))
             },
-            libraries: (libraries ?? []).map { ProfileLibraryChoice(id: $0.id, name: $0.name, collectionType: $0.collectionType) },
+            libraries: (libraries ?? []).map {
+                ProfileLibraryChoice(id: HouseholdProfile.plainId($0.id), name: $0.name, collectionType: $0.collectionType)
+            },
             ratings: (ratings?.ratings ?? [])
                 .sorted { $0.score < $1.score }
                 .map { ProfileRatingChoice(score: $0.score, label: $0.labels.joined(separator: " / ")) },
@@ -140,10 +176,21 @@ extension ProfileCreationOptions {
     }
 }
 
-extension BonfireCreateRequest {
+extension BonfireProfileRequest {
+    /// New: a PIN only when typed, the picture picked or none. Changing: a
+    /// nil PIN keeps the one there is and an empty one removes it; a nil
+    /// picture keeps the one there is; the rating and libraries are sent
+    /// as filled in, since leaving them out would clear them.
     init(_ draft: ProfileDraft) {
-        let pin = draft.pin.isEmpty ? nil : draft.pin
+        let pin: String?
+        if draft.isEditing {
+            pin = draft.removePin ? "" : (draft.pin.isEmpty ? nil : draft.pin)
+        } else {
+            pin = draft.pin.isEmpty ? nil : draft.pin
+        }
+        let keepsAPin = draft.isEditing ? !draft.removePin : pin != nil
         self.init(
+            profileId: draft.profileId,
             profileName: draft.trimmedName,
             pin: pin,
             avatarColor: draft.colorHex,
@@ -151,7 +198,7 @@ extension BonfireCreateRequest {
             enabledFolders: draft.libraryIds.map { Array($0).sorted() },
             masterPin: draft.masterPin.isEmpty ? nil : draft.masterPin,
             avatarLibraryId: draft.avatarId,
-            bypassPinOnLocalNetwork: pin == nil ? nil : draft.bypassPinOnLocalNetwork
+            bypassPinOnLocalNetwork: keepsAPin ? draft.bypassPinOnLocalNetwork : nil
         )
     }
 }

@@ -3,9 +3,10 @@
 //  AsterFIN
 //
 //  The Bonfire (JellyProfiles) plugin's routes: a household's profiles,
-//  switching to one (with its PIN), making a new one, and the household's
-//  preferences. The plugin answers at /plugins/profiles on the server,
-//  with the ordinary sign-in header; a server without it answers 404.
+//  switching to one (with its PIN), making, changing and removing one,
+//  and the household's preferences. The plugin answers at
+//  /plugins/profiles on the server, with the ordinary sign-in header; a
+//  server without it answers 404.
 //
 
 import Foundation
@@ -61,6 +62,10 @@ nonisolated struct BonfireProfileRecord: Codable, Sendable, Equatable {
     var bypassPinOnLocalNetwork: Bool?
     /// On the main account's entry: how many profiles it may have.
     var maxSubProfiles: Int?
+    /// On a profile of this household: the libraries it was given, or
+    /// `allLibraries` for every one the main account has, now and later.
+    var enabledFolders: [String]?
+    var allLibraries: Bool?
 }
 
 /// The household's switcher preferences, read from the main account.
@@ -137,9 +142,14 @@ nonisolated struct BonfireAvatarLibrary: Codable, Sendable, Equatable {
     var avatars: [BonfireAvatar]
 }
 
-/// A new profile, as the plugin takes it. Keys are read without regard to
-/// case on the server; anything nil is left out.
-nonisolated struct BonfireCreateRequest: Encodable, Sendable, Equatable {
+/// A profile as the plugin takes it, new (`create`) or changed (`update`,
+/// with `profileId`). Keys are read without regard to case on the server;
+/// anything nil is left out. On an update, a nil `pin` keeps the PIN and
+/// an empty one removes it; a nil picture keeps the picture; a nil rating
+/// or library list clears them to the account's own, so a change sends
+/// what the profile has.
+nonisolated struct BonfireProfileRequest: Encodable, Sendable, Equatable {
+    var profileId: String?
     var profileName: String
     var pin: String?
     var avatarColor: String
@@ -165,6 +175,11 @@ nonisolated struct BonfireClient: Sendable {
         var profileId: String
         /// Left out when there's none to send.
         var pin: String?
+    }
+
+    private nonisolated struct DeleteBody: Encodable, Sendable {
+        var profileId: String
+        var masterPin: String?
     }
 
     /// What the server answered: the body, the status, and (from 1.9) the
@@ -215,7 +230,7 @@ nonisolated struct BonfireClient: Sendable {
         try Self.check(answer, pinSent: true)
     }
 
-    // MARK: Making a profile
+    // MARK: Making and changing profiles
 
     /// The libraries the signed-in account can see.
     func libraries() async throws -> [BonfireLibrary] {
@@ -241,10 +256,23 @@ nonisolated struct BonfireClient: Sendable {
     /// Makes a profile under the signed-in main account. The server's
     /// refusals come back as `ProfileSwitchError.failed` with its words
     /// ("A profile with this name already exists.").
-    func createProfile(_ request: BonfireCreateRequest) async throws -> BonfireCreatedProfile {
+    func createProfile(_ request: BonfireProfileRequest) async throws -> BonfireCreatedProfile {
         let answer = try await send("/create", method: "POST", body: request)
         try Self.check(answer, pinSent: false)
         return try Bonfire.decoder.decode(BonfireCreatedProfile.self, from: answer.data)
+    }
+
+    /// Changes a profile of the signed-in main account (or the account's
+    /// own colour, picture and PIN). Needs `profileId`.
+    func updateProfile(_ request: BonfireProfileRequest) async throws {
+        let answer = try await send("/update", method: "POST", body: request)
+        try Self.check(answer, pinSent: false)
+    }
+
+    /// Removes a profile and its Jellyfin user; its sign-ins end with it.
+    func deleteProfile(id: String, masterPin: String?) async throws {
+        let answer = try await send("/delete", method: "POST", body: DeleteBody(profileId: id, masterPin: masterPin.flatMap { $0.isEmpty ? nil : $0 }))
+        try Self.check(answer, pinSent: false)
     }
 
     /// A profile's stored picture, small; 404 without one. Anyone can read it.
@@ -292,5 +320,14 @@ nonisolated struct BonfireClient: Sendable {
         case 401, 403: throw ProfileSwitchError.failed(text ?? "The server didn't allow it.")
         default: throw ProfileSwitchError.failed(text ?? "The server answered \(answer.status).")
         }
+    }
+}
+
+extension JellyfinClient {
+    /// A user by id: the main account reads a profile's own record this
+    /// way (its rating limit lives on its Jellyfin policy, which the
+    /// plugin's list leaves out), as the plugin's own form does.
+    func user(id: String) async throws -> JellyfinUser {
+        try await get(JellyfinUser.self, "/Users/\(id)")
     }
 }

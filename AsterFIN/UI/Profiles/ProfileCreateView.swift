@@ -2,15 +2,20 @@
 //  ProfileCreateView.swift
 //  AsterFIN
 //
-//  Adding someone to the household: a name, a picture (or a letter on a
-//  colour), a PIN if they want one, how far up the ratings they may
-//  watch, and which libraries they see. The main account's own PIN is
-//  asked when it has one. Made on the server; the picker then shows them.
+//  Adding someone to the household, or changing them: a name, a picture
+//  (or a letter on a colour), a PIN if they want one, how far up the
+//  ratings they may watch, and which libraries they see. The main
+//  account's own PIN is asked when it has one. A profile being changed
+//  can be removed from here too. Done on the server; the picker then
+//  shows the household as it is.
 //
 
 import SwiftUI
 
 struct ProfileCreateView: View {
+    /// The profile being changed; nil to add one.
+    var editing: HouseholdProfile?
+
     @Environment(AppSession.self) private var session
     @Environment(\.coverDismiss) private var dismiss
 
@@ -18,6 +23,7 @@ struct ProfileCreateView: View {
     @State private var confirmPin = ""
     @State private var options: ProfileCreationOptions?
     @State private var isSaving = false
+    @State private var confirmingDelete = false
     @State private var errorMessage: String?
     /// Counts the tries that failed, so each message shows afresh.
     @State private var errorAttempt = 0
@@ -25,10 +31,16 @@ struct ProfileCreateView: View {
 
     private var household: HouseholdProfiles { HouseholdProfiles.shared }
 
-    /// The picture picked, as the preview and the row show it.
-    private var chosenAvatarURL: URL? {
-        guard let id = draft.avatarId else { return nil }
-        return options?.avatars.first { $0.id == id }?.url
+    private var isEditing: Bool { editing != nil }
+    /// The main account changing itself: its colour, picture and PIN, not
+    /// its name or what it may watch.
+    private var editsMaster: Bool { editing?.isMaster ?? false }
+
+    /// The picture as the preview shows it: the one picked, or (changing)
+    /// the one it has.
+    private var previewURL: URL? {
+        if let id = draft.avatarId { return options?.avatars.first { $0.id == id }?.url }
+        return editing?.imageURL
     }
 
     private var allLibraries: Binding<Bool> {
@@ -44,11 +56,11 @@ struct ProfileCreateView: View {
             ScrollView {
                 VStack(spacing: Onboarding.sectionSpacing) {
                     VStack(spacing: 16) {
-                        Text("Add a Profile")
+                        Text(isEditing ? "Edit Profile" : "Add a Profile")
                             .font(.system(size: Onboarding.serverNameSize, weight: .bold))
-                        ProfileAvatarView(initial: draft.initial, colorHex: draft.colorHex, imageURL: chosenAvatarURL, size: ProfileLayout.tileSize)
+                        ProfileAvatarView(initial: draft.initial, colorHex: draft.colorHex, imageURL: previewURL, size: ProfileLayout.tileSize)
                             .animation(.easeInOut(duration: 0.2), value: draft.colorHex)
-                        if let remaining = options?.remaining {
+                        if !isEditing, let remaining = options?.remaining {
                             Text(remaining == 1 ? "Room for one more profile." : "Room for \(remaining) more profiles.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -63,6 +75,12 @@ struct ProfileCreateView: View {
                             .autocorrectionDisabled()
                             .onboardingField()
                             .focused($nameFocused)
+                            .disabled(editsMaster)
+                        if editsMaster {
+                            Text("The main account keeps its own name.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     if let options {
@@ -71,11 +89,11 @@ struct ProfileCreateView: View {
 
                     pinSection
 
-                    if let options, !options.ratings.isEmpty {
+                    if !editsMaster, let options, !options.ratings.isEmpty {
                         ratingSection(options)
                     }
 
-                    if let options, !options.libraries.isEmpty {
+                    if !editsMaster, let options, !options.libraries.isEmpty {
                         librarySection(options)
                     }
 
@@ -84,7 +102,7 @@ struct ProfileCreateView: View {
                             SecureField("Your own PIN", text: $draft.masterPin)
                                 .credentialField(isPin: true)
                                 .onboardingField()
-                            Text("The main account's PIN, to confirm it's you adding a profile.")
+                            Text("The main account's PIN, to confirm it's you changing the household.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -106,11 +124,11 @@ struct ProfileCreateView: View {
 
                     HStack(spacing: 24) {
                         Button {
-                            create()
+                            save()
                         } label: {
                             HStack {
                                 if isSaving { ProgressView().controlSize(.small) }
-                                Text("Add Profile")
+                                Text(isEditing ? "Save" : "Add Profile")
                             }
                             .frame(maxWidth: Onboarding.signInButtonWidth)
                         }
@@ -122,6 +140,19 @@ struct ProfileCreateView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .tvFocusSection()
+
+                    if let editing, !editing.isMaster {
+                        VStack(spacing: 10) {
+                            Button("Remove \(editing.name)", role: .destructive) { confirmingDelete = true }
+                                .onboardingSecondaryButton()
+                                .disabled(isSaving)
+                            Text("Their watch history and settings go with them.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .tvFocusSection()
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 24)
@@ -137,12 +168,27 @@ struct ProfileCreateView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: errorAttempt)
         .animation(.easeInOut(duration: 0.2), value: draft.pin.isEmpty)
+        .animation(.easeInOut(duration: 0.2), value: draft.removePin)
         .animation(.easeInOut(duration: 0.2), value: draft.libraryIds == nil)
         .task {
-            options = await household.creationOptions()
+            if let editing {
+                // The profile as it is, and the choices, side by side.
+                async let filled = household.draft(editing: editing)
+                async let choices = household.creationOptions()
+                draft = await filled
+                options = await choices
+            } else {
+                options = await household.creationOptions()
+            }
             // To the name once the form's up: set as it appears, focus is ignored.
             try? await Task.sleep(for: .milliseconds(350))
-            nameFocused = true
+            if !editsMaster { nameFocused = true }
+        }
+        .confirmationDialog("Remove \(editing?.name ?? "this profile")?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Remove Profile", role: .destructive) { delete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Their account on the server goes, with what they've watched and their settings. This can't be undone.")
         }
         #if os(tvOS) || os(macOS)
         .onExitCommand { if !isSaving { dismiss() } }
@@ -167,11 +213,12 @@ struct ProfileCreateView: View {
             if !options.avatars.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 16) {
-                        // The letter on the colour, as it is without a picture.
-                        choice(selected: draft.avatarId == nil, label: "Letter") {
+                        // The letter on the colour as it is without a picture,
+                        // or (changing) the picture it has.
+                        choice(selected: draft.avatarId == nil, label: editing?.imageURL != nil ? "Current picture" : "Letter") {
                             draft.avatarId = nil
                         } content: {
-                            ProfileAvatarView(initial: draft.initial, colorHex: draft.colorHex, imageURL: nil, size: Self.choiceSize)
+                            ProfileAvatarView(initial: draft.initial, colorHex: draft.colorHex, imageURL: editing?.imageURL, size: Self.choiceSize)
                         }
                         ForEach(options.avatars) { avatar in
                             choice(selected: draft.avatarId == avatar.id, label: avatar.name) {
@@ -204,21 +251,38 @@ struct ProfileCreateView: View {
 
     private var pinSection: some View {
         section("PIN") {
-            SecureField("PIN (optional)", text: $draft.pin)
-                .credentialField(isPin: true)
-                .onboardingField()
-            if !draft.pin.isEmpty {
+            if let editing, editing.hasPin {
+                Toggle("Remove the PIN", isOn: $draft.removePin)
+                if !draft.removePin {
+                    SecureField("New PIN (leave empty to keep it)", text: $draft.pin)
+                        .credentialField(isPin: true)
+                        .onboardingField()
+                }
+            } else {
+                SecureField(isEditing ? "PIN (optional)" : "PIN (optional)", text: $draft.pin)
+                    .credentialField(isPin: true)
+                    .onboardingField()
+            }
+            if !draft.pin.isEmpty, !draft.removePin {
                 SecureField("Confirm PIN", text: $confirmPin)
                     .credentialField(isPin: true)
                     .onboardingField()
+            }
+            if !draft.removePin, !draft.pin.isEmpty || editing?.hasPin == true {
                 Toggle("Skip the PIN on the home network", isOn: $draft.bypassPinOnLocalNetwork)
             }
-            Text(draft.pin.isEmpty
-                 ? "4 to 8 digits. With a PIN, switching to this profile asks for it."
-                 : "Switching to this profile asks for the PIN; without it, anyone on the household's devices can open it.")
+            Text(pinNote)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var pinNote: String {
+        if draft.removePin { return "Anyone on the household's devices will be able to open this profile." }
+        if editing?.hasPin == true { return "This profile has a PIN. Type a new one to change it, 4 to 8 digits." }
+        return draft.pin.isEmpty
+            ? "4 to 8 digits. With a PIN, switching to this profile asks for it."
+            : "Switching to this profile asks for the PIN; without it, anyone on the household's devices can open it."
     }
 
     private func ratingSection(_ options: ProfileCreationOptions) -> some View {
@@ -300,16 +364,19 @@ struct ProfileCreateView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func create() {
+    private func fail(_ message: String) {
+        errorAttempt += 1
+        errorMessage = message
+    }
+
+    private func save() {
         guard !isSaving else { return }
         if let message = draft.validationMessage(confirmPin: confirmPin) {
-            errorAttempt += 1
-            errorMessage = message
+            fail(message)
             return
         }
         if options?.asksMasterPin == true, draft.masterPin.isEmpty {
-            errorAttempt += 1
-            errorMessage = "Enter the main account's PIN."
+            fail("Enter the main account's PIN.")
             return
         }
         isSaving = true
@@ -317,12 +384,35 @@ struct ProfileCreateView: View {
         Task {
             defer { isSaving = false }
             do {
-                _ = try await household.create(draft, session: session)
+                if isEditing {
+                    try await household.update(draft, session: session)
+                } else {
+                    _ = try await household.create(draft, session: session)
+                }
                 dismiss()
             } catch {
-                DebugLog.note("profiles", "Making a profile failed: \(error.localizedDescription)")
-                errorAttempt += 1
-                errorMessage = error.localizedDescription
+                DebugLog.note("profiles", "\(isEditing ? "Changing" : "Making") a profile failed: \(error.localizedDescription)")
+                fail(error.localizedDescription)
+            }
+        }
+    }
+
+    private func delete() {
+        guard let editing, !isSaving else { return }
+        if options?.asksMasterPin == true, draft.masterPin.isEmpty {
+            fail("Enter the main account's PIN to remove a profile.")
+            return
+        }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            defer { isSaving = false }
+            do {
+                try await household.delete(editing, masterPin: draft.masterPin, session: session)
+                dismiss()
+            } catch {
+                DebugLog.note("profiles", "Removing a profile failed: \(error.localizedDescription)")
+                fail(error.localizedDescription)
             }
         }
     }

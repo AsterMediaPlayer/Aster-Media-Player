@@ -5,7 +5,7 @@
 //  A household's profiles, wherever they come from: Bonfire on a Jellyfin
 //  server, or a Plex Home. The picker shows them the same way; each
 //  provider knows how to list its own and how to switch to one, and some
-//  can make a new one.
+//  can make, change and remove them.
 //
 
 import Foundation
@@ -36,6 +36,12 @@ nonisolated struct HouseholdProfile: Identifiable, Hashable, Sendable, Codable {
     var masterUserId: String?
     /// On the main account: how many profiles it may have.
     var maxProfiles: Int?
+    /// On a profile of this household: every library the account has
+    /// (now and later), or the ones it was given (plain ids).
+    var allLibraries: Bool?
+    var enabledFolders: [String]?
+    /// Its PIN isn't asked on the home network.
+    var bypassPinOnLocalNetwork: Bool?
     /// What the sign-in remembers about the household once switched to.
     var storedHousehold: StoredHousehold
 
@@ -69,7 +75,8 @@ nonisolated enum ProfileProviderKind: Sendable {
 @MainActor
 protocol ProfileProvider: AnyObject {
     var kind: ProfileProviderKind { get }
-    /// Makes new profiles, where the service can; nil where it can't.
+    /// Makes, changes and removes profiles, where the service can; nil
+    /// where it can't.
     var creation: (any ProfileCreation)? { get }
     /// Whether the household asks who's watching when the app opens; nil
     /// where the service has no such setting.
@@ -86,9 +93,9 @@ extension ProfileProvider {
     var creation: (any ProfileCreation)? { nil }
 }
 
-// MARK: - Making a profile
+// MARK: - Making and changing a profile
 
-/// A picture a new profile may have.
+/// A picture a profile may have.
 nonisolated struct ProfileAvatarChoice: Identifiable, Hashable, Sendable {
     var id: String
     var name: String
@@ -96,6 +103,7 @@ nonisolated struct ProfileAvatarChoice: Identifiable, Hashable, Sendable {
 }
 
 nonisolated struct ProfileLibraryChoice: Identifiable, Hashable, Sendable {
+    /// The library's plain id.
     var id: String
     var name: String
     var collectionType: String?
@@ -116,23 +124,31 @@ nonisolated struct ProfileCreationOptions: Sendable, Equatable {
     var libraries: [ProfileLibraryChoice] = []
     var ratings: [ProfileRatingChoice] = []
     var ratingCountry: String?
-    /// The main account's own PIN is asked for before making a profile
-    /// (the account has one; the server may insist on it).
+    /// The main account's own PIN is asked for before making or changing
+    /// a profile (the account has one; the server insists on it).
     var asksMasterPin = false
     /// How many more profiles the account may make; nil when not known.
     var remaining: Int?
 }
 
-/// A new profile as it's filled in.
+/// A profile as it's filled in: a new one, or (with `profileId`) one
+/// being changed.
 nonisolated struct ProfileDraft: Sendable, Equatable {
+    /// The profile being changed, as the server knows it; nil for a new one.
+    var profileId: String?
     var name = ""
+    /// A new PIN; empty keeps the one there is (or sets none).
     var pin = ""
-    /// One of the offered pictures, or nil for the initial on the colour.
+    /// Changing: take the PIN away.
+    var removePin = false
+    /// One of the offered pictures; nil for the initial on the colour (a
+    /// new profile) or the picture it has (changing).
     var avatarId: String?
     var colorHex = Bonfire.defaultAvatarColor
     /// Everything up to this rating; nil for no limit beyond the account's.
     var ratingScore: Int?
-    /// The libraries it may see; nil for all the account has, now and later.
+    /// The libraries it may see (plain ids); nil for all the account has,
+    /// now and later.
     var libraryIds: Set<String>?
     var masterPin = ""
     /// A PIN that isn't asked on the home network.
@@ -141,6 +157,7 @@ nonisolated struct ProfileDraft: Sendable, Equatable {
     /// The colours offered for the initial's tile.
     static let colors = ["#00A4DC", "#1F77B4", "#30A46C", "#FFB224", "#F76B15", "#E5484D", "#E93D82", "#8E4EC6"]
 
+    var isEditing: Bool { profileId != nil }
     var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     var initial: String { String(trimmedName.prefix(1)).uppercased() }
 
@@ -154,7 +171,7 @@ nonisolated struct ProfileDraft: Sendable, Equatable {
         if name.unicodeScalars.contains(where: { !allowed.contains($0) }) {
             return "A profile name can use letters, numbers, spaces and - ' . _ @ +."
         }
-        if !pin.isEmpty {
+        if !pin.isEmpty, !removePin {
             if !Bonfire.pinLengths.contains(pin.count) || !pin.allSatisfy({ $0.isASCII && $0.isNumber }) {
                 return "A PIN is 4 to 8 digits."
             }
@@ -164,7 +181,7 @@ nonisolated struct ProfileDraft: Sendable, Equatable {
     }
 }
 
-/// Makes a profile in the household.
+/// Makes, changes and removes profiles in the household.
 @MainActor
 protocol ProfileCreation: AnyObject {
     /// The pictures, libraries and ratings to offer. Each list is empty
@@ -172,6 +189,10 @@ protocol ProfileCreation: AnyObject {
     func creationChoices() async -> ProfileCreationOptions
     /// Makes the profile: its plain id.
     func createProfile(_ draft: ProfileDraft) async throws -> String
+    /// A profile as it is now, filled in to change.
+    func draft(editing profile: HouseholdProfile) async -> ProfileDraft
+    func updateProfile(_ draft: ProfileDraft) async throws
+    func deleteProfile(_ profile: HouseholdProfile, masterPin: String?) async throws
 }
 
 nonisolated enum ProfileSwitchError: LocalizedError, Sendable, Equatable {

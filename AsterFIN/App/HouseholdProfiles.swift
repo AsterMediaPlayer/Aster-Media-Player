@@ -5,8 +5,8 @@
 //  The household of the server in use: whether it has profiles to switch
 //  between (Bonfire on Jellyfin, a Plex Home), who they are, whether it
 //  asks who's watching on opening, and whether the person signed in can
-//  add to it. Asked once after sign-in and again after a while, like the
-//  tracking plugin; cleared on switching server.
+//  add to or change it. Asked once after sign-in and again after a while,
+//  like the tracking plugin; cleared on switching server.
 //
 
 import Foundation
@@ -42,6 +42,12 @@ final class HouseholdProfiles {
     var canCreateProfiles: Bool {
         guard provider?.creation != nil, let current, current.isMaster, !current.isOtherHousehold else { return false }
         return true
+    }
+
+    /// Whether `profile` can be changed from here: this household's own,
+    /// by its main account.
+    func canEdit(_ profile: HouseholdProfile) -> Bool {
+        canCreateProfiles && !profile.isOtherHousehold
     }
 
     /// Asks the service what the household is. A server without one, or
@@ -110,7 +116,7 @@ final class HouseholdProfiles {
         profiles = kept.value
     }
 
-    // MARK: Making a profile
+    // MARK: Making and changing a profile
 
     /// What the form offers, with the household's own rules: the main
     /// account's PIN is asked when it has one, and how many more profiles
@@ -133,6 +139,29 @@ final class HouseholdProfiles {
         let id = try await creation.createProfile(draft)
         await refresh(session: session, force: true)
         return id
+    }
+
+    /// A profile as it is now, filled in to change.
+    func draft(editing profile: HouseholdProfile) async -> ProfileDraft {
+        guard let creation = provider?.creation else { return ProfileDraft() }
+        return await creation.draft(editing: profile)
+    }
+
+    func update(_ draft: ProfileDraft, session: AppSession) async throws {
+        guard let creation = provider?.creation else { throw ProfileSwitchError.unavailable }
+        try await creation.updateProfile(draft)
+        await refresh(session: session, force: true)
+    }
+
+    /// Removes the profile on the server, and its saved sign-in here (the
+    /// server ended it), then reads the household again.
+    func delete(_ profile: HouseholdProfile, masterPin: String?, session: AppSession) async throws {
+        guard let creation = provider?.creation else { throw ProfileSwitchError.unavailable }
+        try await creation.deleteProfile(profile, masterPin: masterPin)
+        if let serverURL = session.serverURL {
+            session.removeServer(SavedServer.id(serverURL, profile.id))
+        }
+        await refresh(session: session, force: true)
     }
 
     func clear() {

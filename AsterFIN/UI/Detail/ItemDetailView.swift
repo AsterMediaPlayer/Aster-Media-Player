@@ -827,6 +827,10 @@ struct ItemDetailView: View {
         static let titleSize: CGFloat = 64
         static let logoSize = CGSize(width: 600, height: 200)
         static let seriesLogoSize = CGSize(width: 420, height: 130)
+        #elseif os(macOS)
+        static let titleSize: CGFloat = 52
+        static let logoSize = CGSize(width: 480, height: 160)
+        static let seriesLogoSize = CGSize(width: 340, height: 104)
         #else
         static let titleSize: CGFloat = 30
         static let logoSize = CGSize(width: 280, height: 100)
@@ -890,6 +894,14 @@ struct ItemDetailView: View {
             #if os(tvOS)
             actionRow
                 .padding(.top, 8)
+            #elseif os(macOS)
+            // One row, as on the TV; it scrolls sideways in a narrow window.
+            ScrollView(.horizontal) {
+                actionRow
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .padding(.top, 8)
             #else
             // A phone can't fit every action across; let the row scroll sideways.
             VStack(alignment: .leading, spacing: 10) {
@@ -940,7 +952,7 @@ struct ItemDetailView: View {
     private var isUnaired: Bool { detail.kind == .episode && detail.locationType == "Virtual" }
 
     private var actionRow: some View {
-        HStack(spacing: 20) {
+        ActionRowLayout(spacing: 20) {
             let resumable = detail.kind == .series ? (model.nextEpisode?.canResume ?? false) : detail.canResume
             if isUnaired {
                 // When it airs, and its show, in Play's place.
@@ -989,8 +1001,9 @@ struct ItemDetailView: View {
             if showsMoreMenu {
                 moreMenu
             }
-            #if os(tvOS)
-            // Last in the row, so a press to the right ends here.
+            #if !os(iOS)
+            // Last in the row, so a press to the right ends here. (A phone
+            // has them on a row of their own.)
             themeButtons
             #endif
             if let remaining = detail.remainingText, detail.kind != .series {

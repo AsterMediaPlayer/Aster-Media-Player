@@ -59,12 +59,32 @@ enum Lockup {
     #if os(macOS)
     // A Mac window is wide and seen from further off than a phone: cards
     // half as big again, so a row holds about eight, not fifteen.
-    static let landscapeWidth: CGFloat = 260
-    static let landscapeHeight: CGFloat = 146
-    static let posterWidth: CGFloat = 165
-    static let posterHeight: CGFloat = 248
-    static let squareWidth: CGFloat = 165
-    static let channelWidth: CGFloat = 165
+    // About four fifths of the TV's: a window about as wide in points,
+    // seen from nearer, with text to match (MacTypography).
+    static let landscapeWidth: CGFloat = 320
+    static let landscapeHeight: CGFloat = 180
+    static let posterWidth: CGFloat = 196
+    static let posterHeight: CGFloat = 294
+    static let squareWidth: CGFloat = 196
+    static let channelWidth: CGFloat = 224
+    static let cornerRadius: CGFloat = 12
+    static let gridSpacing: CGFloat = 28
+    static let gridRowSpacing: CGFloat = 36
+    static let screenPadding: CGFloat = 56
+    static let shelfSpacing: CGFloat = 26
+    static let shelfVerticalPadding: CGFloat = 16
+    static let personPhotoSize: CGFloat = 150
+    static let personWidth: CGFloat = 170
+    static let personSpacing: CGFloat = 22
+    static let personLabelSpacing: CGFloat = 8
+    /// The height of a headline label, so icon and text buttons match.
+    static let iconButtonSize: CGFloat = 28
+    static let iconButtonFont: Font = .headline
+    static let pageTopPadding: CGFloat = 28
+    static let pageBottomPadding: CGFloat = 60
+    static let sectionSpacing: CGFloat = 28
+    static let buttonSpacing: CGFloat = 18
+    static let emptyStateHeight: CGFloat = 420
     #else
     static let landscapeWidth: CGFloat = 175
     static let landscapeHeight: CGFloat = 98
@@ -72,7 +92,6 @@ enum Lockup {
     static let posterHeight: CGFloat = 165
     static let squareWidth: CGFloat = 110
     static let channelWidth: CGFloat = 110
-    #endif
     static let cornerRadius: CGFloat = 10
     static let gridSpacing: CGFloat = 12
     static let gridRowSpacing: CGFloat = 20
@@ -91,6 +110,7 @@ enum Lockup {
     static let sectionSpacing: CGFloat = 16
     static let buttonSpacing: CGFloat = 12
     static let emptyStateHeight: CGFloat = 320
+    #endif
     /// The size of the landscape cards in the shelves beside them.
     static let libraryTileWidth: CGFloat = landscapeWidth
     static let libraryTileHeight: CGFloat = landscapeHeight
@@ -113,6 +133,9 @@ extension Lockup {
     /// shows on (2× on a 4K TV, 3× on iPhone), and nothing more.
     #if os(tvOS)
     static let posterImageWidth = 480
+    #elseif os(macOS)
+    // The Mac's 196-point card on a Retina screen.
+    static let posterImageWidth = 400
     #else
     static let posterImageWidth = 330
     #endif
@@ -903,6 +926,29 @@ struct MessageView: View {
     }
 }
 
+/// A row of buttons, centred on each other, that leaves no gap for one with
+/// nothing to show (the watchlist button until a service is linked): an
+/// HStack spaces an empty view like any other, which left a double gap.
+struct ActionRowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }.filter { $0.width > 0 }
+        guard !sizes.isEmpty else { return .zero }
+        let width = sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(sizes.count - 1)
+        return CGSize(width: width, height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            subview.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(size))
+            if size.width > 0 { x += size.width + spacing }
+        }
+    }
+}
+
 /// Prominent pill button used on detail pages.
 struct ActionButton: View {
     let title: String
@@ -998,6 +1044,12 @@ extension View {
         #if os(tvOS)
         buttonStyle(TVActionButtonStyle(prominent: prominent))
             .menuStyle(.button)
+        #elseif os(macOS)
+        // Drawn as the TV's are, a size down: the system's bordered buttons
+        // stay small whatever the text, and a menu wore a chevron.
+        buttonStyle(MacActionButtonStyle(prominent: prominent))
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
         #else
         buttonStyle(.borderedProminent)
             // iOS draws these as capsules; the Mac's rounded rectangles looked square beside them.
@@ -1045,12 +1097,46 @@ private struct ChipButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
             .foregroundStyle(selected ? Color.black : Color.white)
             .background(Capsule().fill(selected ? Color.white : Color.white.opacity(0.14)))
             .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Capsule())
+    }
+}
+
+/// A page's action button on the Mac: the TV's capsule, white for the main
+/// action and grey for the rest, lightening under the pointer.
+private struct MacActionButtonStyle: ButtonStyle {
+    var prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, prominent: prominent)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let prominent: Bool
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        private var fill: Color {
+            if prominent { return hovering ? Color(white: 0.88) : .white }
+            return Color(white: hovering ? 0.4 : 0.3)
+        }
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(prominent ? Color.black : Color.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Capsule().fill(fill))
+                .contentShape(Capsule())
+                .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
     }
 }
 #endif

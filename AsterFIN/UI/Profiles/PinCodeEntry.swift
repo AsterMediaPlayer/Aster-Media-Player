@@ -291,6 +291,15 @@ enum PinCode {
     static let keyWidth: CGFloat = 128
     static let keyHeight: CGFloat = 62
     static let keySpacing: CGFloat = 12
+    #elseif os(macOS)
+    static let boxWidth: CGFloat = 56
+    static let boxHeight: CGFloat = 70
+    static let boxCorner: CGFloat = 14
+    static let boxSpacing: CGFloat = 14
+    static let padSpacing: CGFloat = 24
+    static let keyWidth: CGFloat = 0
+    static let keyHeight: CGFloat = 0
+    static let keySpacing: CGFloat = 0
     #else
     static let boxWidth: CGFloat = 44
     static let boxHeight: CGFloat = 56

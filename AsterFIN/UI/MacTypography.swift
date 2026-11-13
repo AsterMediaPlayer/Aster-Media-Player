@@ -11,25 +11,27 @@
 //  These declarations shadow SwiftUI's own text styles inside this module,
 //  so every `.font(.title3)`, `.font(.callout.weight(.semibold))` and so on
 //  in the app takes the Mac sizes below without changing where it's used.
-//  They're the iPhone's sizes, about a quarter up on the Mac's own. A text
-//  style asked for by name (`.system(.callout)`) still gets the Mac's.
+//  A Mac window is about as many points across as the TV's 1920, seen from
+//  nearer, so these are about two thirds of tvOS's own sizes, keeping its
+//  order (a callout a touch bigger than body, as on the TV). A text style
+//  asked for by name (`.system(.callout)`) still gets the Mac's.
 //
 
 import SwiftUI
 
 #if os(macOS)
 extension Font {
-    static var largeTitle: Font { .system(size: 34) }
-    static var title: Font { .system(size: 28) }
-    static var title2: Font { .system(size: 22) }
-    static var title3: Font { .system(size: 20) }
-    static var headline: Font { .system(size: 17, weight: .semibold) }
-    static var body: Font { .system(size: 16) }
-    static var callout: Font { .system(size: 15) }
-    static var subheadline: Font { .system(size: 14) }
-    static var footnote: Font { .system(size: 13) }
-    static var caption: Font { .system(size: 12) }
-    static var caption2: Font { .system(size: 11) }
+    static var largeTitle: Font { .system(size: 48) }
+    static var title: Font { .system(size: 40) }
+    static var title2: Font { .system(size: 32) }
+    static var title3: Font { .system(size: 28) }
+    static var headline: Font { .system(size: 22, weight: .semibold) }
+    static var body: Font { .system(size: 18) }
+    static var callout: Font { .system(size: 20) }
+    static var subheadline: Font { .system(size: 18) }
+    static var footnote: Font { .system(size: 15) }
+    static var caption: Font { .system(size: 16) }
+    static var caption2: Font { .system(size: 15) }
 }
 
 extension View {

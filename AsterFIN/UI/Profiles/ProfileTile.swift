@@ -18,6 +18,11 @@ enum ProfileLayout {
     static let tileSpacing: CGFloat = 48
     static let buttonSize: CGFloat = 44
     static let nameFont: Font = .title3
+    #elseif os(macOS)
+    static let tileSize: CGFloat = 140
+    static let tileSpacing: CGFloat = 36
+    static let buttonSize: CGFloat = 38
+    static let nameFont: Font = .headline
     #else
     static let tileSize: CGFloat = 88
     static let tileSpacing: CGFloat = 20

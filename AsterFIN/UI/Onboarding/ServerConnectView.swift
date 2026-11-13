@@ -243,6 +243,23 @@ enum Onboarding {
     static let quickConnectCodeSize: CGFloat = 72
     static let sectionSpacing: CGFloat = 40
     static let controlSpacing: CGFloat = 24
+    #elseif os(macOS)
+    // A window on a desk: nearer the TV's sizes than the phone's.
+    static let logoSize: CGFloat = 76
+    static let logoWidth: CGFloat = 440
+    static let titleSize: CGFloat = 48
+    static let serverNameSize: CGFloat = 42
+    static let fieldWidth: CGFloat = 560
+    static let credentialsWidth: CGFloat = 500
+    static let buttonWidth: CGFloat = 320
+    static let signInButtonWidth: CGFloat = 220
+    static let avatarSize: CGFloat = 120
+    static let avatarInitialSize: CGFloat = 48
+    static let avatarSpacing: CGFloat = 28
+    static let avatarRowPadding: CGFloat = 0
+    static let quickConnectCodeSize: CGFloat = 56
+    static let sectionSpacing: CGFloat = 36
+    static let controlSpacing: CGFloat = 20
     #else
     static let logoSize: CGFloat = 56
     static let logoWidth: CGFloat = 300
@@ -275,6 +292,10 @@ struct OnboardingLayout<Content: View>: View {
         GeometryReader { proxy in
             ScrollView {
                 content
+                    #if os(macOS)
+                    // A full-window page: a size up on the window's body text.
+                    .font(.title3)
+                    #endif
                     .padding(.horizontal, 24)
                     .padding(.vertical, 32)
                     .frame(maxWidth: .infinity, minHeight: proxy.size.height)
@@ -304,6 +325,8 @@ extension View {
     func onboardingPrimaryButton() -> some View {
         #if os(tvOS)
         self
+        #elseif os(macOS)
+        buttonStyle(.borderedProminent).controlSize(.extraLarge)
         #else
         buttonStyle(.borderedProminent).controlSize(.large)
         #endif
@@ -314,6 +337,8 @@ extension View {
     func onboardingSecondaryButton() -> some View {
         #if os(tvOS)
         self
+        #elseif os(macOS)
+        buttonStyle(.bordered).controlSize(.extraLarge)
         #else
         buttonStyle(.bordered).controlSize(.large)
         #endif

@@ -113,6 +113,13 @@ final class KeyboardTargets {
         #endif
     }
 
+    /// Whether `page` is the one in front on `tab` (nothing pushed over it).
+    /// A view on no page is taken as in front.
+    func isInFront(_ page: UUID?, on tab: AppTab?) -> Bool {
+        guard let page else { return true }
+        return pages[tab]?.last == page
+    }
+
     /// Esc: dismisses the pushed page in front on `tab`; false at a first page.
     func goBack(on tab: AppTab) -> Bool {
         guard let front = pages[tab]?.last, let dismiss = dismissals[front] else { return false }

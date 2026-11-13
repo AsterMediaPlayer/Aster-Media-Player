@@ -302,8 +302,11 @@ final class TVLetterRowView: UIView {
     var jump: ((String) -> Void)?
 
     private let scrollView = UIScrollView()
-    private let stack = UIStackView()
+    private var buttons: [UIButton] = []
     private var keys: [String] = []
+
+    private static let spacing: CGFloat = 12
+    private static let minimumButtonWidth: CGFloat = 76
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -312,37 +315,41 @@ final class TVLetterRowView: UIView {
         scrollView.clipsToBounds = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.contentInsetAdjustmentBehavior = .never
-        stack.axis = .horizontal
-        stack.spacing = 12
-        stack.alignment = .center
         addSubview(scrollView)
-        scrollView.addSubview(stack)
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = scrollView.contentLayoutGuide
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Lockup.screenPadding),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Lockup.screenPadding),
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
-        ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Laid out by hand, not with constraints. Inside the grid's hosted
+    /// header, whose height SwiftUI and Auto Layout work out between them,
+    /// a scroll view and stack view held by constraints could keep the two
+    /// from ever settling: the page froze (a library opened inside the
+    /// screen's margins, General TV's). A row of buttons needs no solver.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        scrollView.frame = bounds
+        var x = Lockup.screenPadding
+        for button in buttons {
+            let fitting = button.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: bounds.height))
+            let size = CGSize(width: max(Self.minimumButtonWidth, ceil(fitting.width)), height: min(ceil(fitting.height), bounds.height))
+            button.frame = CGRect(x: x, y: ((bounds.height - size.height) / 2).rounded(), width: size.width, height: size.height)
+            x += size.width + Self.spacing
+        }
+        let width = buttons.isEmpty ? 0 : x - Self.spacing + Lockup.screenPadding
+        let contentSize = CGSize(width: width, height: bounds.height)
+        if scrollView.contentSize != contentSize {
+            scrollView.contentSize = contentSize
+        }
+    }
+
     /// Rebuilds the buttons when the letters change.
     func show(_ keys: [String]) {
         guard keys != self.keys else { return }
         self.keys = keys
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for key in keys {
+        buttons.forEach { $0.removeFromSuperview() }
+        buttons = keys.map { key in
             var configuration = UIButton.Configuration.bordered()
             configuration.cornerStyle = .capsule
             configuration.title = key
@@ -355,9 +362,10 @@ final class TVLetterRowView: UIView {
                 self?.jump?(key)
             })
             button.accessibilityLabel = "Jump to \(key)"
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
-            stack.addArrangedSubview(button)
+            return button
         }
+        buttons.forEach { scrollView.addSubview($0) }
+        setNeedsLayout()
     }
 }
 #endif

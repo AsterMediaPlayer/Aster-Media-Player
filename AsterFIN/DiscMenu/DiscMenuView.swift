@@ -47,6 +47,22 @@ struct DiscMenuView: View {
                     DiscCanvasContent(controller: controller, canvas: canvas, reduceMotion: reduceMotion)
                         .contentShape(Rectangle())
                         .onTapGesture(coordinateSpace: .local) { controller.tap(at: $0) }
+                        #if os(macOS)
+                        // The keyboard, as the remote on the TV: arrows move
+                        // between entries, Return chooses, Esc or Delete steps
+                        // back, Space plays.
+                        .focusable()
+                        .focusEffectDisabled()
+                        .focused($canvasFocused)
+                        .onKeyPress(.upArrow) { controller.move(dx: 0, dy: -1); return .handled }
+                        .onKeyPress(.downArrow) { controller.move(dx: 0, dy: 1); return .handled }
+                        .onKeyPress(.leftArrow) { controller.move(dx: -1, dy: 0); return .handled }
+                        .onKeyPress(.rightArrow) { controller.move(dx: 1, dy: 0); return .handled }
+                        .onKeyPress(.return) { controller.select(); return .handled }
+                        .onKeyPress(.escape) { controller.hardwareBack(); return .handled }
+                        .onKeyPress(.delete) { controller.hardwareBack(); return .handled }
+                        .onKeyPress(.space) { controller.playPause(); return .handled }
+                        #endif
                         .frame(width: canvas.width, height: canvas.height)
                         .position(x: canvas.midX, y: canvas.midY)
                     #endif
@@ -81,6 +97,14 @@ struct DiscMenuView: View {
                 created.open()
             }
             canvasFocused = true
+            #if os(macOS)
+            // Set as the cover appears, focus is ignored on the Mac: again
+            // once it's up.
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                canvasFocused = true
+            }
+            #endif
         }
         .onChange(of: controller?.pendingPlayback) { _, request in
             guard let request, let controller else { return }

@@ -2,13 +2,14 @@
 //  ChannelFlickBar.swift
 //  AsterFIN
 //
-//  The channel row the Apple TV player opens with Up (see `ChannelFlick`):
-//  what's on the picked channel across the top, and the channels either
-//  side of it in a row beneath, over the picture, which plays on, and Go to
-//  Episode above the row. The remote is the player's own; this only draws.
+//  The channel row the Apple TV and Mac players open with Up (see
+//  `ChannelFlick`): what's on the picked channel across the top, and the
+//  channels either side of it in a row beneath, over the picture, which
+//  plays on, and Go to Episode above the row. The remote (or keyboard) is
+//  the player's own; this only draws.
 //
 
-#if os(tvOS)
+#if !os(iOS)
 import SwiftUI
 
 struct ChannelFlickBar: View {

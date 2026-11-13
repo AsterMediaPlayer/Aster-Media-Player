@@ -522,7 +522,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "AsterFIN/AsterFIN-CarPlay.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "AsterFIN/AsterFIN-CarPlay.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -579,7 +579,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "AsterFIN/AsterFIN-CarPlay.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "AsterFIN/AsterFIN-CarPlay.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -629,7 +629,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -654,7 +654,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -679,7 +679,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -720,7 +720,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINWidgets/AsterFINWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -761,7 +761,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINTopShelf/AsterFINTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";
@@ -792,7 +792,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AsterFINTopShelf/AsterFINTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AsterFINTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Aster Top Shelf";

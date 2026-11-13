@@ -227,6 +227,25 @@ struct GuideView: View {
     /// The programme cell that last had focus; nil when a channel cell did.
     @State private var highlightedProgramId: String?
     @Namespace private var gridFocus
+    #if os(macOS)
+    /// The Mac's arrow keys: the page keeps their place here, as Home does
+    /// (see `KeyboardNavigation`), since the guide's cells can't take focus.
+    @Environment(KeyboardNavigation.self) private var keyboard: KeyboardNavigation?
+    @Environment(\.keyboardTab) private var keyboardTab
+    @Environment(\.keyboardPage) private var keyboardPage
+    @State private var keyboardCursor: GuideKeyboardCursor?
+    /// This guide's claim on the tab's keys (see `KeyboardNavigation`).
+    @State private var keyboardOwner = UUID()
+    #endif
+
+    /// The cursor the rows light: the keyboard's, on the Mac.
+    private var rowCursor: GuideKeyboardCursor? {
+        #if os(macOS)
+        keyboardCursor
+        #else
+        nil
+        #endif
+    }
 
     private enum FocusKind { case program, channel, placeholder }
     @State private var lastFocusKind: FocusKind?
@@ -410,6 +429,7 @@ struct GuideView: View {
                                     openChannel: openChannel.map { open in { open(channel.id) } },
                                     toggleFavorite: toggleFavorite.map { toggle in { toggle(channel.id) } },
                                     groupCaption: captions[channel.id],
+                                    keyboardCursor: rowCursor,
                                     select: select
                                 )
                                 .id(channel.id)
@@ -511,7 +531,137 @@ struct GuideView: View {
                 prefetchArtwork(around: channelId)
             }
         }
+        #if os(macOS)
+        // The arrows and Return work the grid while it's showing.
+        .onAppear {
+            guard let tab = keyboardTab else { return }
+            keyboard?.register(tab, owner: keyboardOwner) { key in handleKey(key) }
+        }
+        .onDisappear {
+            guard let tab = keyboardTab else { return }
+            keyboard?.unregister(tab, owner: keyboardOwner)
+        }
+        // Another group's channels: the cursor starts again at the top.
+        .onChange(of: pickedGroup) { _, _ in keyboardCursor = nil }
+        #endif
     }
+
+    #if os(macOS)
+    // MARK: The Mac's keyboard
+
+    /// What a key does in the grid. Left and right step through a channel's
+    /// programmes (the time window following), left from the earliest one
+    /// to the channel itself and from there to the sidebar; up and down move
+    /// a channel at the same time of day, up from the first to the sidebar.
+    /// Return opens the programme, or tunes in (or opens) the channel.
+    private func handleKey(_ key: KeyboardNavigation.Key) -> KeyPress.Result {
+        // A page pushed over the guide (a channel's settings) has the keys.
+        guard KeyboardTargets.shared.isInFront(keyboardPage, on: keyboardTab) else {
+            guard let tab = keyboardTab else { return .ignored }
+            return KeyboardTargets.shared.handle(key, on: tab)
+        }
+        if key == .exit { return .ignored }
+        guard let cursor = keyboardCursor, rows.contains(where: { $0.id == cursor.channelId }) else {
+            // The first key puts the cursor on what's on now in the first row.
+            guard key != .left, key != .up, let first = highlightedChannelId.flatMap({ id in rows.first { $0.id == id } }) ?? rows.first else { return .ignored }
+            moveCursor(to: entry(inRow: first.id, at: windowStart))
+            return .handled
+        }
+        switch key {
+        case .select:
+            switch cursor {
+            case .program(let id, _):
+                guard let program = model.program(withId: id) else { return .ignored }
+                select(program)
+            case .channel(let id):
+                if let openChannel { openChannel(id) } else { playChannel(id) }
+            case .placeholder(let id):
+                playChannel(id)
+            }
+            return .handled
+        case .left:
+            switch cursor {
+            case .channel:
+                return .ignored
+            case .placeholder(let channel):
+                moveCursor(to: .channel(channel))
+            case .program(let id, let channel):
+                let list = sortedPrograms(channel)
+                if let index = list.firstIndex(where: { $0.id == id }), index > 0, (list[index - 1].end ?? .distantPast) > model.guideStart {
+                    moveCursor(to: .program(list[index - 1].id, channel: channel))
+                } else {
+                    moveCursor(to: .channel(channel))
+                }
+            }
+            return .handled
+        case .right:
+            switch cursor {
+            case .channel(let channel):
+                moveCursor(to: entry(inRow: channel, at: windowStart))
+            case .placeholder:
+                break
+            case .program(let id, let channel):
+                let list = sortedPrograms(channel)
+                if let index = list.firstIndex(where: { $0.id == id }), index + 1 < list.count {
+                    moveCursor(to: .program(list[index + 1].id, channel: channel))
+                }
+            }
+            return .handled
+        case .up, .down:
+            guard let row = rows.firstIndex(where: { $0.id == cursor.channelId }) else { return .ignored }
+            let next = row + (key == .up ? -1 : 1)
+            guard rows.indices.contains(next) else { return key == .up ? .ignored : .handled }
+            let channel = rows[next].id
+            switch cursor {
+            case .channel:
+                moveCursor(to: .channel(channel))
+            case .placeholder:
+                moveCursor(to: entry(inRow: channel, at: windowStart))
+            case .program(let id, _):
+                // The same time of day: where this programme is in view.
+                let start = model.program(withId: id)?.start.map { max($0, windowStart) } ?? windowStart
+                moveCursor(to: entry(inRow: channel, at: start))
+            }
+            return .handled
+        case .exit:
+            return .ignored
+        }
+    }
+
+    /// A channel's programmes in the guide, earliest first.
+    private func sortedPrograms(_ channel: String) -> [BaseItem] {
+        (model.programs[channel] ?? [])
+            .filter { ($0.end ?? .distantPast) > model.guideStart }
+            .sorted { ($0.start ?? .distantPast) < ($1.start ?? .distantPast) }
+    }
+
+    /// The cell in a row on at `time`: its programme then, the next one,
+    /// or the row's stand-in when it has none.
+    private func entry(inRow channel: String, at time: Date) -> GuideKeyboardCursor {
+        let list = sortedPrograms(channel)
+        if let on = list.first(where: { ($0.start ?? .distantPast) <= time && ($0.end ?? .distantPast) > time })
+            ?? list.first(where: { ($0.start ?? .distantPast) > time }) {
+            return .program(on.id, channel: channel)
+        }
+        return .placeholder(channel)
+    }
+
+    /// Moves the cursor and shows where it is: the row scrolled into view,
+    /// the time window moved to the programme, and the panel showing it.
+    private func moveCursor(to cursor: GuideKeyboardCursor) {
+        keyboardCursor = cursor
+        highlightedChannelId = cursor.channelId
+        if case .program(let id, _) = cursor, let program = model.program(withId: id) {
+            highlightedProgramId = id
+            reveal(program)
+        } else {
+            highlightedProgramId = nil
+        }
+        if let client = session.jellyfin {
+            model.ensurePrograms(for: cursor.channelId, client: client)
+        }
+    }
+    #endif
 
     /// The earliest and latest the window can start, so it stays inside the guide.
     private func clampedWindow(_ start: Date) -> Date {
@@ -911,6 +1061,21 @@ struct GuideGroupFilter: View {
     }
 }
 
+/// Where the Mac's arrow keys are in the guide: on a channel's cell, one of
+/// its programmes, or the stand-in for a row with none (yet).
+enum GuideKeyboardCursor: Equatable {
+    case channel(String)
+    case program(String, channel: String)
+    case placeholder(String)
+
+    var channelId: String {
+        switch self {
+        case .channel(let id), .placeholder(let id): id
+        case .program(_, let channel): channel
+        }
+    }
+}
+
 struct GuideRow: View {
     let channel: BaseItem
     let logoURL: URL?
@@ -929,6 +1094,8 @@ struct GuideRow: View {
     var toggleFavorite: (() -> Void)? = nil
     /// The group's name, on a group's first row in the All view.
     var groupCaption: String? = nil
+    /// The Mac's keyboard cursor, lit as focus is on the TV.
+    var keyboardCursor: GuideKeyboardCursor? = nil
     var select: (BaseItem) -> Void
 
     /// Programmes near the window, including one hour either side so focus can
@@ -946,7 +1113,7 @@ struct GuideRow: View {
 
     var body: some View {
         HStack(spacing: GuideView.columnGap) {
-            ChannelCell(channel: channel, logoURL: logoURL, isFocused: channelFocus.wrappedValue == channel.id, isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, groupCaption: groupCaption, action: openChannel ?? playChannel)
+            ChannelCell(channel: channel, logoURL: logoURL, isFocused: channelFocus.wrappedValue == channel.id || keyboardCursor == .channel(channel.id), isFavorite: channel.userData?.isFavorite == true, toggleFavorite: toggleFavorite, groupCaption: groupCaption, action: openChannel ?? playChannel)
                 .frame(width: GuideView.channelColumnWidth, height: GuideView.rowHeight)
                 .focused(channelFocus, equals: channel.id)
 
@@ -955,11 +1122,11 @@ struct GuideRow: View {
                 // skipped: a down press always lands one row lower, never on a
                 // loaded row several screens away.
                 if programs == nil {
-                    GuidePlaceholderCell(text: nil, isFocused: placeholderFocus.wrappedValue == channel.id) {}
+                    GuidePlaceholderCell(text: nil, isFocused: placeholderFocus.wrappedValue == channel.id || keyboardCursor == .placeholder(channel.id)) {}
                         .focused(placeholderFocus, equals: channel.id)
                         .layoutValue(key: GuideSlotKey.self, value: GuideSlot(start: windowStart, end: windowStart.addingTimeInterval(5400)))
                 } else if nearby.isEmpty {
-                    GuidePlaceholderCell(text: "No guide data", isFocused: placeholderFocus.wrappedValue == channel.id, action: playChannel)
+                    GuidePlaceholderCell(text: "No guide data", isFocused: placeholderFocus.wrappedValue == channel.id || keyboardCursor == .placeholder(channel.id), action: playChannel)
                         .focused(placeholderFocus, equals: channel.id)
                         .layoutValue(key: GuideSlotKey.self, value: GuideSlot(start: windowStart, end: windowStart.addingTimeInterval(5400)))
                 }
@@ -971,7 +1138,7 @@ struct GuideRow: View {
                         program: program,
                         visibleStart: slot.start,
                         leadingInset: min(hidden, max(0, cellWidth - GuideView.minimumVisibleCell)),
-                        isFocused: focus.wrappedValue == program.id
+                        isFocused: focus.wrappedValue == program.id || keyboardCursor == .program(program.id, channel: channel.id)
                     ) {
                         select(program)
                     }

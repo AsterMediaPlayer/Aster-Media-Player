@@ -100,8 +100,17 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
     var serverKind: ServerKind?
     /// A Plex sign-in's plex.tv side; nil for Jellyfin and Emby.
     var plex: PlexLink?
+    /// The household (Bonfire profiles) this sign-in belongs to, once
+    /// known; nil for an ordinary sign-in, and in sessions saved before.
+    var household: StoredHousehold?
 
     var kind: ServerKind { serverKind ?? .jellyfin }
+
+    /// The server and the household's main account, which every profile
+    /// of the household shares; nil without a household.
+    var householdKey: String? {
+        household.map { serverURL.absoluteString + "|" + $0.masterUserId }
+    }
 
     private static let account = "session"
 
@@ -119,6 +128,25 @@ nonisolated struct StoredSession: Codable, Sendable, Equatable {
     static func clear() {
         Keychain.delete(account: account)
     }
+}
+
+/// The household a sign-in is part of: a Bonfire main account and its
+/// profiles. Enough to find the household's other saved sign-ins, decide
+/// whether to ask who's watching on opening, and draw the profile's tile
+/// before the server answers.
+nonisolated struct StoredHousehold: Codable, Sendable, Hashable {
+    /// The main account's id, as Jellyfin writes it: lowercase, no dashes.
+    var masterUserId: String
+    /// Whether this sign-in is the main account itself.
+    var isMaster: Bool
+    /// The tile without a picture: a letter on a colour (`#00A4DC`-style).
+    var avatarInitial: String?
+    var avatarColor: String?
+    /// Bonfire's own picture value (an avatar's id, a URL, or a stored
+    /// file's name); nil without one.
+    var profileImage: String?
+    /// Whether the profile has a PIN, which locking asks for.
+    var hasPin: Bool?
 }
 
 /// What a Plex sign-in keeps beyond the server's own token: the plex.tv
@@ -160,16 +188,42 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     var lockAfterMinutes: Int?
 
     /// The lock-after choices offered, in minutes.
-    static let lockChoices = [5, 15, 30, 60, 240]
+    static let lockChoices = [1, 5, 15, 30, 60, 240]
 
     /// What switching and Lock After ask for: the user's password on the
-    /// server, or a Plex Home profile's PIN.
-    var credentialName: String { session.kind == .plex ? "PIN" : "password" }
+    /// server, or a Plex Home profile's or a Bonfire profile's PIN (the
+    /// main account's too, when it has one).
+    var credentialName: String {
+        if session.kind == .plex { return "PIN" }
+        if asksProfilePin { return "PIN" }
+        return "password"
+    }
 
-    /// Whether there's anything to ask for: a Plex profile without a PIN
-    /// can't be locked.
+    /// Whether this is a household profile (not the main account), whose
+    /// password on the server is its PIN.
+    var isHouseholdProfile: Bool { session.household?.isMaster == false }
+
+    /// A Bonfire main account with a PIN: its lock asks for the PIN, typed
+    /// on the PIN pad, rather than the account's password.
+    var isPinnedMainAccount: Bool {
+        session.kind != .plex && session.household?.isMaster == true && session.household?.hasPin == true
+    }
+
+    /// Whether what's asked for is a household PIN, on the PIN pad.
+    var asksProfilePin: Bool { isHouseholdProfile || isPinnedMainAccount }
+
+    /// Whether there's anything to ask for: a Plex Home profile or a
+    /// household profile without a PIN can't be locked.
     var canBeLocked: Bool {
-        session.kind != .plex || (session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil)
+        if session.kind == .plex { return session.plex?.homeUserHasPin == true && session.plex?.homeToken != nil }
+        if isHouseholdProfile { return session.household?.hasPin == true }
+        return true
+    }
+
+    /// A household profile (or main account) with a PIN and a lock asks for
+    /// the PIN as the app opens too, not only after time away.
+    var locksOnOpening: Bool {
+        asksProfilePin && canBeLocked && lockAfterMinutes != nil
     }
 
     /// Whether a new Lock After lets more past the lock than the one set:

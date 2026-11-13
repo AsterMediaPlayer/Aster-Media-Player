@@ -320,6 +320,19 @@ struct GuideView: View {
     static let minimumCellWidth: CGFloat = 40
     static let titleFont: Font = .callout.weight(.semibold)
     static let subtitleFont: Font = .caption
+    #elseif os(macOS)
+    // A window's width: about two hours of guide, with room for the text.
+    static let channelColumnWidth: CGFloat = 140
+    static let rowHeight: CGFloat = 72
+    static let pointsPerMinute: CGFloat = 6
+    static let columnGap: CGFloat = 8
+    static let cellGap: CGFloat = 5
+    static let cellPadding = EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+    static let cornerRadius: CGFloat = 10
+    static let minimumVisibleCell: CGFloat = 120
+    static let minimumCellWidth: CGFloat = 30
+    static let titleFont: Font = .callout.weight(.semibold)
+    static let subtitleFont: Font = .caption
     #else
     // About an hour of guide across a phone held upright, three on its side.
     static let channelColumnWidth: CGFloat = 88

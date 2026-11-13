@@ -28,6 +28,9 @@ struct AsterFINApp: App {
                 .onOpenURL { url in
                     session.router.handle(url)
                 }
+                #if os(macOS)
+                .macWindowTypography()
+                #endif
         }
         #if os(macOS)
         // View › Show/Hide Sidebar (⌃⌘S), from any page.
@@ -62,6 +65,7 @@ struct AsterFINApp: App {
             MacSettingsView()
                 .environment(session)
                 .preferredColorScheme(.dark)
+                .macWindowTypography()
         }
         #endif
     }

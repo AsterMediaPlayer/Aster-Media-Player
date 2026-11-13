@@ -13,6 +13,8 @@ import Foundation
 import Testing
 @testable import AsterFIN
 
+// The view's helpers are main-actor, as the whole app is.
+@MainActor
 @Suite(.serialized)
 struct SignInFlowTests {
     private static let demo = "testfin.berrymancloud.us"
@@ -28,7 +30,9 @@ struct SignInFlowTests {
     /// The demo server answers however its address is typed.
     @Test(arguments: ["testfin.berrymancloud.us", "https://testfin.berrymancloud.us/", "http://testfin.berrymancloud.us"])
     func theDemoServerIsFound(_ typed: String) async throws {
-        let url = try #require(ServerConnectView.normalize(typed))
+        // Read outside the macro: its closures aren't on the main actor.
+        let normalized = ServerConnectView.normalize(typed)
+        let url = try #require(normalized)
         let info = try await JellyfinClient(baseURL: url).publicSystemInfo()
         #expect(info.serverName == "Aster Demo")
     }
@@ -36,14 +40,16 @@ struct SignInFlowTests {
     /// A mistyped name fails at once, rather than spinning: before, the
     /// sign-in connection waited for a network that was already there.
     @Test func aMistypedAddressFailsQuickly() async throws {
-        let url = try #require(ServerConnectView.normalize("testfin.berrymancloud.uss"))
+        let normalized = ServerConnectView.normalize("testfin.berrymancloud.uss")
+        let url = try #require(normalized)
         let started = Date()
         do {
             _ = try await JellyfinClient(baseURL: url).publicSystemInfo()
             Issue.record("A server that doesn't exist answered")
         } catch {
             #expect(Date().timeIntervalSince(started) < 15)
-            #expect(ServerConnectView.unreachableMessage(error) == "No server has that name. Check the address for typos.")
+            let message = ServerConnectView.unreachableMessage(error)
+            #expect(message == "No server has that name. Check the address for typos.")
         }
     }
 
@@ -55,7 +61,8 @@ struct SignInFlowTests {
 
     /// The demo user is listed to pick, as reviewers are told.
     @Test func theDemoUserIsListed() async throws {
-        let url = try #require(ServerConnectView.normalize(Self.demo))
+        let normalized = ServerConnectView.normalize(Self.demo)
+        let url = try #require(normalized)
         let users = try await JellyfinClient(baseURL: url).publicUsers()
         #expect(users.contains { $0.name == "demo" })
     }

@@ -16,7 +16,7 @@ With Aster's server plugin you can discover and request new titles through Seerr
 
 Aster Media Player (formerly AsterFIN) is free, and always will be: on every platform, with every feature, and no paid version. It's open source, and there are three ways to get it:
 
-- **App Store**: free, with one download for Apple TV, iPhone, iPad and the Mac. It installs in one click and updates automatically.
+- **[App Store](https://apps.apple.com/us/app/aster-media-player/id6821328142)**: free, with one download for Apple TV, iPhone, iPad and the Mac. It installs in one click and updates automatically.
 - **IPA**: download the latest from [Releases](https://github.com/AsterMediaPlayer/aster-apple/releases): an IPA for iPhone and iPad, one for Apple TV, and the Mac app. Apple TV, iPhone and iPad only run signed apps, so you need to re-sign the IPA with your own Apple ID before installing it. With a free Apple ID the signature expires after 7 days; with a paid Apple Developer account it lasts a year.
 - **Build it yourself**: see [Building](#building) below.
 

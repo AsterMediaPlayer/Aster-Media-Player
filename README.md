@@ -132,6 +132,13 @@ Shows always play their episodes in order and pick up where they left off. Speci
 - Screens change with fade, slide, rise, zoom or wipe transitions. Menu music and click, chime or beep sounds are built in, or a menu can ship its own sound files.
 - Conformance tests check the menu rules against the plugin's published test vectors.
 
+### Household profiles
+For a household on one account: profiles from the [Bonfire](https://github.com/AHouseOfBards/Bonfire-JellyProfiles) plugin on Jellyfin, or a Plex Home.
+- **Who's watching?** Pick a profile from the picture at the top of Home on iPhone and iPad, or at the top of the sidebar on Apple TV and the Mac. Switching is instant, and a profile with a PIN asks for it on a PIN pad.
+- **Asking as Aster opens:** Settings ▸ Account ▸ Ask on Opening. Choose As the Server Is Set (Bonfire's own "Ask on startup"), Every Time or Never.
+- **Adding and changing profiles** (Bonfire, from the main account): Manage Profiles on the picker. Each profile has a name, a picture, a PIN (which can be skipped on the home network), a viewing limit and the libraries it sees. Removing a profile takes its watch history with it.
+- **PIN lock:** set Settings ▸ Account ▸ Ask for PIN After, from a minute to four hours. After that long away, and whenever Aster opens, the profile's PIN is asked before anything plays. The main account can lock this way too, once it has a PIN. Anyone else at the lock screen can choose **Switch Profile** to pick their own profile. Adding and changing profiles stays off from behind a lock.
+
 ### Platform integration
 - **Apple TV:** a Top Shelf showing Continue Watching, Next Up and recent Live TV channels, and the native search tab.
 - **iPhone and iPad:**
@@ -139,6 +146,7 @@ Shows always play their episodes in order and pick up where they left off. Speci
   - A tab bar you can reorder.
 - **Mac:**
   - A sidebar and a Settings window (⌘,).
+  - Text, buttons and cards sized after the Apple TV app's, a step smaller for a nearer screen, rather than the Mac's usual small type.
   - Videos play full screen (or in the window, if you'd rather).
   - Keyboard shortcuts: Space to play or pause, ← → to jump, Esc to close.
 - **Deep links:** `aster://item/{id}` opens a title page, and `aster://play/{id}` starts playback.
@@ -155,6 +163,7 @@ Shows always play their episodes in order and pick up where they left off. Speci
 | Anime tab and song cards | ✓ | ✓ | ✓ |
 | Music, audiobooks, Live TV, channels, playlists, Upcoming | ✓ | ✓ | |
 | Downloads, favourites, trickplay previews, lyrics | ✓ | ✓ | |
+| Household profiles, with PINs and a PIN lock | ✓ (Bonfire) | | ✓ (Plex Home) |
 | Quick Connect, Aster's plugins (disc menus, OP/ED, channel groups) | ✓ | | |
 
 More detail, including what each server needs, is in [docs/emby-plex.md](docs/emby-plex.md).
@@ -169,6 +178,7 @@ Aster works with a recent Jellyfin server (10.10 or later recommended). All plug
 | Intro Skipper (or chapters / EDL) | Skip Intro and Skip Credits |
 | OP/ED | Anime openings and endings with song details |
 | Shoko | Detecting Anime libraries |
+| Bonfire (JellyProfiles) | Household profiles: switching, PINs, adding and changing profiles |
 
 Theme songs and theme videos use Jellyfin's standard theme media.
 
@@ -225,6 +235,10 @@ To run on a device, set your own development team in **Signing & Capabilities** 
   - Each day starts at local midnight, so devices in different time zones show different schedules.
   - Editing a playlist changes that channel's schedule from then on, including how far each show has got.
 - **Mac:** the Mac app has no downloads yet.
+- **Profiles:**
+  - A profile's picture can be one of Bonfire's own, but not one of your photos yet.
+  - On Apple TV with tvOS 26, the sidebar has no profile picture to switch from (that's tvOS 27 and later).
+  - Plex Home profiles are switched between here, but not added or changed. Do that at plex.tv.
 - **Anime without the OP/ED plugin:** openings and endings are found from chapter names, and their songs from AnimeThemes by the show's name and year, which can miss or pick the wrong season.
 - **Plex:**
   - Music, audiobooks, Live TV, channels, playlists, Upcoming, downloads and favourites aren't built yet, so they're hidden on Plex. So are the widget's and Top Shelf's rows.

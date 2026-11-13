@@ -70,6 +70,14 @@ final class AppSession {
         profilePicker = .switcher
     }
 
+    /// Asks who's watching from the lock screen: another profile than the
+    /// locked one, with its own PIN where it has one. The lock stays until
+    /// someone's switched to.
+    func presentProfilePickerFromLock() {
+        guard phase == .signedIn, isLocked, currentServer?.session.household != nil else { return }
+        profilePicker = .locked
+    }
+
     func dismissProfilePicker() {
         profilePicker = nil
     }
@@ -567,6 +575,14 @@ final class AppSession {
             fresh.userId = HouseholdProfile.plainId(result.jellyfinUserId)
             fresh.accessToken = result.activeProfileToken
             return fresh
+        }
+        // The main account with a PIN: checked by the plugin without
+        // switching, so the sign-in in use carries on as it is.
+        if saved.isPinnedMainAccount {
+            guard !password.isEmpty else { throw ProfileSwitchError.pinNeeded }
+            let jellyfin = JellyfinClient(baseURL: session.serverURL, accessToken: session.accessToken, userId: session.userId, kind: session.kind)
+            try await BonfireClient(jellyfin: jellyfin).verifyPin(id: session.userId, pin: password)
+            return session
         }
         let client = JellyfinClient(baseURL: session.serverURL, kind: session.kind)
         let result = try await client.authenticate(username: session.userName, password: password)

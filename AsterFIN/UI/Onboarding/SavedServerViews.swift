@@ -124,7 +124,7 @@ private struct CredentialEntry: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        if server.isHouseholdProfile {
+        if server.asksProfilePin {
             PinCodeEntry(pin: $text, errorAttempt: errorAttempt, isDisabled: isChecking, onSubmit: onSubmit)
         } else {
             SecureField(server.credentialName.capitalized, text: $text)
@@ -144,7 +144,7 @@ private struct CredentialEntry: View {
 
     /// Whether what's typed is worth sending: any password, or a whole PIN.
     static func isReady(_ text: String, for server: SavedServer) -> Bool {
-        server.isHouseholdProfile ? PinCode.isComplete(text) : !text.isEmpty
+        server.asksProfilePin ? PinCode.isComplete(text) : !text.isEmpty
     }
 }
 
@@ -236,7 +236,7 @@ private struct ServerPasswordSheet: View {
             } catch {
                 errorAttempt += 1
                 errorMessage = Self.message(for: error, server: server)
-                if server.isHouseholdProfile { password = "" }
+                if server.asksProfilePin { password = "" }
             }
         }
     }
@@ -272,7 +272,7 @@ struct ServerLockView: View {
             OnboardingLayout {
                 VStack(spacing: Onboarding.sectionSpacing) {
                     VStack(spacing: 12) {
-                        if server.isHouseholdProfile {
+                        if server.asksProfilePin {
                             HouseholdProfileHeader(server: server, size: Self.avatarSize)
                             Text(server.session.userName)
                                 .font(.system(size: Onboarding.serverNameSize, weight: .bold))
@@ -311,6 +311,13 @@ struct ServerLockView: View {
                             }
                             .onboardingPrimaryButton()
                             .disabled(isChecking || !CredentialEntry.isReady(password, for: server))
+                            // In a household: someone else picks their own
+                            // profile, without the locked one's PIN.
+                            if server.session.household != nil {
+                                Button("Switch Profile") { session.presentProfilePickerFromLock() }
+                                    .onboardingSecondaryButton()
+                                    .disabled(isChecking)
+                            }
                             Button("Use Another Server") { session.changeServer() }
                                 .onboardingSecondaryButton()
                         }
@@ -337,7 +344,7 @@ struct ServerLockView: View {
             } catch {
                 errorAttempt += 1
                 errorMessage = ServerPasswordSheet.message(for: error, server: server)
-                if server.isHouseholdProfile { password = "" }
+                if server.asksProfilePin { password = "" }
             }
         }
     }

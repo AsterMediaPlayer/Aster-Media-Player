@@ -191,16 +191,26 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
     static let lockChoices = [1, 5, 15, 30, 60, 240]
 
     /// What switching and Lock After ask for: the user's password on the
-    /// server, or a Plex Home profile's or a Bonfire profile's PIN.
+    /// server, or a Plex Home profile's or a Bonfire profile's PIN (the
+    /// main account's too, when it has one).
     var credentialName: String {
         if session.kind == .plex { return "PIN" }
-        if let household = session.household, !household.isMaster { return "PIN" }
+        if asksProfilePin { return "PIN" }
         return "password"
     }
 
     /// Whether this is a household profile (not the main account), whose
     /// password on the server is its PIN.
     var isHouseholdProfile: Bool { session.household?.isMaster == false }
+
+    /// A Bonfire main account with a PIN: its lock asks for the PIN, typed
+    /// on the PIN pad, rather than the account's password.
+    var isPinnedMainAccount: Bool {
+        session.kind != .plex && session.household?.isMaster == true && session.household?.hasPin == true
+    }
+
+    /// Whether what's asked for is a household PIN, on the PIN pad.
+    var asksProfilePin: Bool { isHouseholdProfile || isPinnedMainAccount }
 
     /// Whether there's anything to ask for: a Plex Home profile or a
     /// household profile without a PIN can't be locked.
@@ -210,10 +220,10 @@ nonisolated struct SavedServer: Codable, Sendable, Identifiable, Equatable {
         return true
     }
 
-    /// A household profile with a PIN and a lock asks for the PIN as the
-    /// app opens too, not only after time away.
+    /// A household profile (or main account) with a PIN and a lock asks for
+    /// the PIN as the app opens too, not only after time away.
     var locksOnOpening: Bool {
-        isHouseholdProfile && canBeLocked && lockAfterMinutes != nil
+        asksProfilePin && canBeLocked && lockAfterMinutes != nil
     }
 
     /// Whether a new Lock After lets more past the lock than the one set:

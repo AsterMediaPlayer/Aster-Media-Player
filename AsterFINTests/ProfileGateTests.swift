@@ -86,8 +86,9 @@ struct ProfileGateTests {
     }
 
     /// Only a profile with a PIN can be locked; with a lock set it asks on
-    /// opening too. The main account and an ordinary sign-in lock with their
-    /// password, after time away only.
+    /// opening too, as does a main account with a PIN. Otherwise the main
+    /// account and an ordinary sign-in lock with their password, after time
+    /// away only.
     @Test func aProfileLocksWithItsPinAndOnOpening() throws {
         var withPin = inHousehold
         withPin.household?.hasPin = true
@@ -106,10 +107,17 @@ struct ProfileGateTests {
         // Saved before the PIN was kept: not locked until the household is read again.
         #expect(!SavedServer(session: inHousehold, lockAfterMinutes: 5).canBeLocked)
 
+        // The main account with a PIN locks with it, on opening too; without
+        // one, with its password after time away only.
         var master = withPin
         master.household?.isMaster = true
         let main = SavedServer(session: master, lockAfterMinutes: 5)
-        #expect(main.canBeLocked && !main.locksOnOpening)
+        #expect(main.isPinnedMainAccount && main.credentialName == "PIN")
+        #expect(main.canBeLocked && main.locksOnOpening)
+        master.household?.hasPin = false
+        let mainNoPin = SavedServer(session: master, lockAfterMinutes: 5)
+        #expect(!mainNoPin.asksProfilePin && mainNoPin.credentialName == "password")
+        #expect(mainNoPin.canBeLocked && !mainNoPin.locksOnOpening)
         #expect(SavedServer(session: plain, lockAfterMinutes: 5).canBeLocked)
         #expect(!SavedServer(session: plain, lockAfterMinutes: 5).locksOnOpening)
 

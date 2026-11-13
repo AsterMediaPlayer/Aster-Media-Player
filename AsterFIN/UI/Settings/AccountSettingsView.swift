@@ -31,8 +31,16 @@ struct AccountSettingsView: View {
     }
 
     private var lockNote: String {
-        guard let current = session.currentServer, current.isHouseholdProfile, current.canBeLocked else { return "" }
-        return " With Ask for PIN After set, \(current.session.userName)'s PIN is asked when Aster opens, and after that long away from it."
+        guard let current = session.currentServer else { return "" }
+        if current.asksProfilePin, current.canBeLocked {
+            return " With Ask for PIN After set, \(current.session.userName)'s PIN is asked when Aster opens, and after that long away from it."
+        }
+        // The main account without a PIN locks with its password, on the
+        // server's own page; a PIN lets it lock here instead.
+        if current.session.kind != .plex, current.session.household?.isMaster == true {
+            return " Give \(current.session.userName) a PIN in Manage Profiles to lock it with that, rather than the password."
+        }
+        return ""
     }
 
     var body: some View {
@@ -55,10 +63,10 @@ struct AccountSettingsView: View {
             if household.provider != nil {
                 Section {
                     SettingsChoiceRow(title: "Ask on Opening", options: gateOptions, selection: $profileGate)
-                    // A profile with a PIN: how long away before it's asked
+                    // A profile (or the main account) with a PIN: how long away before it's asked
                     // again (and on opening). The same lock as a server's,
                     // on the sign-in in use.
-                    if let current = session.currentServer, current.isHouseholdProfile, current.canBeLocked {
+                    if let current = session.currentServer, current.asksProfilePin, current.canBeLocked {
                         #if os(macOS)
                         SettingsChoiceRow(
                             title: "Ask for PIN After",

@@ -264,10 +264,12 @@ nonisolated enum ProfileGate {
     }
 }
 
-/// Why the picker is up: the app opened, or someone asked to switch.
+/// Why the picker is up: the app opened, someone asked to switch, or
+/// someone at the lock screen is choosing another profile than the locked one.
 nonisolated enum ProfilePickerReason: Equatable, Sendable, Identifiable {
     case launch
     case switcher
+    case locked
 
     var id: Self { self }
 }

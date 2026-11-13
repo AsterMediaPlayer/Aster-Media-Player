@@ -35,6 +35,10 @@ struct ProfilePickerView: View {
     /// Whether a form is up over the picker.
     private var isPresenting: Bool { isAdding || editing != nil }
 
+    /// Whether profiles can be added and changed here: not from behind a
+    /// lock, where whoever's at it may not be the household's own.
+    private var canManage: Bool { reason != .locked && household.canCreateProfiles }
+
     var body: some View {
         ZStack {
             OnboardingBackdrop()
@@ -183,7 +187,7 @@ struct ProfilePickerView: View {
                 .buttonStyle(ProfileTileButtonStyle())
                 .disabled(model.isSwitching)
             }
-            if household.canCreateProfiles {
+            if canManage {
                 Button {
                     isAdding = true
                 } label: {
@@ -209,13 +213,19 @@ struct ProfilePickerView: View {
                         .disabled(model.isSwitching)
                         .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 0), capsule: true)
                 }
+            case .locked:
+                // Back to the lock, for the locked profile's own PIN.
+                Button("Back") { session.dismissProfilePicker() }
+                    .onboardingSecondaryButton()
+                    .disabled(model.isSwitching)
+                    .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 0), capsule: true)
             case .switcher:
                 Button("Cancel", role: .cancel) { session.dismissProfilePicker() }
                     .onboardingSecondaryButton()
                     .disabled(model.isSwitching)
                     .keyboardSelectionHighlight(keyboardSelected(row: 1, column: 0), capsule: true)
             }
-            if household.canCreateProfiles {
+            if canManage {
                 Button(isManaging ? "Done" : "Manage Profiles") { isManaging.toggle() }
                     .onboardingSecondaryButton()
                     .disabled(model.isSwitching)
@@ -265,10 +275,10 @@ struct ProfilePickerView: View {
     /// How many stops each row has: the tiles (and Add Profile), then the
     /// buttons under them.
     private var keyboardStops: [Int] {
-        let tiles = model.profiles.count + (household.canCreateProfiles ? 1 : 0)
+        let tiles = model.profiles.count + (canManage ? 1 : 0)
         var buttons = 0
-        if reason == .switcher || session.userName != nil { buttons += 1 }
-        if household.canCreateProfiles { buttons += 1 }
+        if reason != .launch || session.userName != nil { buttons += 1 }
+        if canManage { buttons += 1 }
         return [tiles, buttons]
     }
 
@@ -292,15 +302,15 @@ struct ProfilePickerView: View {
         case 0:
             if keyboard.column < model.profiles.count {
                 press(model.profiles[keyboard.column])
-            } else if household.canCreateProfiles {
+            } else if canManage {
                 isAdding = true
             } else {
                 return .ignored
             }
         default:
-            if keyboard.column == 0, keyboardStops[1] > 0, reason == .switcher || session.userName != nil {
+            if keyboard.column == 0, keyboardStops[1] > 0, reason != .launch || session.userName != nil {
                 session.dismissProfilePicker()
-            } else if household.canCreateProfiles {
+            } else if canManage {
                 isManaging.toggle()
             } else {
                 return .ignored

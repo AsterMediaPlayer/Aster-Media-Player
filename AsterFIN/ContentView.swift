@@ -22,8 +22,13 @@ struct ContentView: View {
                 SignInView()
             case .signedIn:
                 if session.isLocked, let server = session.currentServer {
-                    // Away past the server's lock-after: its password first.
-                    ServerLockView(server: server)
+                    if session.profilePicker == .locked {
+                        // Someone else at the lock: their own profile.
+                        ProfilePickerView(reason: .locked)
+                    } else {
+                        // Away past the server's lock-after: its password first.
+                        ServerLockView(server: server)
+                    }
                 } else if session.profilePicker == .launch {
                     // The household asks who's watching as the app opens,
                     // before anything of anyone's loads.

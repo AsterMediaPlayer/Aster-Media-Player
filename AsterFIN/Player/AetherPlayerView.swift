@@ -800,7 +800,17 @@ struct StallQualityCard: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(40)
         #if os(tvOS)
-        .onAppear { focused = 0 }
+        // Keep Trying first. Set as the card appears, focus can be dropped
+        // while the controls under it let go: again once it's up.
+        .defaultFocus($focused, 0)
+        .onAppear {
+            focused = 0
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if focused == nil { focused = 0 }
+            }
+        }
+        .focusSection()
         // Back is "Keep Trying".
         .onExitCommand { playback.keepTrying() }
         #endif

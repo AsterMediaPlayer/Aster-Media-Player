@@ -126,6 +126,17 @@ struct AetherTVControls: View {
         }
         .animation(.easeInOut(duration: 0.25), value: showsSkip ? skipAction?.title : nil)
         .animation(.easeInOut(duration: 0.25), value: mode)
+        // A card over the player (Playback Keeps Stopping, an error) has the
+        // remote: nothing here can hold focus meanwhile, or the surface kept
+        // it and the card's buttons couldn't be reached.
+        .disabled(isSuspended)
+        .onChange(of: isSuspended) { _, suspended in
+            if suspended {
+                if mode == .panel || mode == .channels { mode = .hidden }
+            } else {
+                refocusSurface()
+            }
+        }
         .defaultFocus($focus, .surface)
         .onAppear { focus = .surface }
         .onChange(of: coveredHeight, initial: true) { _, height in playback.controlsHeight = height }
@@ -328,6 +339,8 @@ struct AetherTVControls: View {
     private func refocusSurface() {
         Task {
             await Task.yield()
+            // Not from under a card that has the remote.
+            guard !isSuspended else { return }
             focus = .surface
         }
     }

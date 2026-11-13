@@ -150,7 +150,10 @@ struct ProfilePickerView: View {
             if !presenting { hasKeyboard = true }
         }
         .onChange(of: keyboardStops) { _, stops in keyboard.clamp(to: stops) }
-        .onDisappear { WindowSidebar.returnKeyboardToContent() }
+        // Nothing to hand back on closing: the main screen takes the
+        // keyboard itself once the picker is gone (MainTabView). Handing it
+        // to the window here, after the main screen had it, left the arrow
+        // keys going nowhere until something was clicked.
         #endif
         #if os(tvOS) || os(macOS)
         // Back (Menu, or Esc on a Mac) leaves the PIN first, then managing,

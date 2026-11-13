@@ -27,13 +27,25 @@ struct AetherPlayerView: View {
     /// A double-tap skip just made: which way, shown briefly over its side.
     @State private var skipFlash: SkipFlash?
     #endif
-    #if os(iOS)
+    #if !os(tvOS)
     @Environment(AppSession.self) private var session
-    /// The channels, for the dial and the upright list, while one plays.
+    /// The channels, for the dial and the upright list (iPhone, iPad) or
+    /// the channel row (Mac), while one plays.
     @State private var flick: ChannelFlickModel?
+    #endif
+    #if os(iOS)
     /// An iPhone held upright on a channel: the picture at the top and the
     /// channels under it, rather than the dial.
     @State private var isRemoteLayout = false
+    #endif
+    #if os(macOS)
+    /// The channel row is open (Up, on a channel), as on Apple TV.
+    @State private var showsChannels = false
+    /// Bumped on each key in the row, which closes after a while without one.
+    @State private var channelActivity = 0
+    /// The player has the keyboard. It's a cover over the page, which kept
+    /// the keys until the picture was clicked.
+    @FocusState private var hasKeyboard: Bool
     #endif
 
     init(playback: AetherPlayback, onFinished: @escaping () -> Void) {
@@ -63,18 +75,23 @@ struct AetherPlayerView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .task(id: playingChannel) { updateFlick() }
+        #elseif os(macOS)
+        player
+            .task(id: playingChannel) { updateFlick() }
         #else
         player
         #endif
     }
 
     #if os(iOS)
-    /// The channel playing, if a channel is.
-    private var playingChannel: String? { playback.liveChannelId ?? playback.channelId }
-
     private func showsRemote(in size: CGSize) -> Bool {
         UIDevice.current.userInterfaceIdiom == .phone && size.height > size.width && flick != nil
     }
+    #endif
+
+    #if !os(tvOS)
+    /// The channel playing, if a channel is.
+    private var playingChannel: String? { playback.liveChannelId ?? playback.channelId }
 
     /// Keeps one set of channels across channel changes; none once what
     /// plays isn't a channel (Go to Episode).
@@ -308,9 +325,16 @@ struct AetherPlayerView: View {
             }
             #endif
             controlsLayout
-                .opacity(controlsShown ? 1 : 0)
-                .disabled(!controlsShown)
+                .opacity(controlsShown && !channelRowShown ? 1 : 0)
+                .disabled(!controlsShown || channelRowShown)
                 .animation(.easeInOut(duration: 0.25), value: controlsShown)
+            #if os(macOS)
+            if showsChannels, let flick {
+                ChannelFlickBar(model: flick)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+            #endif
             #if os(iOS)
             // Sideways (or on iPad), a channel changes with the dial.
             if !isRemoteLayout, let flick {
@@ -329,14 +353,108 @@ struct AetherPlayerView: View {
         #if os(macOS)
         .focusable()
         .focusEffectDisabled()
+        .focused($hasKeyboard)
+        .onAppear {
+            // Set as the cover appears, focus is ignored on the Mac: again
+            // once it's up.
+            hasKeyboard = true
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                hasKeyboard = true
+            }
+        }
         .onKeyPress(.space) { togglePlayPause(); return .handled }
-        // Return pauses too, as on Linux: a controller's A button.
-        .onKeyPress(.return) { togglePlayPause(); return .handled }
-        .onKeyPress(.leftArrow) { skip(-10); return .handled }
-        .onKeyPress(.rightArrow) { skip(10); return .handled }
-        .onKeyPress(.escape) { onFinished(); return .handled }
+        // Return pauses too, as on Linux: a controller's A button. In the
+        // channel row it changes channel.
+        .onKeyPress(.return) {
+            if showsChannels { changeChannel() } else { togglePlayPause() }
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            if showsChannels { flickMove(-1) } else { skip(-10) }
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            if showsChannels { flickMove(1) } else { skip(10) }
+            return .handled
+        }
+        // On a channel, Up opens the channel row, as on Apple TV, and Up
+        // again picks Go to Episode; Down steps back out.
+        .onKeyPress(.upArrow) {
+            guard flick != nil else { return .ignored }
+            if showsChannels {
+                flick?.pickGoTo(true)
+                channelActivity += 1
+            } else {
+                openChannels()
+            }
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            guard showsChannels else { return .ignored }
+            if flick?.isOnGoTo == true {
+                flick?.pickGoTo(false)
+                channelActivity += 1
+            } else {
+                closeChannels()
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            if showsChannels { closeChannels() } else { onFinished() }
+            return .handled
+        }
+        // The row goes away after a while without a key, as the TV's does.
+        .task(id: showsChannels ? channelActivity : -1) {
+            guard showsChannels else { return }
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled { closeChannels() }
+        }
         #endif
     }
+
+    /// The channel row is up, in place of the controls (the Mac's).
+    private var channelRowShown: Bool {
+        #if os(macOS)
+        showsChannels
+        #else
+        false
+        #endif
+    }
+
+    #if os(macOS)
+    private func openChannels() {
+        guard let flick else { return }
+        flick.selectCurrent()
+        controlsShownAt = nil
+        withAnimation(.easeOut(duration: 0.2)) { showsChannels = true }
+        channelActivity += 1
+        if let client = session.jellyfin {
+            Task { await flick.refresh(client: client) }
+        }
+    }
+
+    private func flickMove(_ step: Int) {
+        flick?.move(by: step)
+        channelActivity += 1
+    }
+
+    /// Changes to the picked channel, or just closes on the one playing;
+    /// with Go to Episode picked, plays what's on it by itself (as on the TV).
+    private func changeChannel() {
+        if let flick, flick.isOnGoTo, let itemId = flick.selectedChannel?.now?.itemId {
+            playback.goTo(itemId)
+        } else if let flick, let picked = flick.selectedChannel, picked.id != flick.currentId || playback.tuningName != nil {
+            playback.switchChannel(to: picked.id)
+        }
+        closeChannels()
+    }
+
+    private func closeChannels() {
+        guard showsChannels else { return }
+        withAnimation(.easeIn(duration: 0.2)) { showsChannels = false }
+    }
+    #endif
 
     private var controlsLayout: some View {
         VStack(alignment: .leading, spacing: 0) {

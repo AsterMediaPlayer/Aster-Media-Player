@@ -291,11 +291,23 @@ struct MainTabView: View {
         .focusEffectDisabled()
         .focused($keyboardFocused)
         .onAppear {
-            claimKeyboard()
+            // Now, and again once whatever this replaced (the profile picker,
+            // the lock screen) has faded out and let go of the keyboard.
+            restoreKeyboardFocus()
             // A pen on an iPad used as a display scrolls the page; a finger
             // can't, and the page says to use two.
             DragScroller.shared.install { WindowCovers.shared.covers.isEmpty }
             SidecarHint.shared.install()
+        }
+        // The profile picker closed over this page (Cancel, or the profile
+        // in use picked again): the keyboard comes back here.
+        .onChange(of: session.profilePicker) { _, picker in
+            if picker == nil { restoreKeyboardFocus() }
+        }
+        // The last cover closed (the player, a disc menu), which had taken
+        // the keyboard: back to the page.
+        .onChange(of: WindowCovers.shared.covers.isEmpty) { _, empty in
+            if empty { restoreKeyboardFocus() }
         }
         .onChange(of: tab) { _, _ in
             KeyboardTargets.shared.clearSelection()
@@ -818,15 +830,22 @@ final class KeyboardNavigation {
     var settingsHighlighted = false
 
     @ObservationIgnored private var handlers: [AppTab: (Key) -> KeyPress.Result] = [:]
+    /// Who registered each tab's handler, when they said.
+    @ObservationIgnored private var owners: [AppTab: UUID] = [:]
 
     /// What the keys do on `tab`'s top page. Return `.ignored` for a key
-    /// the page doesn't use, such as left at its leading edge.
-    func register(_ tab: AppTab, handler: @escaping (Key) -> KeyPress.Result) {
+    /// the page doesn't use, such as left at its leading edge. An `owner`
+    /// lets a view that's replaced (a guide for another day) leave its
+    /// replacement's handler alone as it goes.
+    func register(_ tab: AppTab, owner: UUID? = nil, handler: @escaping (Key) -> KeyPress.Result) {
         handlers[tab] = handler
+        owners[tab] = owner
     }
 
-    func unregister(_ tab: AppTab) {
+    func unregister(_ tab: AppTab, owner: UUID? = nil) {
+        if let owner, owners[tab] != owner { return }
         handlers[tab] = nil
+        owners[tab] = nil
     }
 
     func handler(for tab: AppTab) -> ((Key) -> KeyPress.Result)? {
